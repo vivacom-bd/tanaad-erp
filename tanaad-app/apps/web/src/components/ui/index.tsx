@@ -5,7 +5,6 @@ import { AlertTriangle, ArrowDown, ArrowUp, CheckCircle2, ChevronRight, Info, Se
 import { initials as initialsOf } from '@/data/format';
 import { keyCaps, useHotkey } from '@/app/hotkeys';
 import { useIsTouch } from '@/app/prefs';
-import { Sparkline } from '@/components/charts';
 
 export const cn = clsx;
 export { useHotkey } from '@/app/hotkeys';
@@ -16,9 +15,10 @@ const toneVar: Record<Tone, string> = { neutral: 'var(--text-2)', ok: 'var(--ok)
 
 /* ───────────────────────────── Kbd ───────────────────────────── */
 /** Shortcut hint. Hidden in touch density, where there is no keyboard. */
+/** A key cap. Hidden on working screens; shown only inside `.show-kbd` (the shortcut help and command palette), so screens don't carry keyboard hints. */
 export function Kbd({ keys, className }: { keys: string; className?: string }) {
   return (
-    <span className={cn('touch:hidden inline-flex items-center gap-0.5 select-none', className)} aria-hidden>
+    <span className={cn('hidden [.show-kbd_&]:inline-flex touch:hidden! items-center gap-0.5 select-none', className)} aria-hidden>
       {keyCaps(keys).map((k, i) => (
         <kbd key={i} className="min-w-[18px] h-[18px] px-1 grid place-items-center rounded-[3px] border border-[var(--line-2)] bg-[var(--surface-2)] text-[10.5px] font-medium font-sans text-[var(--text-3)] leading-none">{k}</kbd>
       ))}
@@ -170,15 +170,13 @@ export function Status({ tone = 'neutral', children }: { tone?: Tone; children: 
 export function Stat({ label, value, sub, tone = 'neutral', icon: Icon, onClick, className, big, delta, spark, accent, sparkColor }: { label: ReactNode; value: ReactNode; sub?: ReactNode; tone?: Tone; icon?: LucideIcon; onClick?: () => void; className?: string; big?: boolean; delta?: ReactNode; spark?: number[]; accent?: string; sparkColor?: string }) {
   const Comp: 'button' | 'div' = onClick ? 'button' : 'div';
   const color = tone === 'neutral' || tone === 'brand' ? 'var(--text)' : toneVar[tone];
-  const chip = accent ?? (tone === 'neutral' || tone === 'brand' ? 'var(--text-3)' : toneVar[tone]);
+  void Icon; void spark; void accent; void sparkColor; // kept in the signature so callers compile; cards no longer draw icon tiles or trend lines
   return (
     <Comp onClick={onClick} className={cn('surface px-3.5 py-3 text-left flex flex-col gap-1.5 min-w-0', onClick && 'lift', className)}>
       <div className="flex items-center justify-between gap-2">
         <span className="t-sm font-medium text-[var(--text-2)] truncate">{label}</span>
-        {Icon && <span className="size-7 rounded-md grid place-items-center shrink-0" style={{ background: `color-mix(in srgb, ${chip} 13%, transparent)`, color: chip }}><Icon className="size-4" strokeWidth={2} /></span>}
       </div>
       <div className="flex items-center gap-2 min-w-0 flex-wrap"><span className={cn('num whitespace-nowrap', big ? 't-hero' : 't-kpi')} style={{ color }}>{value}</span>{delta}</div>
-      {spark && spark.length > 1 && <Sparkline fluid height={26} data={spark} color={sparkColor ?? accent ?? 'var(--series-1)'} className="-mx-0.5" />}
       {sub && <div className="t-sm text-[var(--text-3)] truncate">{sub}</div>}
     </Comp>
   );

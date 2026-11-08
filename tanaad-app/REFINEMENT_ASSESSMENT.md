@@ -48,6 +48,42 @@ The README says this is a deterministic browser demo and “demo today, product 
 
 Recommendation: retain honest demo labeling throughout the app, especially around actions that imply payment, messaging, printing, authentication or server synchronization. For production, replace each simulated status with a real device/server result and failure state. Avoid “live” for seeded or local-only data. This is a credibility requirement, not a cosmetic preference.
 
+### 7. The production report is not a manufacturing execution system
+
+The route named `reports/production` is implemented as a shift and machine entry report. The domain model has production entries, machines, labels, and breakdowns, but no work order, bill of materials, or job card record. The page header nevertheless called it “Manufacturing Execution,” and the navigation called it “Loom Matrix MES” while exposing it to Bags and Recycling too. The header and navigation have now been renamed to “Production report.”
+
+This distinction is supported by checking a real manufacturing product's documented workflow: ERPNext describes Work Orders linked to item/BOM/operations and Job Cards that record an operation, workstation, employee, time, completed quantity, and status; material movement is recorded separately as stock entries. That is a useful reference for the kinds of traceable records a mature manufacturing system may use, but it is not proof Tanaad needs that workflow. Do not label the current shift-entry report an MES or add work-order complexity until Tanaad's planning and floor process is confirmed.
+
+## First-pass changes made from this assessment
+
+These changes address claims and duplication that can be resolved from the code and demo seed without assuming a factory policy:
+
+- Replaced `Today`'s static schedule, made-up machine/scale events and local-only handover certificate with role-specific links and counts derived from seeded records. The page identifies the data as demo data.
+- Reduced the HQ headline row from six figures to four. Removed the combined output-weight and headcount totals because product outputs are not a defined group KPI and shared workers can be counted at more than one site. The HQ open-item count no longer double-counts an awaiting order's linked credit exception.
+- Renamed the production route to “Production report,” removed the secondary duplicate desktop hub tabs, and removed unverified site promotion claims from the portal and HQ site cards.
+- Replaced unsupported shell claims about ERP version, offline readiness and server sync with local-demo wording, and changed “live” reporting copy to describe the records shown.
+- Removed generated fiscal numbers, verification codes and QR marks from invoice documents. EFRIS status now depends on a recorded URA result; the demo explains that it does not send invoices to EFRIS.
+
+These changes do not validate the operational process, approve demo master data, or settle which secondary pages a real role needs. The remaining visual density in HQ and site dashboards should be cut after the CEO/site-manager walkthrough identifies which signals drive decisions; removing arbitrary site functions now would be guesswork.
+
+## Full route and menu sweep (8 November 2026)
+
+I loaded the registered route for each site family (42 site routes in `app/router.tsx`, repeated under Mats, Bags and Recycling context) and all 8 Group HQ routes, using the demo sign-in and inspecting each page after it rendered. I also checked Login/Portals and the role-filtered site navigation definitions. This is a route/render and source review, not a test of every form state, viewport, permission combination or real operator task. One Recycling cash route initially appeared incomplete during navigation; a fresh load rendered it, so I did not count that transient as a product defect.
+
+The sweep identified several visible behaviors that contradicted the simulator and confirmed-gap documentation:
+
+- Casual signup simulated ID and face capture, but implied OCR, image storage, instant QR lookup and a fixed 60-second target. It also fabricated a random ID number on capture. The ID is now entered explicitly; camera tiles identify themselves as demo flags, the invented timer and ID generation are removed, and the badge says printing/QR lookup are not connected.
+- Cargo loading exposed presenter controls that batch-scanned labels and ran a fraud scenario by subtracting ten bundles from the gate weight. Those controls and the synthetic missing-label fallback are removed. The screen now uses known label records and visibly identifies the scale and verdict as a demo check.
+- Mats production forms repeated a seven-stage flow display based on `site.stages`, while `KNOWN_GAPS.md` says process stages and shifts are not yet master data. That unconfirmed strip has been removed from Mixer, Extruders and Finishing.
+- Printer, WhatsApp, camera and scale actions now describe local previews/flags/simulated readings instead of claiming physical output or external delivery. Intake payment labels now say that the demo records a paid mark and does not transfer money. Invoice EFRIS status reads the invoice's recorded response fields, not just a company-profile setting.
+- Attendance and report copy was narrowed to what the screen records. Unsupported “anti-ghost” verification, “Avery” scale claims, permanent-retention promises and unqualified CEO-alert statements were removed or corrected. Conflicting `g p` and `g d` shortcuts were removed from secondary destinations so one role does not get competing actions for the same sequence.
+
+The full sweep led to targeted edits to shared components, reports, signup, intake, label, stock and dispatch screens, Mats production pages, menus, and this gap list. It did not justify deleting entire modules: without observed user routines, deciding a page is unnecessary would be a guess. The role-to-task and page-family matrix above remains the inventory and treatment recommendation.
+
+## What still needs real-world evidence
+
+The repository supports findings about demo behavior, routes, labels and local data. It does not show factory users, approved procedures, server or hardware outcomes. In particular, validate the exact role/task frequency and nav priority, Mats/Bags stage sequence, Recycling tare/deduction/price/payment policy, required proof for attendance and dispatch, and whether stock counts or overrides must be immutable/audited. Current pages should remain explicitly demo/provisional for those workflows until a site walkthrough establishes the paper record, decision owner, correction path and failure handling.
+
 ## Page family review and proposed treatment
 
 This is a first-pass inventory from the current route and nav definitions, not a usability test. “Retain” means keep the business capability in scope; it does not mean preserve its current layout or primary-nav position.
@@ -110,6 +146,7 @@ The following primary product guidance supports the principles above. These sour
 - Microsoft defines operational workspaces around a target persona's activity, current state and direct access to relevant deeper tasks, with simple work completed in the workspace: [Build operational workspaces](https://learn.microsoft.com/en-us/dynamics365/fin-ops-core/dev-itpro/user-interface/build-workspaces).
 - Microsoft says Role Centers should provide the information most relevant to users' daily work and navigation to related records/tasks: [Designing Role Centers](https://learn.microsoft.com/en-au/dynamics365/business-central/dev-itpro/developer/devenv-designing-role-centers).
 - SAP launchpad guidance recommends lean, role-specific pages, commonly used apps, task-sequenced organization and insight-to-action navigation: [SAP Fiori launchpad recommendations (PDF)](https://help.sap.com/doc/289ec1eb1a9b4efab8cb1bf60f6f8e03/202210.002/en-US/bde12a271f0647e799b338574cda0808.pdf).
+- ERPNext documents Work Orders, Job Cards and stock entries as linked manufacturing records, including production progress and material movement: [Create and process a Work Order](https://docs.frappe.io/erpnext/work-order), [Job Card](https://docs.frappe.io/erpnext/job-card), and [Stock Entry](https://docs.frappe.io/erpnext/stock-entry). This is product documentation, not evidence of Tanaad's process.
 
 ## Limits of this assessment
 

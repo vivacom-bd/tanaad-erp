@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ArrowRightLeft, ClipboardCheck, Eraser, FileText, PackageCheck, PackageOpen, Recycle, Scale, ScrollText, Truck, Weight } from 'lucide-react';
+import { AlertTriangle, ArrowRightLeft, ClipboardCheck, Eraser, FileText, PackageCheck, PackageOpen, Recycle, Scale, ScrollText, Truck } from 'lucide-react';
 import type { DomainEvent, RefItem, StockMovement } from '@tanaad/domain';
 import { variancePct } from '@tanaad/domain';
 import { useStore } from '@/data/store';
@@ -40,7 +40,7 @@ export function Receive() {
   const [supplier, setSupplier] = useState(''); const [noteNo, setNoteNo] = useState('');
   const [materialId, setMaterialId] = useState<string | null>(null); const [zoneId, setZoneId] = useState<string | null>(null);
   const [qty, setQty] = useState(''); const [reading, setReading] = useState<number | null>(null); const [remark, setRemark] = useState('');
-  const [scaleRun, setScaleRun] = useState(0); const [shortDrill, setShortDrill] = useState(false);
+  const [scaleRun, setScaleRun] = useState(0); const shortDrill = false;
   const [last, setLast] = useState<{ code: string; material: string; kg: number; zone: string; short: boolean } | null>(null);
   const supplierRef = useRef<HTMLInputElement>(null); const scaleRef = useRef<HTMLDivElement>(null); const modDown = useRef(false);
   useEffect(() => { if (!zoneId && lastZone) setZoneId(lastZone); }, [lastZone]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -61,7 +61,7 @@ export function Receive() {
   const changeQty = (x: string) => { setQty(x); setReading(null); setScaleRun(0); };
   const readScale = () => { if (!(expectedKg > 0)) { toast({ kind: 'warn', title: 'Nothing declared yet', detail: 'Enter what the supplier\'s note says before weighing.' }); return; } setReading(null); setScaleRun((k) => k + 1); scaleRef.current?.scrollIntoView({ block: 'nearest' }); };
   const onReading = (kg: number) => { setReading(kg); beep(kg < expectedKg * (1 - tol / 100) ? 'bad' : 'ok'); };
-  const clear = (keepSupplier = false) => { if (!keepSupplier) { setSupplier(''); } setNoteNo(''); setQty(''); setReading(null); setRemark(''); setScaleRun(0); setShortDrill(false); if (!touch) setTimeout(() => supplierRef.current?.focus(), 40); };
+  const clear = (keepSupplier = false) => { if (!keepSupplier) { setSupplier(''); } setNoteNo(''); setQty(''); setReading(null); setRemark(''); setScaleRun(0); void 0; if (!touch) setTimeout(() => supplierRef.current?.focus(), 40); };
 
   const accept = () => {
     if (!ready || !material || reading === null || !zoneId) return;
@@ -75,7 +75,6 @@ export function Receive() {
   };
   useHotkey('mod+enter', () => { if (!pressUseReading(scaleRef.current)) readScale(); }, { label: 'Read the scale, then use the stable reading', enabled: reading === null && expectedKg > 0, allowInInput: true });
   useHotkey('w', readScale, { label: 'Read the gate scale' });
-  useHotkey('x', () => { setShortDrill((d) => !d); setReading(null); setScaleRun(0); }, { label: 'Presenter: simulate a short delivery' });
 
   if (site.id === 'recycling') return (
     <div>
@@ -163,7 +162,7 @@ export function Receive() {
               </div>
             </div>
           </Step>
-          <Step n={4} title="Weigh" hint="the scale decides, not the paper" right={<Button size="sm" variant={shortDrill ? 'danger' : 'ghost'} icon={Weight} aria-pressed={shortDrill} onClick={() => { setShortDrill((d) => !d); setReading(null); setScaleRun(0); }} title="Presenter: the lorry carries less than the note says">{shortDrill ? 'Simulating a short delivery' : 'Simulate short'}</Button>}>
+          <Step n={4} title="Weigh">
             <div ref={scaleRef} className="scroll-mb-4">
               <ScaleWidget key={`${scaleRun}-${targetKg}`} autoStart={scaleRun > 0} targetKg={targetKg} disabled={!(expectedKg > 0)} onReading={onReading} title="Gate scale" model={expectedKg > 0 ? 'Load on the scale, then read' : 'Enter the declared quantity first'} />
             </div>

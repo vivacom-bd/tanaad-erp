@@ -1,4 +1,4 @@
-import { useEffect, useRef, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import type { EngagementType, SiteCode } from '@tanaad/domain';
 import { registerHotkey } from '@/app/hotkeys';
@@ -42,30 +42,6 @@ export function SiteMark({ site, size = 'md', solid }: { site: SiteOrGroup; size
 /** Site icon and short name on one line, for table cells. */
 export function SiteTag({ site, className }: { site: SiteOrGroup; className?: string }) {
   return <span className={cn('inline-flex items-center gap-1.5 whitespace-nowrap', className)}><SiteMark site={site} size="sm" />{siteLabel(site)}</span>;
-}
-
-/** The dark band at the top of a monitor screen: identity on the left, a strip of state in the middle, actions on the right. */
-export function Hero({ icon: Icon, color = SITE_COLOR.group, eyebrow, title, sub, children, actions }: { icon: LucideIcon; color?: string; eyebrow: ReactNode; title: ReactNode; sub?: ReactNode; children?: ReactNode; actions?: ReactNode }) {
-  return (
-    <section className="hero relative overflow-hidden px-5 py-4 flex flex-wrap items-center gap-x-8 gap-y-4">
-      <div className="flex items-center gap-3.5 min-w-0">
-        <span className="size-12 rounded-xl grid place-items-center shrink-0 shadow-[inset_0_1px_0_rgb(255_255_255/.25)]" style={{ background: color }}><Icon className="size-6" /></span>
-        <div className="min-w-0">
-          <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-white/55">{eyebrow}</div>
-          <h1 className="text-[24px] font-semibold tracking-[-0.02em] leading-tight">{title}</h1>
-          {sub && <div className="text-[12.5px] text-white/60">{sub}</div>}
-        </div>
-      </div>
-      {children && <div className="flex-1 min-w-[260px] max-w-[560px]">{children}</div>}
-      {actions && <div className="flex flex-wrap items-center gap-2 ml-auto">{actions}</div>}
-    </section>
-  );
-}
-
-/** Re-skins the light controls inside it (Tabs, Kbd) for the dark hero band. */
-export function OnHero({ children, className }: { children: ReactNode; className?: string }) {
-  const vars = { '--surface-3': 'rgb(255 255 255 / .1)', '--surface': 'rgb(255 255 255 / .2)', '--text': '#fff', '--text-2': 'rgb(255 255 255 / .66)', '--line': 'rgb(255 255 255 / .22)' } as CSSProperties;
-  return <div className={className} style={vars}>{children}</div>;
 }
 
 /** Thin share bar in any identity colour, with the percentage beside it. */

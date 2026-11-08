@@ -123,7 +123,7 @@ export function ScaleBay({ innerRef, children, note }: { innerRef: RefObject<HTM
       {children}
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mt-1.5 t-xs text-[var(--text-3)]">
         <span className="min-w-0">{note}</span>
-        <span className="touch:hidden inline-flex items-center gap-1 whitespace-nowrap"><Kbd keys="w" /> read the scale, <Kbd keys="w" /> again to take the reading</span>
+        
       </div>
     </div>
   );

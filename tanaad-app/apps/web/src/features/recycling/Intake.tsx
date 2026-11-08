@@ -104,9 +104,9 @@ export function Intake() {
     setGross(null); setPhoto(false); setCustom(''); setCustomOn(false); setTarget(rnd(600, 2400)); setRound((r) => r + 1); if (adding) { setCollector(who); setAdding(false); setNewName(''); }
     focusFirst();
   };
-  const pay = (d: CollectorDelivery) => { s.payCollector(d.id); useStore.getState().toast({ kind: 'ok', title: `${fmtUGX(amountOf(d))} paid to ${d.collector}`, detail: 'Posted to today’s cash book as materials' }); };
-  const send = async (d: CollectorDelivery) => { await messaging.sendWhatsApp(d.collector, `Voucher ${no(d)}`); setSentId(d.id); useStore.getState().toast({ kind: 'ok', title: 'Voucher shared on WhatsApp', detail: d.collector }); };
-  const voucherLines = (d: CollectorDelivery) => [`${site.legalName} · Voucher ${no(d)}`, `${d.collector} · ${fmtDayLong(d.day)} ${fmtTime(d.at)}`, `Gross ${fmtKg(d.grossKg)} − tare ${fmtKg(d.tareKg)} − ${d.deductionPct}% = net ${fmtKg(d.netKg)}`, `${fmtKg(d.netKg)} × ${fmtUGX(d.pricePerKg)} = ${fmtUGX(amountOf(d))}`, d.paid ? 'Paid in cash.' : 'Payable at the plant office.'];
+  const pay = (d: CollectorDelivery) => { s.payCollector(d.id); useStore.getState().toast({ kind: 'ok', title: 'Payment recorded', detail: `${fmtUGX(amountOf(d))} for ${d.collector} added to the local demo cash book. No money was transferred.` }); };
+  const send = async (d: CollectorDelivery) => { await messaging.sendWhatsApp(d.collector, `Voucher ${no(d)}`); setSentId(d.id); useStore.getState().toast({ kind: 'ok', title: 'Voucher ready to share', detail: `No message was sent to ${d.collector}.` }); };
+  const voucherLines = (d: CollectorDelivery) => [`${site.legalName} · Voucher ${no(d)}`, `${d.collector} · ${fmtDayLong(d.day)} ${fmtTime(d.at)}`, `Gross ${fmtKg(d.grossKg)} − tare ${fmtKg(d.tareKg)} − ${d.deductionPct}% = net ${fmtKg(d.netKg)}`, `${fmtKg(d.netKg)} × ${fmtUGX(d.pricePerKg)} = ${fmtUGX(amountOf(d))}`, d.paid ? 'Marked paid.' : 'Unpaid.'];
   useHotkey('c', () => setPhoto((p) => !p), { label: 'Capture the scale photo' });
 
   const cols: Column<CollectorDelivery>[] = [
@@ -132,9 +132,9 @@ export function Intake() {
       {site.toBeConfirmed && <Note tone="warn">{site.toBeConfirmed}</Note>}
 
       <Workbench asideWidth={420} aside={<>
-        <Panel className={WIDE} icon={Receipt} title={current ? 'Voucher' : 'Voucher preview'} sub={current ? 'issued' : 'updates as you weigh'}
+        <Panel className={WIDE} icon={Receipt} title={current ? 'Voucher' : 'Voucher preview'} sub={current ? 'demo record' : 'updates as you weigh'}
           actions={<><Badge tone={current ? (current.paid ? 'ok' : 'warn') : 'neutral'} dot={!!current}>{current ? (current.paid ? 'Paid' : 'Unpaid') : 'Draft'}</Badge>{current && <IconButton icon={X} label="Back to the draft" onClick={() => setVoucher(null)} />}</>}
-          footer={<div className="grid grid-cols-2 gap-2"><Button variant="primary" icon={Banknote} disabled={!current || current.paid} onClick={() => current && pay(current)} hotkey="y" hotkeyLabel="Pay the voucher in cash">{current?.paid ? 'Paid' : 'Pay now (cash)'}</Button><Button icon={MessageCircle} disabled={!current} onClick={() => setShare(true)} hotkey="s" hotkeyLabel="Share the voucher on WhatsApp">Share on WhatsApp</Button></div>}>
+          footer={<div className="grid grid-cols-2 gap-2"><Button variant="primary" icon={Banknote} disabled={!current || current.paid} onClick={() => current && pay(current)} hotkey="y" hotkeyLabel="Mark paid">{current?.paid ? 'Marked paid' : 'Mark paid'}</Button><Button icon={MessageCircle} disabled={!current} onClick={() => setShare(true)} hotkey="s" hotkeyLabel="Prepare voucher share preview">Prepare share preview</Button></div>}>
           {current
             ? <VoucherDoc issuer={site.legalName} no={no(current)} collector={current.collector} when={`${fmtDayShort(current.day)} · ${fmtTime(current.at)}`} gross={current.grossKg} tare={current.tareKg} dedPct={current.deductionPct} net={current.netKg} price={current.pricePerKg} amount={amountOf(current)} status={current.paid ? 'paid' : 'unpaid'} photo={current.hasScalePhoto} />
             : <VoucherDoc issuer={site.legalName} no={draftNo} collector={who ?? ''} when={fmtDayShort(today)} gross={gross ?? 0} tare={tareKg} dedPct={dedPct} net={live.netKg} price={price} amount={live.amount} status="draft" photo={photo} />}
@@ -167,7 +167,7 @@ export function Intake() {
               </div>
             </FormSection>
             <FormSection n={2} done={gross !== null} title="Gross weight" hint="everything on the platform">
-              <ScaleBay innerRef={scaleRef} note={gross !== null ? <span className="inline-flex items-center gap-1 text-[var(--text-2)]"><CheckCircle2 className="size-3.5 text-[var(--ok)]" />Gross {fmtKg(gross)} taken from the scale</span> : 'Lorry or sacks on the platform, then read the scale.'}>
+              <ScaleBay innerRef={scaleRef} note={gross !== null ? <span className="inline-flex items-center gap-1 text-[var(--text-2)]"><CheckCircle2 className="size-3.5 text-[var(--ok)]" />Demo scale reading · {fmtKg(gross)} gross</span> : 'Read the scale or enter the reading by hand.'}>
                 <ScaleWidget key={round} title={scaleTitle} targetKg={target} onReading={(kg) => { setGross(kg); setVoucher(null); }} />
               </ScaleBay>
             </FormSection>
@@ -186,7 +186,7 @@ export function Intake() {
             <FormSection n={4} done={photo} title="Scale photo" hint="mandatory">
               <button type="button" onClick={() => setPhoto(!photo)} aria-pressed={photo} className={cn('w-full max-w-[680px] flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-colors', photo ? 'border-[color-mix(in_srgb,var(--ok)_45%,transparent)] bg-[var(--ok-bg)]' : 'border-dashed border-[var(--line-2)] hover:bg-[var(--hover)]')}>
                 <span className="size-9 rounded-md grid place-items-center shrink-0" style={{ background: photo ? 'color-mix(in srgb, var(--ok) 16%, transparent)' : 'var(--surface-3)', color: photo ? 'var(--ok)' : 'var(--text-2)' }}>{photo ? <CheckCircle2 className="size-5" /> : <Camera className="size-5" />}</span>
-                <span className="min-w-0 flex-1"><span className="block t-base font-medium">{photo ? 'Scale photo captured' : 'Photograph the scale display'}</span><span className="block t-sm text-[var(--text-3)]">{photo ? 'Attached to the voucher. Select again to retake.' : 'The voucher cannot be issued without it.'}</span></span>
+                <span className="min-w-0 flex-1"><span className="block t-base font-medium">{photo ? 'Photo noted' : 'Take scale photo'}</span><span className="block t-sm text-[var(--text-3)]">{photo ? 'No image is stored. Select again to clear.' : 'Scale photo noted on the voucher.'}</span></span>
                 <Kbd keys="c" />
               </button>
             </FormSection>
@@ -206,7 +206,7 @@ export function Intake() {
       </Panel>
 
       <Sheet open={share && !!current} onClose={() => setShare(false)} title="Share voucher on WhatsApp" sub={current ? `${no(current)} · ${current.collector}` : undefined}
-        footer={current && <Button variant="primary" icon={MessageCircle} disabled={sentId === current.id} onClick={() => send(current)} hotkey="mod+enter" hotkeyLabel="Send the voucher">{sentId === current.id ? 'Sent' : 'Send'}</Button>}>
+        footer={current && <Button variant="secondary" icon={MessageCircle} disabled={sentId === current.id} onClick={() => send(current)} hotkey="mod+enter" hotkeyLabel="Share the voucher">{sentId === current.id ? 'Preview ready · not sent' : 'Prepare share preview'}</Button>}>
         {current && <div className="flex justify-center py-2"><WhatsAppPreview to={current.collector} lines={voucherLines(current)} attachment={`${no(current)}.pdf`} sent={sentId === current.id} /></div>}
       </Sheet>
     </div>

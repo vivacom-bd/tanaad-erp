@@ -57,7 +57,7 @@ export function Tagging() {
     await printer.print({ code: label.code, lines: [product.internalName, `${product.bundlePieces} pcs`] });
     setSession((m) => ({ ...m, [key(zoneId, product.id)]: (m[key(zoneId, product.id)] ?? 0) + 1 }));
     setBusy(false);
-    toast({ kind: 'ok', title: `${label.code} printed`, detail: `${product.internalName} · ${zone?.name}. Stick it on the ${one}.` });
+    toast({ kind: 'ok', title: 'Label recorded', detail: `${label.code} · ${product.internalName} · ${zone?.name}. No physical sticker was printed.` });
   };
   const finishZone = () => {
     if (!zoneId || sessionTotal === 0) return;
@@ -90,8 +90,8 @@ export function Tagging() {
 
   return (
     <div>
-      <PageHeader eyebrow={`${site.name} · Stock`} title="Tagging campaign" meta={<>{target ? <Badge tone={pct >= 100 ? 'ok' : 'accent'} dot>{Math.round(pct)}% of the estimate</Badge> : <Badge tone="neutral">{plural(tagged.length, 'sticker')} so far</Badge>}<Badge tone="neutral">One-time pass</Badge></>}
-        subtitle={`One pass through the store: count each ${one} once, print its sticker, stick it on. From then on the system knows it exists.`}
+      <PageHeader eyebrow={`${site.name} · Stock`} title="Label existing stock" meta={<>{target ? <Badge tone="neutral" dot>Demo estimate · {Math.round(pct)}%</Badge> : <Badge tone="neutral">{plural(tagged.length, 'label')} recorded</Badge>}</>}
+        subtitle={`Create a label record for each existing ${one} you count in a zone. Physical printing is not connected in this demo.`}
         actions={<Button icon={Boxes} onClick={() => go.site('stock')}>Stock wall</Button>} />
 
       {/* Campaign progress: labelled against the estimate of standing stock */}
@@ -99,14 +99,14 @@ export function Tagging() {
         <div className="flex items-center gap-3 min-w-0">
           {target ? <Ring value={pct} size={60} stroke={7} tone={pct >= 100 ? 'ok' : 'accent'} /> : <IconChip icon={Tag} color="var(--accent)" className="size-11!" />}
           <div className="min-w-0">
-            <div className="t-sm font-medium text-[var(--text-2)]">Campaign progress</div>
+            <div className="t-sm font-medium text-[var(--text-2)]">Estimated progress</div>
             <div className="t-kpi num whitespace-nowrap"><CountUp value={tagged.length} /><span className="t-base font-medium text-[var(--text-3)]">{target ? ` of ~${fmtNum(target)} ${unit}` : ` ${unit} labelled`}</span></div>
           </div>
         </div>
         <div className="flex-1 min-w-[240px]">
           {target ? <>
             <TimeTrack progress={tagged.length / target} startLabel="0" endLabel={`~${fmtNum(target)} estimated`} nowLabel={`${fmtNum(tagged.length)} labelled`} />
-            <div className="t-xs text-[var(--text-3)] mt-1 flex flex-wrap items-center gap-x-2">The total is your own estimate of the standing stock. The campaign ends when the store has no untagged {unit}.<button type="button" className="inline-flex items-center gap-1 font-medium text-[var(--text-2)] hover:text-[var(--text)] underline underline-offset-2" onClick={() => { setDraft(String(target)); setEstimating(true); }}><Pencil className="size-3" />Change estimate</button></div>
+            <div className="t-xs text-[var(--text-3)] mt-1 flex flex-wrap items-center gap-x-2">This estimate and the session tally are local demo data; they are not a verified stock count.<button type="button" className="inline-flex items-center gap-1 font-medium text-[var(--text-2)] hover:text-[var(--text)] underline underline-offset-2" onClick={() => { setDraft(String(target)); setEstimating(true); }}><Pencil className="size-3" />Change estimate</button></div>
           </> : (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-dashed border-[var(--line-2)] px-3 py-2 t-sm text-[var(--text-2)]">
               <span className="min-w-0 flex-1">No estimate of the standing stock yet. Walk the store, enter a rough total, and this bar shows how far the campaign has come.</span>
@@ -123,14 +123,14 @@ export function Tagging() {
       </section>
 
       <Bench asideWidth={380} aside={<>
-        <Panel icon={Printer} title="Sticker" sub={printing ? printing.code : 'preview'} actions={<Badge tone={printer.status() === 'ready' ? 'ok' : 'bad'} dot>{printer.status() === 'ready' ? 'Printer ready' : 'Printer offline'}</Badge>}
-          footer="Prints here and on the Zebra at the store door.">
+        <Panel icon={Printer} title="Sticker" sub={printing ? printing.code : 'preview'} actions={<Badge tone="neutral" dot>Printer</Badge>}
+          footer="Label printer">
           <div className="min-h-[186px] grid place-items-center">
             {printing ? <Sticker key={printing.id} label={printing} product={s.products.find((p) => p.id === printing.productId)} site={site} shiftKind={currentShiftKind()} printing compact />
-              : <Empty icon={Tag} title="No sticker printed yet" hint={`Press Space and the first ${one} gets its code.`} />}
+              : <Empty icon={Tag} title="No label recorded yet" hint={`Create a demo label record for the first ${one}.`} />}
           </div>
         </Panel>
-        <Panel icon={Tag} title="Tagged today" sub={plural(today.length, 'sticker')} pad={false} actions={<Button size="sm" variant="ghost" onClick={() => go.site('stock')}>Stock wall</Button>}
+          <Panel icon={Tag} title="Labels recorded today" sub={plural(today.length, 'label')} pad={false} actions={<Button size="sm" variant="ghost" onClick={() => go.site('stock')}>Stock wall</Button>}
           footer={`Tagged stock joins the stock wall immediately and can be scanned onto a lorry like any other ${one}.`}>
           <DataGrid bare dense rows={today.slice(0, 60)} columns={todayCols} rowKey={(l) => l.id} maxHeight={300} empty="Nothing tagged yet today." />
         </Panel>
@@ -151,10 +151,10 @@ export function Tagging() {
                   : <ChipGroup ariaLabel="Product" value={productId} onChange={setProductId} options={products.map((p) => ({ value: p.id, label: <><Swatch colour={p.colour} />{p.internalName}{zoneId && session[key(zoneId, p.id)] ? <Badge tone="ok">{session[key(zoneId, p.id)]}</Badge> : null}</> }))} />}
               {product?.weightStatus === 'to_be_measured' && <Note tone="warn" className="mt-2.5">Standard weight {product.stdBundleWeightKg} kg per {one} is to be measured. The sticker carries it with a * until confirmed.</Note>}
             </Step>
-            <Step n={3} title="Print and stick" hint="one key per sticker">
+            <Step n={3} title="Record label">
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] items-center">
                 <Button data-print="" variant="primary" size="xl" block icon={Printer} disabled={!product || !zoneId || busy} onClick={tagOne}>
-                  {busy ? 'Printing…' : 'Print and stick'}
+                  {busy ? 'Preparing…' : 'Record label'}
                   {!busy && <><Kbd keys="space" className="ml-1 [&_kbd]:bg-transparent [&_kbd]:border-current [&_kbd]:text-current [&_kbd]:opacity-60" /><Kbd keys="enter" className="[&_kbd]:bg-transparent [&_kbd]:border-current [&_kbd]:text-current [&_kbd]:opacity-60" /></>}
                 </Button>
                 <div className="grid grid-cols-2 gap-x-6">
@@ -165,7 +165,7 @@ export function Tagging() {
             </Step>
           </Panel>
 
-          <Panel icon={Grid3x3} title="This session" sub={sessionAll ? `${plural(sessionAll, 'sticker')} printed` : 'stickers per product and zone'} pad={false}>
+          <Panel icon={Grid3x3} title="This session" sub={sessionAll ? `${plural(sessionAll, 'label')} recorded` : 'labels per product and zone'} pad={false}>
             <DataGrid bare dense rows={matrix} rowKey={(p) => p.id} empty="Nothing printed in this session yet. Counters per product and zone build up here, so a zone can be checked before you leave it."
                 columns={[
                   { key: 'p', header: 'Product', cell: (p) => <ProductName product={p} strong={false} /> },

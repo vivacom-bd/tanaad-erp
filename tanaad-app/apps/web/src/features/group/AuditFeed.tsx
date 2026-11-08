@@ -61,7 +61,7 @@ export function AuditFeed() {
       <div className="flex flex-col gap-[var(--gap)]">
         <KpiStrip>
           <Stat label="Session events" icon={Database} accent="var(--series-1)" value={<CountUp value={s.events.length} />} spark={perDay} sub={<Wrap>{fmtNum(s.audit.length)} audit lines on record</Wrap>} onClick={() => setFlag('all')} />
-          <Stat label="Pending sync" icon={CloudOff} accent={pending ? 'var(--warn)' : 'var(--series-3)'} tone={pending ? 'warn' : 'neutral'} value={<CountUp value={pending} />} sub={<Wrap>{s.online ? 'Online · outbox clear' : 'Offline · will sync when back'}</Wrap>} />
+          <Stat label="Offline queue · demo" icon={CloudOff} accent={pending ? 'var(--warn)' : 'var(--series-3)'} tone={pending ? 'warn' : 'neutral'} value={<CountUp value={pending} />} sub={<Wrap>{s.online ? 'No server sync in this build' : 'Events queued on this device'}</Wrap>} />
           <Stat label="Edits" icon={Pencil} accent="var(--warn)" value={<CountUp value={counts.edit} />} spark={flagPerDay('edit')} sparkColor="var(--text-4)" sub={<Wrap>A saved record was changed</Wrap>} onClick={() => setFlag('edit')} />
           <Stat label="Reopenings" icon={RotateCcw} accent="var(--bad)" value={<CountUp value={counts.reopen} />} spark={flagPerDay('reopen')} sparkColor="var(--text-4)" sub={<Wrap>A closed day was opened again</Wrap>} onClick={() => setFlag('reopen')} />
           <Stat label="Overrides" icon={ShieldAlert} accent="var(--bad)" value={<CountUp value={counts.override} />} spark={flagPerDay('override')} sparkColor="var(--text-4)" sub={<Wrap>A lock was lifted with a PIN</Wrap>} onClick={() => setFlag('override')} />
@@ -80,8 +80,8 @@ export function AuditFeed() {
               <div key={name} className="flex items-center gap-2.5 px-[var(--pad)] h-[var(--row-h)] border-b border-[var(--line)] last:border-b-0"><Avatar name={name} size={22} /><span className="t-base truncate flex-1 min-w-0">{name}</span><span className="w-[64px] shrink-0"><Bar value={n} max={byActor[0][1]} tone="series" /></span><span className="num t-base font-medium w-6 text-right">{n}</span></div>
             ))}
           </Panel>
-          <Panel icon={Database} title="This session" sub={`${plural(s.events.length, 'event')} · ${pending} to sync`}>
-            {bySession.length === 0 ? <div className="t-sm text-[var(--text-3)]">No events written yet this session. Every action on a site screen appends one, online or offline.</div> : bySession.map(([t, n]) => <Meter key={t} label={humanKind(t)} value={n} max={bySession[0][1]} display={fmtNum(n)} tone="neutral" />)}
+          <Panel icon={Database} title="Demo events on this device" sub={`${plural(s.events.length, 'event')} · ${pending} in offline queue`}>
+            {bySession.length === 0 ? <div className="t-sm text-[var(--text-3)]">No actions have been recorded in this demo yet. Actions are stored in this browser.</div> : bySession.map(([t, n]) => <Meter key={t} label={humanKind(t)} value={n} max={bySession[0][1]} display={fmtNum(n)} tone="neutral" />)}
           </Panel>
         </>}>
           <Toolbar>
@@ -143,7 +143,7 @@ export function AuditFeed() {
               <KV k="Where" v={inspect.siteId ? SITES[inspect.siteId].name : 'Group HQ'} />
               <KV k="Event type" v={<span className="code">{inspect.kind}</span>} />
               <KV k="Line id" v={<span className="code">{inspect.id}</span>} />
-              <KV k="Sync" v={event ? <Badge tone={event.synced ? 'ok' : 'warn'} dot>{event.synced ? 'Synced' : 'Waiting in the outbox'}</Badge> : <Badge tone="ok" dot>Synced</Badge>} />
+              <KV k="Storage" v={<Badge tone={event && !event.synced ? 'warn' : 'neutral'} dot>{event && !event.synced ? 'Queued offline · demo' : 'Local only · demo'}</Badge>} />
             </div>
             {event !== undefined && event.payload !== undefined && <div><div className="t-label mb-1">Event payload</div><pre className="code t-xs surface-2 p-2.5 overflow-auto max-h-[220px] whitespace-pre-wrap break-all m-0">{JSON.stringify(event.payload, null, 2).slice(0, 1200)}</pre></div>}
             <Note tone="neutral" icon={Lock}>This line cannot be edited or deleted. To correct it, change the record on its site screen: that writes a new line with your name and reason.</Note>

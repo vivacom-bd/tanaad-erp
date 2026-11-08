@@ -4,7 +4,7 @@ import { ArrowDownLeft, ArrowUpRight, Camera, CameraOff } from 'lucide-react';
 import type { CashEntry } from '@tanaad/domain';
 import { Avatar, Badge, Button, Sheet, cn } from '@/components/ui';
 import { fmtNum, fmtUGX, fmtUSD } from '@/data/format';
-import { categoryColor, timeOf, useExpenseCategories } from './categories';
+import { timeOf, useExpenseCategories } from './categories';
 import { varianceTone } from './CloseDaySheet';
 
 export interface LedgerRow { e: CashEntry; balance: number }
@@ -20,7 +20,7 @@ const title = (e: CashEntry, label: LabelOf) => e.payee ?? e.note ?? label(e.cat
 
 function CategoryTag({ e, categoryLabel }: { e: CashEntry; categoryLabel: LabelOf }) {
   if (e.direction === 'in') return <span className="text-[var(--text-2)]">{categoryLabel(e.category)}</span>;
-  return <Badge tone="neutral" className="max-w-full"><span className="size-2 rounded-[2px] shrink-0" style={{ background: categoryColor(e.category) }} />{categoryLabel(e.category)}{e.subcategory && <span className="font-normal text-[var(--text-3)] truncate">· {e.subcategory}</span>}</Badge>;
+  return <span className="max-w-full truncate">{categoryLabel(e.category)}{e.subcategory && <span className="font-normal text-[var(--text-3)] truncate"> · {e.subcategory}</span>}</span>;
 }
 
 /**
@@ -96,7 +96,7 @@ export function LedgerTable({ opening, groups, expected, counted, variance, thre
                       <td className="px-2.5 py-1 w-full max-w-0 align-middle">
                         <div className="truncate font-medium">{title(e, categoryLabel)}</div>
                         <div className={cn(NARROW, 'flex items-center gap-1.5 t-xs text-[var(--text-3)] min-w-0')}>
-                          {e.direction === 'out' && <span className="size-2 rounded-[2px] shrink-0" style={{ background: categoryColor(e.category) }} />}
+                          
                           <span className="truncate">{categoryLabel(e.category)}{e.subcategory ? ` · ${e.subcategory}` : ''}{m ? ` · ${m.code}` : ''}</span>
                           {e.hasReceiptPhoto && <Camera className="size-3 shrink-0" aria-label="Receipt photo attached" />}
                         </div>
@@ -155,7 +155,7 @@ export function LineSheet({ row, onClose, machines, users, fx }: { row?: LedgerR
             <div className="text-right"><div className="t-label">Balance after</div><div className="num t-lg font-semibold mt-1">{fmtNum(row.balance)}</div></div>
           </div>
           <dl>
-            <Item label="Category">{e.direction === 'out' ? <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-[3px]" style={{ background: categoryColor(e.category) }} />{categoryLabel(e.category)}</span> : categoryLabel(e.category)}</Item>
+            <Item label="Category">{e.direction === 'out' ? categoryLabel(e.category) : categoryLabel(e.category)}</Item>
             {e.subcategory && <Item label="Kind">{e.subcategory}</Item>}
             {m && <Item label="Machine">{m.code}</Item>}
             <Item label={e.direction === 'in' ? 'Received from' : 'Paid to'}>{e.payee ?? '—'}</Item>

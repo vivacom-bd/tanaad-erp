@@ -4,13 +4,13 @@ import type { EngagementType, SiteCode } from '@tanaad/domain';
 import { contractDaysRemaining } from '@tanaad/domain';
 import { useGo, useRefList } from '@/app/hooks';
 import { useStore } from '@/data/store';
-import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Empty, KpiStrip, Meter, Panel, Sheet, StackedBar, Stat, type Column } from '@/components/ui';
+import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Empty, KpiStrip, Meter, PageHeader, Panel, Sheet, StackedBar, Stat, type Column } from '@/components/ui';
 import { CountUp, Delta, Donut, Legend, LineChart, pctChange } from '@/components/charts';
 import { SITE_LIST, SITES } from '@/config/sites';
 import { SITE_COLOR } from '@/config/siteIdentity';
 import { addDays, currentShiftKind, dailySeries, headcount, headcountBySector, lastWorkingDays, rosterFor } from '@/data/selectors';
 import { compact, fmtDayShort, fmtNum, fmtUGX } from '@/data/format';
-import { ENGAGEMENT, ENGAGEMENT_TYPES, Fact, Hero, SiteMark, SiteTag, downloadCsv, usd0 } from './kit';
+import { ENGAGEMENT, ENGAGEMENT_TYPES, Fact, SiteMark, SiteTag, downloadCsv, usd0 } from './kit';
 import { Wrap } from './shared';
 
 const plural2 = (n: number) => `${n} site${n === 1 ? '' : 's'}`;
@@ -112,15 +112,11 @@ export function GroupPeople() {
 
   return (
     <div className="flex flex-col gap-[var(--gap)]">
-      <Hero icon={Users} eyebrow="Group HQ · people" title="Group people" sub="Who is on the books, what they cost, who works across sites"
+      <PageHeader title="People" subtitle={`All sites · ${fmtNum(onShift)} of ${fmtNum(active)} on shift today`}
         actions={<>
-          <Button variant="inverse" icon={Download} hotkey="e" onClick={exportCsv}>Export CSV</Button>
-          <Button variant="accent" icon={RefreshCw} hotkey="r" hotkeyLabel="Renew the most urgent contract" disabled={!next} onClick={() => next && setRenewing({ engId: next.eng.id, name: next.person.fullName })}>Renew next</Button>
-        </>}>
-        <div className="flex items-center justify-between mb-2 text-[12.5px]"><span className="inline-flex items-center gap-1.5 font-medium"><span className="size-1.5 rounded-full bg-[var(--color-amber-400)] anim-live" />{fmtNum(onShift)} of {fmtNum(active)} on shift today</span><span className="text-white/60">{active ? Math.round((onShift / active) * 100) : 0}% of the books</span></div>
-        <div className="flex h-1.5 gap-[2px] rounded-full overflow-hidden bg-white/15">{perSite.map((p) => <div key={p.site.id} title={`${p.site.shortName}: ${p.total.onShift} on shift`} style={{ width: `${(p.total.onShift / (active || 1)) * 100}%`, background: SITE_COLOR[p.site.id] }} />)}</div>
-        <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1.5 text-[11.5px] text-white/60">{perSite.map((p) => <span key={p.site.id} className="inline-flex items-center gap-1.5"><span className="size-1.5 rounded-[2px]" style={{ background: SITE_COLOR[p.site.id] }} />{p.site.shortName} <span className="num text-white/85">{p.total.onShift}</span></span>)}</div>
-      </Hero>
+          <Button icon={Download} hotkey="e" onClick={exportCsv}>Export CSV</Button>
+          <Button variant="primary" icon={RefreshCw} hotkey="r" hotkeyLabel="Renew the most urgent contract" disabled={!next} onClick={() => next && setRenewing({ engId: next.eng.id, name: next.person.fullName })}>Renew next</Button>
+        </>} />
 
       <KpiStrip>
         <Stat label="Workforce" icon={Users} accent="var(--series-1)" value={<CountUp value={active} />} spark={groupTrend.slice(0, -1)} sub={<Wrap>{byType.map((t) => `${t.active} ${SHORT[t.type].toLowerCase()}`).join(' · ')}</Wrap>} />

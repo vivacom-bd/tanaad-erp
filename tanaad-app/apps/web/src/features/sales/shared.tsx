@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { ArrowLeft, Send } from 'lucide-react';
-import type { Client, Currency, Order, OrderStatus, Product, Site } from '@tanaad/domain';
+import type { Client, Currency, Invoice, Order, OrderStatus, Product, Site } from '@tanaad/domain';
 import type { AppState } from '@/data/store';
 import { useStore } from '@/data/store';
 import { addDays } from '@/data/selectors';
@@ -89,11 +89,14 @@ export const TO_BE_PROVIDED = 'to be provided by Tanaad';
  * Ugandan manufacturers issue fiscal invoices through URA's EFRIS. The integration is not connected yet, so no
  * Fiscal Document Number or verification code exists for any invoice: every screen says so instead of showing a made-up one.
  */
-export const EFRIS_PENDING = 'Pending · EFRIS not yet connected';
-/** Connected but no number stored on the invoice yet: still nothing to show, and still nothing made up. */
-export const EFRIS_AWAITING = 'Awaiting number from URA';
+export const EFRIS_PENDING = 'Pending · no URA response recorded';
+/** The profile is marked connected, but this demo has no URA response or fiscal identifier. */
+export const EFRIS_AWAITING = 'Marked connected · no URA response';
 export const efrisText = (connected: boolean | undefined) => (connected ? EFRIS_AWAITING : EFRIS_PENDING);
-export const EfrisBadge = ({ connected }: { connected?: boolean }) => <Badge tone={connected ? 'info' : 'neutral'} dot>{connected ? 'Awaiting URA' : 'Pending'}</Badge>;
+export const EfrisBadge = ({ invoice }: { invoice: Invoice }) => {
+  const recorded = Boolean(invoice.efrisFdn && invoice.efrisVerificationCode);
+  return <Badge tone={recorded ? 'ok' : 'neutral'} dot>{recorded ? 'Fiscal details recorded' : 'Not fiscalised'}</Badge>;
+};
 /** A company-profile field as it prints: the value when filled, the placeholder when blank. */
 export const orTbp = (v: string | undefined) => (v && v.trim() ? v.trim() : TO_BE_PROVIDED);
 
@@ -162,17 +165,17 @@ export function ComboEscGuard() {
 
 /* ───────────────────────────── WhatsApp share panel ───────────────────────────── */
 export function WhatsAppSend({ client, lines, attachment, successTitle, onBack, backLabel }: { client: Client; lines: string[]; attachment?: string; successTitle: string; onBack?: () => void; backLabel?: string }) {
-  const [state, setState] = useState<'idle' | 'sending' | 'sent'>('idle'); const toast = useStore((s) => s.toast);
-  const send = async () => { setState('sending'); await messaging.sendWhatsApp(client.whatsapp, lines.join('\n'), attachment); setState('sent'); toast({ kind: 'ok', title: successTitle, detail: `Sent to ${client.contact} on WhatsApp ${client.whatsapp}` }); };
+  const [state, setState] = useState<'idle' | 'preparing' | 'prepared'>('idle'); const toast = useStore((s) => s.toast);
+  const prepare = async () => { setState('preparing'); await messaging.sendWhatsApp(client.whatsapp, lines.join('\n'), attachment); setState('prepared'); toast({ kind: 'ok', title: `${successTitle} · demo preview`, detail: `No message was sent to ${client.contact}.` }); };
   return (
     <div className="flex flex-col items-start gap-3">
       {onBack && <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={onBack}>{backLabel ?? 'Back'}</Button>}
-      <WhatsAppPreview to={`${client.name} · ${client.whatsapp}`} lines={lines} attachment={attachment} sent={state === 'sent'} />
+      <WhatsAppPreview to={`${client.name} · ${client.whatsapp}`} lines={lines} attachment={attachment} sent={state === 'prepared'} />
       <div className="flex items-center gap-2 flex-wrap">
-        {state === 'sent' ? <Badge tone="ok" dot>Delivered · two ticks</Badge> : <Button variant="ok" icon={Send} onClick={send} disabled={state === 'sending'} hotkey="mod+enter" hotkeyLabel="Send on WhatsApp">{state === 'sending' ? 'Sending…' : 'Send on WhatsApp'}</Button>}
+        {state === 'prepared' ? <Badge tone="neutral" dot>Preview ready · not sent</Badge> : <Button variant="secondary" icon={Send} onClick={prepare} disabled={state === 'preparing'} hotkey="mod+enter" hotkeyLabel="Share">{state === 'preparing' ? 'Preparing…' : 'Prepare share preview'}</Button>}
         <span className="t-sm text-[var(--text-3)]">to {client.contact}</span>
       </div>
-      <div className="t-xs text-[var(--text-3)] max-w-[380px]">Simulated in the demo. Production sends through the WhatsApp Business API with the PDF attached.</div>
+      <div className="t-xs text-[var(--text-3)] max-w-[380px]">Preview of the message and attachment.</div>
     </div>
   );
 }

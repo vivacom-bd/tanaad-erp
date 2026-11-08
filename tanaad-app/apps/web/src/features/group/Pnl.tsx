@@ -1,17 +1,17 @@
 import { COMPANY } from '@/config/company';
 import { useMemo, useState } from 'react';
-import { ArrowDownRight, ArrowUpRight, BarChart3, BookCheck, Calculator, Download, Layers, Percent, PieChart, Printer, Receipt, Scale, TrendingUp, Wallet } from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, BookCheck, Calculator, Download, Layers, Percent, PieChart, Printer, Receipt, Scale, TrendingUp, Wallet } from 'lucide-react';
 import type { ExpenseCategory, SiteCode } from '@tanaad/domain';
 import { useStore, type AppState } from '@/data/store';
 import { useRefList } from '@/app/hooks';
-import { Badge, Button, DataGrid, Empty, KpiStrip, Note, Panel, StackedBar, Stat, Tabs, cn, useHotkey, type Column, type Tone } from '@/components/ui';
+import { Badge, Button, DataGrid, Empty, KpiStrip, Note, PageHeader, Panel, StackedBar, Stat, Tabs, cn, useHotkey, type Column, type Tone } from '@/components/ui';
 import { ColumnChart, CountUp, Delta, Donut, Legend, pctChange } from '@/components/charts';
 import { SITE_LIST } from '@/config/sites';
 import { SITE_COLOR } from '@/config/siteIdentity';
 import { CATEGORY_META, EXPENSE_CATEGORIES, categoryColor } from '@/config/categories';
 import { addDays, lastWorkingDays, unitCost } from '@/data/selectors';
 import { compact, fmtDayShort, fmtNum, fmtUGX } from '@/data/format';
-import { DivergingBar, Hero, IconChip, OnHero, ShareBar, SiteMark, SiteTag, downloadCsv, signed, siteLabel, usd0, type SiteOrGroup } from './kit';
+import { DivergingBar, IconChip, ShareBar, SiteMark, SiteTag, downloadCsv, signed, siteLabel, usd0, type SiteOrGroup } from './kit';
 import { unitName } from './shared';
 
 type Period = '1' | '3' | '7';
@@ -111,7 +111,7 @@ export function Pnl() {
   const money = (v: number, o: { bold?: boolean } = {}) => (v ? <span className={cn('num', o.bold && 'font-semibold')}>{fmtNum(Math.round(v))}</span> : <span className="text-[var(--text-4)]">—</span>);
 
   const costCols: Column<(typeof costs)[number]>[] = [
-    { key: 'p', header: 'Product', sticky: true, sort: (c) => c.product.internalName, cell: (c) => <span className="inline-flex items-center gap-2"><span className="size-2.5 rounded-[3px] shrink-0" style={{ background: c.product.colour ?? 'var(--text-4)' }} /><span className="font-medium">{c.product.internalName}</span></span> },
+    { key: 'p', header: 'Product', sticky: true, sort: (c) => c.product.internalName, cell: (c) => <span className="inline-flex items-center gap-2"><span className="font-medium">{c.product.internalName}</span></span> },
     { key: 's', header: 'Site', sort: (c) => c.site.shortName, cell: (c) => <SiteTag site={c.site.id} /> },
     { key: 'u', header: 'Units', align: 'right', mono: true, sort: (c) => c.units, cell: (c) => <>{fmtNum(c.units)}<span className="t-xs text-[var(--text-3)]"> {unitName(c.site.id)}</span></> },
     { key: 'm', header: 'Material', align: 'right', mono: true, sort: (c) => c.material, cell: (c) => fmtNum(c.material) },
@@ -131,24 +131,12 @@ export function Pnl() {
 
   return (
     <div className="flex flex-col gap-[var(--gap)]">
-      <Hero icon={BarChart3} eyebrow="Group HQ · finance" title="P&L and unit costs" sub={`${meta.long[0].toUpperCase()}${meta.long.slice(1)} · USD at ${fmtNum(fx)}`}
+      <PageHeader title="P&L and unit costs" subtitle={`All sites · ${meta.long} · USD at ${fmtNum(fx)} · ${pagesClosed} of ${pagesAll.length} cash days signed${anyProvisional ? ', rest provisional' : ''}`}
         actions={<>
-          <Button variant="inverse" icon={Printer} hotkey="p" onClick={print}>Print</Button>
-          <Button variant="accent" icon={Download} hotkey="e" onClick={exportCsv}>Export CSV</Button>
-        </>}>
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 mb-2.5 text-[12.5px]">
-          <span className="inline-flex items-center gap-1.5 font-medium whitespace-nowrap"><span className={cn('size-1.5 rounded-full', anyProvisional ? 'bg-[var(--color-amber-400)] anim-live' : 'bg-white/70')} />{pagesClosed} of {pagesAll.length} cash days signed<span className="font-normal text-white/60">· {anyProvisional ? `${pagesAll.length - pagesClosed} open, provisional` : 'closed days only'}</span></span>
-          <OnHero><Tabs value={period} onChange={setPeriod} tabs={PERIODS.map((p) => ({ value: p.value, label: p.label }))} /></OnHero>
-        </div>
-        <div className="flex flex-wrap gap-x-5 gap-y-1.5">
-          {rows.map((r) => (
-            <div key={r.site.id} className="flex items-center gap-2 text-[11.5px] text-white/70">
-              <span className="size-1.5 rounded-[2px]" style={{ background: SITE_COLOR[r.site.id] }} />{r.site.shortName}
-              <span className="flex gap-[3px]">{r.pages.map((p) => <span key={p.day} title={`${fmtDayShort(p.day)} · ${p.page ? (p.page.status === 'closed' ? 'closed and signed' : p.page.status) : 'no cash page'}`} className={cn('h-3 w-2 rounded-[2px]', !p.page ? 'border border-white/20' : p.page.status === 'closed' ? 'bg-white/65' : 'bg-[var(--color-amber-400)]')} />)}</span>
-            </div>
-          ))}
-        </div>
-      </Hero>
+          <Tabs value={period} onChange={setPeriod} tabs={PERIODS.map((p) => ({ value: p.value, label: p.label }))} />
+          <Button icon={Printer} hotkey="p" onClick={print}>Print</Button>
+          <Button variant="primary" icon={Download} hotkey="e" onClick={exportCsv}>Export CSV</Button>
+        </>} />
       <Note tone="neutral">In production, P&L and costing read <b>closed and signed</b> cash days only. The demo includes today's open page so the numbers move as you work; anything touching an open day is marked provisional.</Note>
 
       <KpiStrip>

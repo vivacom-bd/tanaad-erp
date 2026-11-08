@@ -172,7 +172,7 @@ export function CreditDesk() {
                 <section className="min-w-0">
                   <h3 className="t-label mb-1.5">Order lines · raised {fmtDateTime(selected.createdAt)}</h3>
                   <DataGrid dense className="shadow-none" rows={selected.lines.map((l, i) => ({ ...l, i }))} rowKey={(l) => String(l.i)} columns={[
-                    { key: 'p', header: 'Product', cell: (l) => { const p = productOf(l.productId); return <span className="inline-flex items-center gap-1.5"><span className="size-2.5 rounded-[3px] shrink-0" style={{ background: p?.colour ?? 'var(--text-4)' }} />{p?.internalName ?? l.productId}</span>; } },
+                    { key: 'p', header: 'Product', cell: (l) => { const p = productOf(l.productId); return <span className="inline-flex items-center gap-1.5">{p?.internalName ?? l.productId}</span>; } },
                     { key: 'b', header: 'Bundles', align: 'right', mono: true, cell: (l) => fmtNum(l.bundles) },
                     ...(wide ? [{ key: 'u', header: 'Unit price', align: 'right' as const, mono: true, cell: (l: { unitPrice: number }) => fmtMoney(l.unitPrice, selected.currency) }] : []),
                     { key: 't', header: 'Line total', align: 'right', mono: true, cell: (l) => <span className="font-medium">{fmtMoney(l.bundles * l.unitPrice, selected.currency)}</span> },

@@ -82,7 +82,7 @@ export function CommandPalette({ scope, site }: { scope: 'group' | 'site'; site:
   const run = (c?: Cmd) => { if (!c) return; setOpen(false); c.run(); };
   let n = -1;
   return (
-    <div className="fixed inset-0 z-[80] flex items-start justify-center pt-[12vh] px-3" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }} role="dialog" aria-modal aria-label="Command palette">
+    <div className="show-kbd fixed inset-0 z-[80] flex items-start justify-center pt-[12vh] px-3" onMouseDown={(e) => { if (e.target === e.currentTarget) setOpen(false); }} role="dialog" aria-modal aria-label="Command palette">
       <div className="absolute inset-0 bg-[rgb(11_19_23/.38)] anim-fade pointer-events-none" />
       <div className="relative w-full max-w-[640px] bg-[var(--surface)] border border-[var(--line-2)] rounded-lg shadow-[var(--shadow-float)] anim-pop overflow-hidden flex flex-col max-h-[70vh]"
         onKeyDown={(e) => {

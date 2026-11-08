@@ -1,32 +1,17 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
-import { ArrowDownLeft, ArrowUpRight, CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, Download, Equal, Landmark, LineChart as LineChartIcon, Lock, PieChart, Plus, Printer, Receipt, ScrollText, ShieldCheck, Unlock, Wallet } from 'lucide-react';
+import { CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, Download, LineChart as LineChartIcon, Lock, Plus, Printer, Receipt, ScrollText, ShieldCheck, Unlock, Wallet } from 'lucide-react';
 import { useStore } from '@/data/store';
 import { useSite, useGo, useSiteSettings } from '@/app/hooks';
-import { Avatar, Badge, Button, Combobox, Empty, Field, Input, Kbd, Note, NumberPad, Panel, PinPad, Sheet, StackedBar, Stat, Status, cn } from '@/components/ui';
-import { CountUp, Donut, LineChart } from '@/components/charts';
+import { Avatar, Badge, Button, Combobox, Empty, Field, Input, Note, NumberPad, PageHeader, Panel, PinPad, Sheet, Stat, Status, cn } from '@/components/ui';
+import { LineChart } from '@/components/charts';
 import { cashDayFor, cashSummary, dailySeries, lastWorkingDays } from '@/data/selectors';
 import { compact, fmtDay, fmtDayLong, fmtDayShort, fmtNum, fmtUGX, fmtUSD } from '@/data/format';
-import { SITE_COLOR } from '@/config/siteIdentity';
-import { PRINT_CSS, SITE_MANAGER_PIN, donutSlices, downloadCsv, moneyOutSplit, stampOf, timeOf, useExpenseCategories } from './categories';
+import { PRINT_CSS, SITE_MANAGER_PIN, downloadCsv, stampOf, timeOf, useExpenseCategories } from './categories';
 import { CloseDaySheet, varianceTone } from './CloseDaySheet';
 import { LedgerTable, LineSheet, type LedgerGroup } from './Ledger';
 
 type Overlay = 'none' | 'close' | 'reopen' | 'receipt';
-
-/** One number of the hero equation: opening + in − out = expected closing. */
-function Figure({ label, op, value, sub, strong, icon: Icon }: { label: string; op?: string; value?: number; sub: ReactNode; strong?: boolean; icon: typeof Wallet }) {
-  return (
-    <div className="min-w-0">
-      <div className="text-[11px] uppercase tracking-[0.1em] font-semibold text-white/50 flex items-center gap-1.5"><Icon className="size-3.5" />{label}</div>
-      <div className={cn('num text-[18px] sm:text-[22px] font-semibold leading-tight mt-1 whitespace-nowrap', strong && 'text-[var(--color-amber-400)]')}>
-        {op && <span className="text-white/40 font-medium mr-1 sm:mr-1.5">{op}</span>}
-        {value === undefined ? <span className="text-white/40">—</span> : <><span className="text-[12px] font-medium opacity-60 mr-1 max-sm:hidden">UGX</span><CountUp value={value} /></>}
-      </div>
-      <div className="text-[11.5px] text-white/55 truncate mt-0.5">{sub}</div>
-    </div>
-  );
-}
 
 /** The daily cash-and-sales page: the paper page as a live ledger, with the money-out split beside it and a signed close at the end. */
 export function CashPage() {
@@ -54,7 +39,7 @@ export function CashPage() {
   const signer = cd?.signedBy ? signerUser?.name ?? cd.signedBy : undefined;
   const isOpen = !cd || cd.status !== 'closed';
   // Tolerance for the count and the category names are master data (Settings), never written here.
-  const threshold = useSiteSettings().cashVariance; const cats = useExpenseCategories(); const categoryLabel = cats.label;
+  const threshold = useSiteSettings().cashVariance; const categoryLabel = useExpenseCategories().label;
   const vTone = sum?.variance !== undefined ? varianceTone(sum.variance, threshold) : 'ok';
 
   const dayOptions = useMemo(() => [...days].reverse().map((d) => {
@@ -86,12 +71,11 @@ export function CashPage() {
   const line = lineId ? groups.flatMap((g) => g.rows).find((r) => r.e.id === lineId) : undefined;
 
   // Where the money went: the day, and the month up to and including the day.
-  const split = moneyOutSplit(entries, cats.items); const slices = donutSlices(split);
   const mtd = useMemo(() => {
     const month = day.slice(0, 7); const ids = new Set(s.cashDays.filter((c) => c.siteId === site.id && c.day.startsWith(month) && c.day <= day).map((c) => c.id));
     const list = s.cashEntries.filter((e) => ids.has(e.cashDayId) && e.direction === 'out');
-    return { total: list.reduce((t, e) => t + e.amount, 0), split: moneyOutSplit(list, cats.items), days: ids.size };
-  }, [s.cashDays, s.cashEntries, site.id, day, cats.items]);
+    return { total: list.reduce((t, e) => t + e.amount, 0), days: ids.size };
+  }, [s.cashDays, s.cashEntries, site.id, day]);
   const trend = useMemo(() => dailySeries(s, site.id, lastWorkingDays(site.id, day, 7)), [s, site.id, day]);
   const photos = outLines.filter((e) => e.hasReceiptPhoto).length;
 
@@ -110,77 +94,44 @@ export function CashPage() {
     toast({ kind: 'ok', title: `cash-page-${site.id}-${day}.csv downloaded` });
   };
 
-  const statusPill = !cd ? <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-md text-[12px] font-medium whitespace-nowrap bg-white/10 text-white/70">Not opened</span>
-    : cd.status === 'closed' ? <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-md text-[12px] font-medium whitespace-nowrap bg-[rgb(74_190_135/.18)] text-[#9be3bf]"><Lock className="size-3.5" />Closed by {signer} at {cd.closedAt ? timeOf(cd.closedAt) : '—'}</span>
-    : cd.status === 'reopened' ? <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-md text-[12px] font-medium whitespace-nowrap bg-[rgb(240_160_75/.2)] text-[var(--color-amber-400)]"><Unlock className="size-3.5" />Reopened · sign again</span>
-    : <span className="inline-flex items-center gap-1.5 h-6 px-2 rounded-md text-[12px] font-medium whitespace-nowrap bg-white/10 text-white/85"><span className="size-1.5 rounded-full bg-[var(--color-amber-400)] anim-live" />Open · {entries.length} {entries.length === 1 ? 'line' : 'lines'}</span>;
+  const statusBadge = !cd ? <Badge tone="neutral">Not opened</Badge>
+    : cd.status === 'closed' ? <Badge tone="ok" dot>Closed by {signer} at {cd.closedAt ? timeOf(cd.closedAt) : '—'}</Badge>
+    : cd.status === 'reopened' ? <Badge tone="warn" dot>Reopened · sign again</Badge>
+    : <Badge tone="accent" dot>Open · {entries.length} {entries.length === 1 ? 'line' : 'lines'}</Badge>;
+  const figures: { label: string; value?: number; sub: ReactNode; strong?: boolean }[] = [
+    { label: 'Opening balance', value: cd?.opening, sub: 'Carried forward from the last signed close' },
+    { label: 'Money in', value: sum ? moneyIn : undefined, sub: sum ? `Sales ${compact(sum.sales)} · receipts ${compact(sum.receipts)}` : 'No page for this day' },
+    { label: 'Money out', value: sum ? moneyOut : undefined, sub: sum ? `Expenses ${compact(sum.expenses)} · wages ${compact(sum.wages)}` : 'No page for this day' },
+    { label: 'Expected closing', value: sum?.expectedClosing, strong: true, sub: cd?.countedClosing !== undefined && sum?.variance !== undefined ? `Counted ${fmtNum(cd.countedClosing)} · ${sum.variance === 0 ? 'balanced' : `${sum.variance > 0 ? 'over' : 'short'} ${fmtNum(Math.abs(sum.variance))}`}` : 'What the drawer should hold now' },
+  ];
 
   return (
     <div className="flex flex-col gap-[var(--gap)]">
       <style>{PRINT_CSS}</style>
 
-      {/* Identity, day picker, state and the page's equation */}
-      <section className="hero relative no-print">
-        <div className="px-5 pt-4 pb-3.5 flex flex-wrap items-start gap-x-6 gap-y-3.5">
-          <div className="flex items-start gap-3.5 min-w-0 max-sm:w-full">
-            <span className="size-12 rounded-xl hidden sm:grid place-items-center shrink-0 shadow-[inset_0_1px_0_rgb(255_255_255/.25)]" style={{ background: SITE_COLOR[site.id] }}><Wallet className="size-6" /></span>
-            <div className="min-w-0 max-sm:flex-1">
-              <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-white/55">Cash · {site.name}</div>
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-1"><h1 className="text-[24px] font-semibold tracking-[-0.02em] leading-tight">Cash-and-sales page</h1>{statusPill}</div>
-              <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                <Button variant="inverse" icon={ChevronLeft} aria-label="Previous day" title="Previous day" hotkey={key('[')} hotkeyLabel="Previous day" disabled={idx <= 0} onClick={() => pick(days[idx - 1])} />
-                <div className="flex-1 min-w-[150px] sm:flex-none sm:w-[204px] text-[var(--text)]"><Combobox options={dayOptions} value={day} onChange={(v) => { if (v) pick(v); }} placeholder="Pick a day" /></div>
-                <Button variant="inverse" icon={ChevronRight} aria-label="Next day" title="Next day" hotkey={key(']')} hotkeyLabel="Next day" disabled={idx < 0 || idx >= days.length - 1} onClick={() => pick(days[idx + 1])} />
-                {day !== s.today && <Button variant="inverse" hotkey={key('t')} hotkeyLabel="Back to today" onClick={() => pick(s.today)}>Today</Button>}
-                <span className="text-[12.5px] text-white/60 ml-1.5 hidden sm:inline">{fmtDayLong(day)}</span>
-              </div>
+      <div className="no-print">
+        <PageHeader title="Cash book" meta={statusBadge}
+          subtitle={`${site.name} · ${fmtDayLong(day)}${sum ? ` · ${entries.length} ${entries.length === 1 ? 'line' : 'lines'}` : ' · no page yet'}`}
+          actions={<>
+            <Button icon={ChevronLeft} aria-label="Previous day" title="Previous day" hotkey={key('[')} hotkeyLabel="Previous day" disabled={idx <= 0} onClick={() => pick(days[idx - 1])} />
+            <div className="w-[204px]"><Combobox options={dayOptions} value={day} onChange={(v) => { if (v) pick(v); }} placeholder="Pick a day" /></div>
+            <Button icon={ChevronRight} aria-label="Next day" title="Next day" hotkey={key(']')} hotkeyLabel="Next day" disabled={idx < 0 || idx >= days.length - 1} onClick={() => pick(days[idx + 1])} />
+            {day !== s.today && <Button hotkey={key('t')} hotkeyLabel="Back to today" onClick={() => pick(s.today)}>Today</Button>}
+            <Button variant="secondary" icon={Plus} hotkey={key('r')} hotkeyLabel="Add receipt" disabled={!isOpen} onClick={() => setPanel('receipt')}>Add receipt</Button>
+            <Button variant="secondary" icon={Receipt} hotkey={key('n')} hotkeyLabel="Record expense" onClick={() => go.site('cash/expense')}>Record expense</Button>
+            {cd && isOpen && <Button variant="primary" icon={Lock} hotkey={key('c')} hotkeyLabel="Close day" onClick={() => setPanel('close')}>Count and close day</Button>}
+            {cd && !isOpen && <Button icon={Unlock} hotkey={key('o')} hotkeyLabel="Reopen day" onClick={() => setPanel('reopen')}>Reopen day</Button>}
+          </>} />
+        <div className="surface grid grid-cols-2 xl:grid-cols-4 divide-x divide-[var(--line)] max-xl:[&>*:nth-child(3)]:border-l-0 max-xl:[&>*:nth-child(n+3)]:border-t max-xl:[&>*:nth-child(n+3)]:border-[var(--line)]">
+          {figures.map((f) => (
+            <div key={f.label} className="px-4 py-3 min-w-0">
+              <div className="t-sm text-[var(--text-3)]">{f.label}</div>
+              <div className={cn('num text-[18px] mt-0.5 whitespace-nowrap', f.strong ? 'font-bold' : 'font-semibold')}>{f.value === undefined ? <span className="text-[var(--text-3)]">—</span> : fmtUGX(f.value)}</div>
+              <div className="t-xs text-[var(--text-3)] truncate mt-0.5">{f.sub}</div>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 ml-auto">
-            <Button variant="inverse" icon={Plus} hotkey={key('r')} hotkeyLabel="Add receipt" disabled={!isOpen} onClick={() => setPanel('receipt')}>+ Money In (Receipt)</Button>
-            <Button variant="inverse" icon={Receipt} hotkey={key('n')} hotkeyLabel="New expense" onClick={() => go.site('cash/expense')}>+ Money Out (Expense)</Button>
-            {cd && isOpen && <Button variant="accent" icon={Lock} hotkey={key('c')} hotkeyLabel="Close day" onClick={() => setPanel('close')}>Count & Close Day</Button>}
-            {cd && !isOpen && <Button variant="inverse" icon={Unlock} hotkey={key('o')} hotkeyLabel="Reopen day" onClick={() => setPanel('reopen')}>Reopen Day</Button>}
-          </div>
+          ))}
         </div>
-        <div className="px-5 py-3.5 border-t border-white/10 grid grid-cols-2 xl:grid-cols-4 gap-x-5 gap-y-3.5">
-          <Figure icon={Landmark} label="Opening balance" value={cd?.opening} sub="Carried forward from the last signed close" />
-          <Figure icon={ArrowDownLeft} label="Money in" op="+" value={sum ? moneyIn : undefined} sub={sum ? `Sales ${compact(sum.sales)} · receipts ${compact(sum.receipts)}` : 'No page for this day'} />
-          <Figure icon={ArrowUpRight} label="Money out" op="−" value={sum ? moneyOut : undefined} sub={sum ? `Expenses ${compact(sum.expenses)} · wages ${compact(sum.wages)}` : 'No page for this day'} />
-          <Figure icon={Equal} label="Expected closing" op="=" strong value={sum?.expectedClosing} sub={cd?.countedClosing !== undefined && sum?.variance !== undefined ? `Counted ${fmtNum(cd.countedClosing)} · ${sum.variance === 0 ? 'balanced' : `${sum.variance > 0 ? 'over' : 'short'} ${fmtNum(Math.abs(sum.variance))}`}` : 'What the drawer should hold now'} />
-        </div>
-      </section>
-
-      {/* Guided 3-step daily cash workflow */}
-      <div className="grid gap-[var(--gap)] md:grid-cols-3 no-print">
-        <div className="surface p-3.5 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="t-xs font-semibold uppercase tracking-wider text-[var(--text-3)]">Step 1 · Money In</div>
-            <div className="t-base font-semibold mt-0.5">Record cash receipts & sales</div>
-            <div className="t-xs text-[var(--text-3)] truncate">{sum ? `${fmtUGX(moneyIn)} received today` : 'Open day with first receipt'}</div>
-          </div>
-          <Button size="sm" variant="secondary" icon={Plus} disabled={!isOpen} onClick={() => setPanel('receipt')}>Add Receipt</Button>
-        </div>
-        <div className="surface p-3.5 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="t-xs font-semibold uppercase tracking-wider text-[var(--text-3)]">Step 2 · Money Out</div>
-            <div className="t-base font-semibold mt-0.5">Record expenses with category</div>
-            <div className="t-xs text-[var(--text-3)] truncate">{sum ? `${outLines.length} expense lines · ${fmtUGX(moneyOut)}` : 'Category & payee required'}</div>
-          </div>
-          <Button size="sm" variant="primary" icon={Receipt} onClick={() => go.site('cash/expense')}>Record Expense</Button>
-        </div>
-        <div className="surface p-3.5 flex items-center justify-between gap-3">
-          <div className="min-w-0">
-            <div className="t-xs font-semibold uppercase tracking-wider text-[var(--text-3)]">Step 3 · End of Day</div>
-            <div className="t-base font-semibold mt-0.5">Count notes, compare & sign</div>
-            <div className="t-xs text-[var(--text-3)] truncate">{cd?.status === 'closed' ? `Closed & signed (${fmtUGX(cd.countedClosing ?? 0)})` : `Expected: ${fmtUGX(sum?.expectedClosing ?? 0)}`}</div>
-          </div>
-          {cd && isOpen ? (
-            <Button size="sm" variant="accent" icon={Lock} onClick={() => setPanel('close')}>Count & Close</Button>
-          ) : (
-            <Badge tone="ok" dot>Closed</Badge>
-          )}
-        </div>
+        {mtd.total > 0 && <p className="t-sm text-[var(--text-2)] mt-2">Month to date: {fmtUGX(mtd.total)} paid out over {mtd.days} {mtd.days === 1 ? 'day' : 'days'} to {fmtDayShort(day)}.</p>}
       </div>
 
       {!isOpen && cd && (
@@ -215,22 +166,6 @@ export function CashPage() {
         </div>
 
         <aside className="grid gap-[var(--gap)] md:grid-cols-2 xl:grid-cols-1 min-w-0 no-print">
-          <Panel icon={PieChart} title="Where the money went" sub={sum ? fmtUGX(moneyOut) : undefined}>
-            {slices.length ? (
-              <div className="flex items-center gap-4">
-                <Donut segments={slices} size={124} thickness={16} center={compact(moneyOut)} sub="UGX out" />
-                <div className="flex-1 min-w-0">{slices.map((c) => <div key={c.label} className="flex items-center gap-2 h-[26px] t-sm border-b border-[var(--line)] last:border-b-0"><span className="size-2.5 rounded-[3px] shrink-0" style={{ background: c.color }} /><span className="truncate flex-1">{c.label}</span><span className="num font-medium">{compact(c.value)}</span><span className="num t-xs text-[var(--text-3)] w-8 text-right">{Math.round((c.value / Math.max(1, moneyOut)) * 100)}%</span></div>)}</div>
-              </div>
-            ) : <Empty icon={Wallet} title="Nothing paid out yet" hint="Every expense lands here under its category." />}
-          </Panel>
-
-          <Panel icon={CalendarDays} title="Month to date" sub={`${mtd.days} ${mtd.days === 1 ? 'day' : 'days'} to ${fmtDayShort(day)}`}>
-            {mtd.total ? <>
-              <div className="flex items-baseline justify-between gap-3 mb-2.5"><span className="num t-kpi">{fmtUGX(mtd.total)}</span><span className="t-sm text-[var(--text-3)] num whitespace-nowrap">{compact(mtd.total / Math.max(1, mtd.days))} a day</span></div>
-              <StackedBar segments={mtd.split} height={12} format={compact} />
-            </> : <Empty title="No spending this month yet" />}
-          </Panel>
-
           <Panel icon={ShieldCheck} title="Day status" actions={<span className="pr-1.5">{!cd ? <Badge tone="neutral">Not opened</Badge> : cd.status === 'closed' ? <Badge tone="ok" dot>Closed</Badge> : cd.status === 'reopened' ? <Badge tone="warn" dot>Reopened</Badge> : <Badge tone="accent" dot>Open</Badge>}</span>}>
             {!cd ? <div className="t-sm text-[var(--text-3)]">The page opens with the first receipt or expense of the day.</div> : cd.status === 'closed' ? (
               <div className="flex flex-col gap-2.5">

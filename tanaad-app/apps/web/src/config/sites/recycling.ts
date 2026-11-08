@@ -5,7 +5,7 @@ export const recycling: Site = {
   name: 'Recycling Plant',
   legalName: 'Tanaad · Recycling plant',
   shortName: 'Recycling',
-  tagline: 'HDPE recycling · new · 14 t/day',
+  tagline: 'Recycling',
   currencyPrimary: 'UGX',
   shifts: [
     { kind: 'day', starts: '07:00', ends: '19:00' },

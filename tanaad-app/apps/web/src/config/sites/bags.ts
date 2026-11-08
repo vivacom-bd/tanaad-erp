@@ -5,7 +5,7 @@ export const bags: Site = {
   name: 'Bags Factory',
   legalName: 'Tanaad Packages Ltd',
   shortName: 'Bags',
-  tagline: 'Carrier bags · oldest site · best records',
+  tagline: 'Carrier bags',
   currencyPrimary: 'UGX',
   shifts: [
     { kind: 'day', starts: '07:00', ends: '19:00' },

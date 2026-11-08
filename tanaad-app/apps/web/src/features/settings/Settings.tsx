@@ -92,7 +92,7 @@ export function Settings() {
                   <Field label="VAT rate (%)" hint="Leave at 0 if this company does not charge VAT."><Input key={site + 'vat'} disabled={!canEdit} className="num max-w-[140px]" inputMode="decimal" defaultValue={cp.vatRatePct} onBlur={(e) => { const v = Number(e.target.value.replace(/[^0-9.]/g, '')) || 0; if (v !== cp.vatRatePct) { s.updateCompanyProfile(site, { vatRatePct: v }); s.toast({ kind: 'ok', title: `VAT rate set to ${v}%` }); } }} /></Field>
                 </div>
               </Panel>
-              <Panel title="URA EFRIS" sub="fiscal invoicing"><div className="flex items-center gap-2 mb-2"><Badge tone={cp.efrisConnected ? 'ok' : 'warn'} dot>{cp.efrisConnected ? 'Connected' : 'Not connected'}</Badge></div><p className="t-sm text-[var(--text-2)]">Once the URA integration is configured for this company, every invoice is sent to EFRIS when it is issued and comes back with its Fiscal Document Number and verification code. Until then invoices show the fiscal block as pending.</p></Panel>
+              <Panel title="URA EFRIS" sub="fiscal invoicing"><div className="flex items-center gap-2 mb-2"><Badge tone="neutral" dot>{cp.efrisConnected ? 'Marked connected' : 'Not connected'}</Badge></div><p className="t-sm text-[var(--text-2)]">This demo does not connect to URA or send invoices. No Fiscal Document Number or verification QR is generated. The status shown here is a company profile flag only.</p></Panel>
             </div>); })()}
           {section === 'products' && <ProductsEditor site={site} canEdit={canEdit} />}
           {section === 'machines' && <MachinesEditor site={site} canEdit={canEdit} />}

@@ -72,7 +72,7 @@ export const gatePassNo = (d: Pick<Dispatch, 'deliveryNoteNo'>) => d.deliveryNot
 /* ------------------------------------------------------------------ small data marks shared by the stock screens */
 /** Product colour swatch and name on one line. */
 export function ProductName({ product, sub, className }: { product?: Pick<Product, 'internalName' | 'colour'>; sub?: ReactNode; className?: string }) {
-  return <span className={cn('inline-flex items-center gap-1.5 min-w-0', className)}><span className="size-2.5 rounded-[3px] shrink-0" style={{ background: product?.colour ?? 'var(--text-4)' }} /><span className="font-medium truncate">{product?.internalName ?? '—'}</span>{sub && <span className="t-sm text-[var(--text-3)] whitespace-nowrap">{sub}</span>}</span>;
+  return <span className={cn('inline-flex items-center gap-1.5 min-w-0', className)}><span className="font-medium truncate">{product?.internalName ?? '—'}</span>{sub && <span className="t-sm text-[var(--text-3)] whitespace-nowrap">{sub}</span>}</span>;
 }
 /** Scale variance against the gate tolerance: green inside the band, red outside. */
 export function VarianceBadge({ pct, tolerancePct }: { pct?: number; tolerancePct: number }) {
@@ -253,7 +253,7 @@ export function CaptureTile({ kind, done, onDone, label, className }: { kind: 's
       className={cn('w-full flex items-center gap-2.5 rounded-lg border px-2.5 py-2 touch:py-3 text-left transition-colors disabled:cursor-default', done ? 'border-[color-mix(in_srgb,var(--ok)_40%,transparent)] bg-[var(--ok-bg)]' : 'border-dashed border-[var(--line-2)] bg-[var(--surface)]', onDone && !done && 'hover:border-[var(--text-3)] hover:bg-[var(--hover)]', className)}>
       <IconChip icon={done ? Check : Icon} color={done ? 'var(--ok)' : 'var(--text-3)'} />
       <span className="min-w-0 flex-1">
-        <span className="block t-base font-medium truncate">{done ? `${noun} captured` : onDone ? (kind === 'signature' ? 'Select to sign' : 'Select to take the photo') : `${noun} not captured`}</span>
+        <span className="block t-base font-medium truncate">{done ? `Demo ${noun.toLowerCase()} recorded` : onDone ? (kind === 'signature' ? 'Record signature' : 'Record photo') : `${noun} not captured`}</span>
         <span className="block t-sm text-[var(--text-3)] truncate">{text}</span>
       </span>
       {done && kind === 'signature' && <svg viewBox="0 0 72 24" className="h-6 w-[72px] shrink-0 text-[var(--text-2)]" aria-hidden><path d="M2 18c6-9 9-14 12-13s-3 14 1 14 6-11 9-10-1 9 2 9 5-8 8-8 0 7 3 7 6-9 10-9-2 9 2 9 8-4 16-6" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}

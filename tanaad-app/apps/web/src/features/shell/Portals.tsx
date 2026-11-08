@@ -7,14 +7,13 @@ import { usePrefs } from '@/app/prefs';
 import { SITES } from '@/config/sites';
 import { roleLabel } from '@/config/roles';
 import { Avatar, cn } from '@/components/ui';
-import { headcount, openExceptions, outputToday, portalsFor } from '@/data/selectors';
-import { fmtNum } from '@/data/format';
+import { attendanceFor, openExceptions, portalsFor } from '@/data/selectors';
+import { fmtDayLong, fmtNum } from '@/data/format';
 import { Logo } from './BrandPanel';
 
 type PortalId = 'group' | SiteCode;
 const ICON: Record<PortalId, LucideIcon> = { group: Building2, mats: Factory, bags: ShoppingBag, recycling: Recycle };
 const COLOR: Record<PortalId, string> = { group: 'var(--site-group)', mats: 'var(--site-mats)', bags: 'var(--site-bags)', recycling: 'var(--site-recycling)' };
-const UNIT: Record<SiteCode, string> = { mats: 'mats', bags: 'packs', recycling: 'sacks' };
 
 /** Opens only workspaces assigned to the signed-in person. */
 export function Portals() {
@@ -92,21 +91,19 @@ export function Portals() {
         <div className="mb-6">
           <div className={cn('t-label mb-1.5', dark ? 'text-[var(--color-amber-400)]' : undefined)}>Workspaces</div>
           <h1 className={cn('text-[28px] leading-tight font-semibold tracking-[-0.02em]', dark ? 'text-white' : undefined)}>Choose where to work</h1>
-          <p className={cn('t-base mt-1.5', dark ? 'text-slate-400' : 'text-[var(--text-2)]')}>Only workspaces assigned to your account are shown.</p>
+          <p className={cn('t-base mt-1.5', dark ? 'text-slate-400' : 'text-[var(--text-2)]')}>Demo data · {fmtDayLong(s.today)} · only assigned workspaces are shown.</p>
         </div>
 
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className={cn('grid gap-4', cards.length > 1 ? 'sm:grid-cols-2' : 'max-w-[560px]')}>
           {cards.map((c) => {
             const Icon = ICON[c.id]; const col = COLOR[c.id];
             const sites: SiteCode[] = c.id === 'group' ? ['mats', 'bags', 'recycling'] : [c.id];
-            const hc = sites.reduce((t, x) => t + headcount(s, x, s.today).present, 0);
+            const attendance = sites.reduce((total, x) => total + s.shifts.filter((shift) => shift.siteId === x && shift.day === s.today).reduce((n, shift) => n + attendanceFor(s, shift.id).length, 0), 0);
             const ex = sites.reduce((t, x) => t + openExceptions(s, x).length, 0);
-            const units = c.id === 'group' ? null : outputToday(s, c.id, s.today).reduce((t, o) => t + o.units, 0);
             const selectedRole = c.id === 'group' ? c.roles[0] : rolePick[c.id] ?? c.roles[0];
 
             return (
               <article key={c.id} className={cn('relative overflow-hidden rounded-xl border p-5 flex flex-col', dark ? 'border-[#203642] bg-[#121f26]' : 'border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-tile)]')}>
-                <span className="absolute inset-x-0 top-0 h-[3px]" style={{ background: col }} />
                 <div className="flex items-start gap-3">
                   <span className="size-10 rounded-lg grid place-items-center text-white shrink-0" style={{ background: col }}>
                     <Icon className="size-4.5" strokeWidth={2.2} />
@@ -115,15 +112,11 @@ export function Portals() {
                     <h2 className={cn('t-lg font-semibold', dark ? 'text-white' : undefined)}>{c.name}</h2>
                     <p className={cn('t-sm mt-0.5', dark ? 'text-slate-400' : 'text-[var(--text-3)]')}>{c.description}</p>
                   </div>
-                  <span className={cn('t-xs font-medium px-2 py-1 rounded-full', ex > 0 ? (dark ? 'bg-amber-500/15 text-amber-300' : 'bg-[var(--warn-bg)] text-[var(--warn)]') : (dark ? 'bg-emerald-500/15 text-emerald-300' : 'bg-[var(--ok-bg)] text-[var(--ok)]'))}>
-                    {ex > 0 ? `${ex} open` : 'Up to date'}
-                  </span>
                 </div>
 
-                <dl className={cn('grid gap-3 mt-5 p-3.5 rounded-lg border', dark ? 'bg-black/25 border-white/5' : 'bg-[var(--surface-2)] border-[var(--line)]', units === null ? 'grid-cols-2' : 'grid-cols-3')}>
-                  <div><dt className={cn('t-xs', dark ? 'text-slate-400' : 'text-[var(--text-3)]')}>Present today</dt><dd className={cn('t-kpi mt-1', dark ? 'text-white' : undefined)}>{hc}</dd></div>
-                  {units !== null && <div><dt className={cn('t-xs', dark ? 'text-slate-400' : 'text-[var(--text-3)]')}>Output today</dt><dd className={cn('t-kpi mt-1', dark ? 'text-white' : undefined)}>{fmtNum(units)} <span className={cn('t-xs font-normal', dark ? 'text-slate-400' : 'text-[var(--text-3)]')}>{UNIT[c.id as SiteCode]}</span></dd></div>}
-                  <div><dt className={cn('t-xs', dark ? 'text-slate-400' : 'text-[var(--text-3)]')}>Open items</dt><dd className={cn('t-kpi mt-1', dark ? 'text-white' : undefined)}>{ex}</dd></div>
+                <dl className={cn('grid grid-cols-2 gap-3 mt-5 p-3.5 rounded-lg border', dark ? 'bg-black/25 border-white/5' : 'bg-[var(--surface-2)] border-[var(--line)]')}>
+                  <div><dt className={cn('t-xs', dark ? 'text-slate-400' : 'text-[var(--text-3)]')}>Attendance records today</dt><dd className={cn('t-kpi mt-1', dark ? 'text-white' : undefined)}>{fmtNum(attendance)}</dd></div>
+                  <div><dt className={cn('t-xs', dark ? 'text-slate-400' : 'text-[var(--text-3)]')}>Open exceptions</dt><dd className={cn('t-kpi mt-1', dark ? 'text-white' : undefined)}>{fmtNum(ex)}</dd></div>
                 </dl>
 
                 {c.id !== 'group' && c.roles.length > 1 && (

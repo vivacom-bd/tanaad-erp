@@ -8,7 +8,7 @@ import { initPwa } from '@/app/pwa';
 import { useStore } from '@/data/store';
 
 initPwa(
-  () => useStore.getState().toast({ kind: 'ok', title: 'Ready to work offline', detail: 'The app is cached on this device.' }),
+  () => {}, // offline caching is silent; nobody needs to be told the files were cached
   () => useStore.getState().toast({ kind: 'info', title: 'A new version is ready', detail: 'Reload from the status bar when convenient.' }),
 );
 

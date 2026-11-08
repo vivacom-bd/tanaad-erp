@@ -12,7 +12,7 @@ import { PersonPicker } from '@/components/PersonPicker';
 import { Sticker } from '@/components/Sticker';
 import { printer } from '@/devices';
 import { fmtKg, fmtNum } from '@/data/format';
-import { addProduction, useColours, ColourDot, colourChip, draftLabel, FlowStrip, focusFirstField, FormSection, onModEnter, StickerStage, TabThrough, useShift, Workbench } from './kit';
+import { addProduction, useColours, ColourDot, colourChip, draftLabel, focusFirstField, FormSection, onModEnter, StickerStage, TabThrough, useShift, Workbench } from './kit';
 
 /** M1 · The mixer batch: bags of pellets plus the masterbatch, weights from master data. One batch, one sticker; the batch label is the first link in the mass balance. */
 export function Mixer() {
@@ -87,7 +87,6 @@ export function Mixer() {
         <PageHeader eyebrow={`${site.name} · Mixer`} title="Mixer batch" meta={<><Badge tone="neutral">{kindLabel} shift</Badge><Badge tone="neutral" dot>{todays.length} batches today</Badge></>}
           subtitle={usualKg ? `Every batch is weighed and gets a sticker before it goes to the extruders. The last batch was ${fmtKg(usualKg)}.` : 'Every batch is weighed and gets a sticker before it goes to the extruders.'} />
       </div>
-      <FlowStrip current="mixer" note={<span><strong className="font-semibold text-[var(--text)]">The batch sticker is the first link in the mass balance.</strong> Every later stage weighs against it: string out, racks, bundles, waste, the lorry at the gate.</span>} />
       {!mixer && <SetupHint what="mixer registered for this site" where="Machines" />}
 
       <Workbench aside={<>

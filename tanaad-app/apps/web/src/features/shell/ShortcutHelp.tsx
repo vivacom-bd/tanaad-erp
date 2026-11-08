@@ -30,7 +30,7 @@ export function ShortcutHelp() {
   }, [list]);
   return (
     <Dialog open={open} onClose={() => setOpen(false)} title="Keyboard shortcuts" width={760}>
-      <div className="columns-1 sm:columns-2 gap-8">
+      <div className="show-kbd columns-1 sm:columns-2 gap-8">
         {groups.map((g) => (
           <div key={g.group} className="break-inside-avoid mb-4">
             <div className="t-label mb-1.5">{g.group}</div>

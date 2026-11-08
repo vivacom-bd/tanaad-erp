@@ -5,10 +5,10 @@ import { clientBalance, orderTotal } from '@/data/selectors';
 import { fmtDateTime, fmtDayLong, fmtDayShort, fmtKg, fmtMoney, fmtNum } from '@/data/format';
 import { addDays } from '@/data/selectors';
 import { cn } from '@/components/ui';
-import { QrCode, Settings } from 'lucide-react';
+import { Settings } from 'lucide-react';
 import { useStore } from '@/data/store';
 import { useGo } from '@/app/hooks';
-import { efrisText, orTbp, ageDays, fxLine, productOf, termsOf } from './shared';
+import { orTbp, ageDays, fxLine, productOf, termsOf } from './shared';
 
 /* ───────────────────────────── Printing ───────────────────────────── */
 /** Scoped print: only the element marked `.print-area` reaches paper. */
@@ -74,33 +74,26 @@ export function CompanyDetailsHint({ siteId }: { siteId: Site['id'] }) {
   return <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 mt-2 t-sm text-[var(--text-2)]"><span>Still blank on this document: {missing.join(', ')}.</span><button type="button" onClick={() => go.site('settings')} className="inline-flex items-center gap-1.5 font-medium underline underline-offset-2 hover:text-[var(--text)]"><Settings className="size-3.5" />Complete company details in Settings</button></div>;
 }
 
-/** URA EFRIS block. Displays official fiscal compliance details, FDN, and fiscal QR. */
+/** EFRIS status on the demo invoice. Only show fiscal identifiers actually stored on the invoice. */
 function FiscalBlock({ co, invoice }: { co?: CompanyProfile; invoice?: Invoice }) {
-  const fdn = invoice?.efrisFdn ?? (invoice ? `FDN-${invoice.number.replace(/\D/g, '').padStart(6, '0')}-2026` : 'FDN-0019283-2026');
-  const verCode = invoice?.efrisVerificationCode ?? (invoice ? `EFRIS-VER-${invoice.number.replace(/\D/g, '')}-UG` : 'EFRIS-VER-9481-UG');
+  const fdn = invoice?.efrisFdn;
+  const verCode = invoice?.efrisVerificationCode;
+  const hasFiscalResponse = Boolean(fdn && verCode);
   const row = 'flex flex-wrap items-baseline justify-between gap-x-4 py-1 border-b border-[var(--line)] last:border-b-0';
   return (
     <div className="mt-4 rounded-md border border-[var(--line-2)] overflow-hidden">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 px-3 py-1.5 bg-[var(--surface-2)] border-b border-[var(--line-2)]">
-        <span className="t-label">Fiscal Compliance · Uganda Revenue Authority (URA EFRIS)</span>
-        <Stamp tone="ok">URA EFRIS Certified</Stamp>
+        <span className="t-label">URA EFRIS status</span>
+        <Stamp tone={hasFiscalResponse ? 'ok' : 'warn'}>{hasFiscalResponse ? 'Fiscal details recorded' : 'Not fiscalised'}</Stamp>
       </div>
-      <div className="flex items-stretch gap-3 px-3 py-2">
-        <div className="flex-1 min-w-0 t-sm">
-          <div className={row}><span className="text-[var(--text-2)]">Fiscal Document Number (FDN)</span><span className="font-mono font-medium">{fdn}</span></div>
-          <div className={row}><span className="text-[var(--text-2)]">EFRIS Verification Code</span><span className="font-mono font-medium">{verCode}</span></div>
-          <div className={row}><span className="text-[var(--text-2)]">Taxpayer TIN</span><span className="font-mono font-medium">{co?.tin ?? '1001884291'}</span></div>
-        </div>
-        <div className="hidden @md:grid w-[76px] shrink-0 place-items-center rounded-md border border-[var(--line)] bg-[var(--surface-2)] text-[var(--text-2)] p-1.5" aria-label="URA Verification QR">
-          <div className="grid place-items-center gap-0.5 text-center">
-            <QrCode className="size-7 text-[var(--ok)]" />
-            <span className="text-[9px] font-mono leading-none text-[var(--text-3)]">EFRIS QR</span>
-          </div>
-        </div>
+      <div className="px-3 py-2 t-sm">
+        <div className={row}><span className="text-[var(--text-2)]">Fiscal Document Number (FDN)</span><span className="font-mono font-medium">{fdn ?? 'Not issued by URA'}</span></div>
+        <div className={row}><span className="text-[var(--text-2)]">EFRIS Verification Code</span><span className="font-mono font-medium">{verCode ?? 'Not returned by URA'}</span></div>
+        <div className={row}><span className="text-[var(--text-2)]">Taxpayer TIN</span><span className="font-mono font-medium">{orTbp(co?.tin)}</span></div>
       </div>
       <div className="px-3 py-1.5 border-t border-[var(--line)] t-xs text-[var(--text-3)] flex items-center justify-between">
-        <span>Officially fiscalized under Uganda Tax Procedures Code Act 2014 & EFRIS Regulations.</span>
-        <span className="font-mono text-[10px] text-[var(--ok)] font-semibold">TRANSMITTED TO URA</span>
+        <span>{hasFiscalResponse ? 'Fiscal response details are stored on this invoice.' : 'EFRIS is not connected in this demo. This document is not a fiscal invoice.'}</span>
+        {!hasFiscalResponse && <span className="font-mono text-[10px] text-[var(--warn)] font-semibold">NOT SENT</span>}
       </div>
     </div>
   );
@@ -209,7 +202,7 @@ export function StatementDocument({ s, site, client, className }: { s: AppState;
         {payments.length === 0 ? <div className="t-sm text-[var(--text-3)]">None yet.</div> : payments.slice(-8).map((p) => <div key={p.id} className="flex justify-between gap-3 py-1 border-b border-[var(--line)] last:border-b-0 t-sm"><span className="text-[var(--text-2)] truncate"><span className="num">{fmtDayShort(p.at.slice(0, 10))}</span> · {p.method} · <span className="code">{p.reference}</span></span><span className="num font-medium shrink-0">{fmtMoney(p.amount, p.currency)}</span></div>)}
       </div>
 
-      <div className="mt-4 t-xs text-[var(--text-2)] leading-relaxed"><div className="t-label mb-0.5">How to pay</div><PaymentDetails co={co} /><div className="text-[var(--text-3)] mt-1">A statement is not a fiscal document; each invoice carries its own EFRIS details.</div></div>
+      <div className="mt-4 t-xs text-[var(--text-2)] leading-relaxed"><div className="t-label mb-0.5">How to pay</div><PaymentDetails co={co} /><div className="text-[var(--text-3)] mt-1">A statement is not a fiscal document. Check each invoice for its EFRIS status.</div></div>
       <div className="mt-4 pt-3 border-t border-[var(--line)] flex justify-between gap-3 t-xs text-[var(--text-3)]"><span>Thank you for your business.</span><span className="num">Statement at {fmtDayShort(s.today)} · page 1 of 1</span></div>
     </Paper>
   );

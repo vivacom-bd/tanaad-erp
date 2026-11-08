@@ -1,7 +1,7 @@
 import { COMPANY } from '@/config/company';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
-import { Bell, Building2, ChevronDown, ChevronRight, ChevronsUpDown, Clock, Cloud, CloudOff, Contrast, Download, Factory, HelpCircle, Keyboard, LayoutGrid, LogOut, Maximize, Menu as MenuIcon, Minimize, MonitorSmartphone, Moon, MoreHorizontal, PanelLeft, Recycle, RefreshCw, Search, ShoppingBag, Sun, X, type LucideIcon } from 'lucide-react';
+import { Bell, Building2, ChevronDown, ChevronRight, ChevronsUpDown, Cloud, CloudOff, Contrast, Download, Factory, HelpCircle, Keyboard, LayoutGrid, LogOut, Maximize, Menu as MenuIcon, Minimize, MonitorSmartphone, Moon, MoreHorizontal, PanelLeft, Recycle, RefreshCw, Search, ShoppingBag, Sun, X, type LucideIcon } from 'lucide-react';
 import type { Role, SiteCode } from '@tanaad/domain';
 import { useStore, pendingCount } from '@/data/store';
 import { useSite } from '@/app/hooks';
@@ -14,7 +14,7 @@ import { roleLabel } from '@/config/roles';
 import { SITE_COLOR, SITE_ICON } from '@/config/siteIdentity';
 import { Avatar, cn, IconButton, Kbd, Menu, useMedia, type MenuItem } from '@/components/ui';
 import { fmtDayLong, fmtDateTime } from '@/data/format';
-import { cashDayFor, currentShiftKind, openExceptions, portalsFor } from '@/data/selectors';
+import { cashDayFor, currentShiftKind, DEMO_HOUR, openExceptions, portalsFor } from '@/data/selectors';
 import { PresenterPanel } from '@/demo/PresenterPanel';
 import { Toasts } from './Toasts';
 import { CommandPalette } from './CommandPalette';
@@ -85,7 +85,7 @@ export function AppShell({ scope }: { scope: 'group' | 'site' }) {
       {desktop && <Sidebar scope={scope} items={items} pathname={loc.pathname} collapsed={collapsed} canGroup={canGroup} />}
       <div className="flex-1 min-w-0 flex flex-col">
         <TitleBar scope={scope} current={current} hubLabel={hub && hubTabs.length > 1 ? hub.label : undefined} desktop={desktop} onMenu={() => (desktop ? toggleSidebar() : setDrawer(true))} />
-        <HubTabs tabs={hubTabs} pathname={loc.pathname} />
+        {!desktop && <HubTabs tabs={hubTabs} pathname={loc.pathname} />}
         <main ref={main} id="main" className="flex-1 min-h-0 overflow-auto scrollbar-thin">
           <div className="px-[var(--page-x)] py-[var(--page-y)] max-w-[1720px] mx-auto pb-12"><Outlet /></div>
         </main>
@@ -232,12 +232,6 @@ function TitleBar({ scope, current, hubLabel, desktop, onMenu }: { scope: 'group
   const role: Role = session?.role ?? 'supervisor';
   const unread = alerts.filter((a) => !a.read).length;
 
-  // Live EAT Digital Clock
-  const [time, setTime] = useState(() => new Date());
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Fullscreen Handler
   const [isFullscreen, setIsFullscreen] = useState(() => typeof document !== 'undefined' && !!document.fullscreenElement);
@@ -260,8 +254,9 @@ function TitleBar({ scope, current, hubLabel, desktop, onMenu }: { scope: 'group
   const userItems: MenuItem[] = [
     { label: 'Switch Portal / Site', icon: LayoutGrid, onSelect: () => nav({ to: '/portals' as never }) },
     { label: prefs.theme === 'dark' ? 'Light Theme' : 'Dark Theme', icon: prefs.theme === 'dark' ? Sun : Moon, onSelect: prefs.toggleTheme, divider: true },
-    { label: prefs.density === 'compact' ? 'Touch Layout' : 'Compact Layout', icon: MonitorSmartphone, onSelect: prefs.toggleDensity },
-    { label: 'Keyboard Shortcuts', icon: Keyboard, onSelect: () => prefs.setHelp(true) },
+    { label: prefs.density === 'compact' ? 'Touch layout' : 'Compact layout', icon: MonitorSmartphone, onSelect: prefs.toggleDensity },
+    { label: 'Keyboard shortcuts', icon: Keyboard, onSelect: () => prefs.setHelp(true) },
+    ...(pwa.canInstall ? [{ label: 'Install as an app', icon: Download, onSelect: () => void pwa.install() }] : []),
     ...(pwa.canInstall ? [{ label: 'Install App', icon: Download, onSelect: () => void pwa.install() }] : []),
     { label: 'Sign Out', icon: LogOut, divider: true, onSelect: () => { signOut(); nav({ to: '/' }); } },
   ];
@@ -270,13 +265,13 @@ function TitleBar({ scope, current, hubLabel, desktop, onMenu }: { scope: 'group
     <header className="app-drag shrink-0 h-[var(--titlebar-h)] bg-[var(--chrome)] border-b border-[var(--line)] flex items-center gap-2 pl-3 pr-3 no-print">
       <IconButton icon={desktop ? PanelLeft : MenuIcon} label={desktop ? 'Toggle sidebar' : 'Menu'} onClick={onMenu} className="app-no-drag" />
       <nav className="app-no-drag flex items-center gap-2 min-w-0 t-base pl-1" aria-label="Breadcrumb">
-        <div className="flex items-center gap-1.5">
-          <span className="font-bold text-xs tracking-wider uppercase text-[var(--text)]">TANAAD ERP</span>
-          <span className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-[var(--surface-2)] text-[var(--text-2)] border border-[var(--line)]">v4.0</span>
+        <div className="hidden sm:flex items-center gap-1.5">
+          <span className="font-bold text-xs tracking-wider uppercase text-[var(--text)]">Tanaad</span>
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[var(--surface-2)] text-[var(--text-3)] border border-[var(--line)]">Demo</span>
         </div>
-        <ChevronRight className="size-3 text-[var(--text-4)] shrink-0" />
+        <ChevronRight className="hidden sm:block size-3 text-[var(--text-4)] shrink-0" />
         <span className="size-2 rounded-full shrink-0" style={{ background: SITE_COLOR[key] }} />
-        <span className="font-semibold text-[var(--text)] text-xs sm:text-sm whitespace-nowrap">{scope === 'group' ? 'Group Operations HQ' : site.name}</span>
+        <span className="font-semibold text-[var(--text)] text-sm truncate">{scope === 'group' ? 'Group HQ' : site.name}</span>
         {current && desktop && (
           <>
             <ChevronRight className="size-3 text-[var(--text-4)] shrink-0" />
@@ -289,17 +284,14 @@ function TitleBar({ scope, current, hubLabel, desktop, onMenu }: { scope: 'group
 
       {wide ? (
         <button onClick={() => prefs.setPalette(true)} className="app-no-drag ctl w-[min(340px,24vw)] px-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] hover:border-[var(--line-2)] hover:bg-[var(--surface)] flex items-center gap-2 text-[var(--text-3)] t-base transition-colors">
-          <Search className="size-3.5" /><span className="flex-1 text-left truncate text-xs">Search reports, looms, workers, trucks...</span>
+          <Search className="size-3.5" /><span className="flex-1 text-left truncate text-xs">Search pages and records…</span>
         </button>
       ) : <IconButton icon={Search} label="Search" onClick={() => prefs.setPalette(true)} className="app-no-drag" />}
 
       <div className="flex-1 min-w-2 hidden lg:block" />
 
-      {/* Live Digital Clock on Top Bar */}
-      <div className="hidden lg:flex items-center gap-1.5 px-2.5 h-8 rounded-lg text-xs font-mono font-medium text-[var(--text-2)] bg-[var(--surface-2)] border border-[var(--line)] select-none">
-        <Clock className="size-3.5 text-[var(--text-3)]" />
-        <span>{time.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} EAT</span>
-      </div>
+      {/* The demo runs on a pinned clock (see data/selectors), so show that time rather than the computer's. */}
+      <span className="hidden lg:inline text-xs tabular-nums text-[var(--text-3)] select-none">{DEMO_HOUR}:20</span>
 
       {/* Fullscreen Button */}
       <IconButton
@@ -312,16 +304,16 @@ function TitleBar({ scope, current, hubLabel, desktop, onMenu }: { scope: 'group
       {/* Standalone Theme Switcher on Top Bar */}
       <IconButton
         icon={prefs.theme === 'dark' ? Sun : Moon}
-        label={prefs.theme === 'dark' ? 'Light Theme' : 'Dark Theme'}
+        label={prefs.theme === 'dark' ? 'Light theme' : 'Dark theme'}
         onClick={prefs.toggleTheme}
-        className="app-no-drag"
+        className="app-no-drag hidden sm:grid"
       />
 
       {/* Offline Status (Only shown when offline) */}
       {!online && (
-        <div className="app-no-drag flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium bg-[var(--bad-bg)] text-[var(--bad)] border border-[var(--bad)]/20" title="Offline mode active. All inputs buffered locally.">
+        <div className="app-no-drag flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium bg-[var(--bad-bg)] text-[var(--bad)] border border-[var(--bad)]/20" title="Demo connection is offline. New demo events are queued on this device.">
           <CloudOff className="size-3.5" />
-          <span>Offline · {pending} buffered</span>
+          <span>Demo offline · {pending} queued</span>
         </div>
       )}
 
@@ -375,16 +367,15 @@ function StatusBar({ scope }: { scope: 'group' | 'site' }) {
         <Seg title="Today's cash page">{cd ? `Cash day ${cd.status}` : 'No cash day'}</Seg>
       </> : <><Seg><Building2 className="size-3" />{COMPANY.groupName}</Seg><Seg>{fmtDayLong(s.today)}</Seg><Seg>USD 1 = UGX {s.fx.toLocaleString()}</Seg></>}
       <span className="flex-1" />
-      {pwa.canInstall && <Seg onClick={() => void pwa.install()} title="Install as a desktop app"><Download className="size-3" />Install app</Seg>}
       {pwa.updateReady && <Seg onClick={pwa.applyUpdate}><RefreshCw className="size-3" />Update ready</Seg>}
-      <Seg title={pwa.offlineReady ? 'The app is cached on this device. It opens without a network.' : 'Preparing the offline cache'}>{pwa.offlineReady ? 'Offline ready' : 'Caching…'}</Seg>
-      <Seg onClick={() => s.setOnline(!s.online)} title="Click to simulate losing or regaining the connection">{s.online ? <Cloud className="size-3" /> : <CloudOff className="size-3" />}{s.online ? (pending ? `${pending} syncing` : 'Synced') : `Offline · ${pending} queued on this device`}</Seg>
-      <Seg onClick={prefs.toggleDensity} title="Switch between compact (keyboard and mouse) and touch layout"><MonitorSmartphone className="size-3" />{prefs.density === 'compact' ? 'Compact' : 'Touch'}</Seg>
-      <Seg onClick={() => prefs.setHelp(true)}><Keyboard className="size-3" />Shortcuts <Kbd keys="?" /></Seg>
-      <Seg title="Tanaad ERP v4.0 Industrial Edition">v4.0 (Industrial)</Seg>
+      {offline && <Seg onClick={() => s.setOnline(true)} title="Demo: the simulated connection is off. Click to turn it back on."><CloudOff className="size-3" />Offline</Seg>}
+      <Seg title="This build uses sample data stored in this browser. No production API is connected.">Demo data</Seg>
     </footer>
   );
 }
+
+/** One-word labels for the phone tab bar, where the full page names get cut off. */
+const TAB_SHORT: Record<string, string> = { 'production/wall': 'Machines', 'production/sheet': 'Handover', 'production/labels': 'Labels', 'people/attendance': 'Attendance', 'people/settlement': 'Wages', 'cash/expense': 'Expense', 'stock/dispatch': 'Loading', 'stock/receive': 'Receive', 'stock/spares': 'Spares', 'stock/maintenance': 'Repairs', 'stock/deliveries': 'Deliveries', 'production/scan': 'Scan', 'sales/orders': 'Orders', 'sales/clients': 'Clients', dashboard: 'Overview', cash: 'Cash', stock: 'Stock' };
 
 /* ───────────────────────────── Tab bar (phones, small tablets) ───────────────────────────── */
 function BottomNav({ items, pathname, role, onMore }: { items: Item[]; pathname: string; role: Role; onMore: () => void }) {
@@ -395,7 +386,7 @@ function BottomNav({ items, pathname, role, onMore }: { items: Item[]; pathname:
       {list.map((n) => { const on = pathname === n.href || pathname.startsWith(`${n.href}/`); return (
         <Link key={n.href} to={n.href as never} className={cn('relative h-14 flex flex-col items-center justify-center gap-0.5 text-[10.5px] font-medium', on ? 'text-[var(--text)]' : 'text-[var(--text-3)]')}>
           {on && <span className="absolute top-0 h-[2px] w-8 rounded-b-full bg-[var(--accent)]" />}
-          <n.icon className="size-5" strokeWidth={on ? 2.25 : 2} /><span className="truncate max-w-full px-1">{n.label}</span>
+          <n.icon className="size-5" strokeWidth={on ? 2.25 : 2} /><span className="truncate max-w-full px-1">{TAB_SHORT[n.to] ?? n.label}</span>
         </Link>
       ); })}
       <button onClick={onMore} className="h-14 flex flex-col items-center justify-center gap-0.5 text-[10.5px] font-medium text-[var(--text-3)]"><MoreHorizontal className="size-5" /><span>More</span></button>

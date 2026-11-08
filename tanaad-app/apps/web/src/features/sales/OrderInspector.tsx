@@ -81,7 +81,7 @@ export function OrderInspector({ order, onClose }: { order: Order; onClose: () =
     { label: 'Picking', sub: dsp ? `Delivery note ${dsp.deliveryNoteNo} · ${dsp.scannedLabelIds.length} of ${bundles} bundles scanned` : 'Storekeeper scans each bundle', at: dsp?.createdAt, done: rank >= 3 },
     { label: 'Gate passed', sub: dsp?.gateKg !== undefined ? `${fmtKg(dsp.gateKg)} at the gate against ${fmtKg(dsp.expectedKg)} expected · ${fmtPct(dsp.variancePct ?? 0, true)}${dsp.gateStatus === 'overridden' ? ' · override' : dsp.gateStatus === 'hold' ? ' · held at the gate' : ''}` : dsp ? `Expected ${fmtKg(dsp.expectedKg)}` : 'Weighbridge check against expected weight', at: dsp?.gatePassedAt, done: rank >= 3, bad: dsp?.gateStatus === 'hold' },
     { label: 'Delivered', sub: dsp?.pod ? `${dsp.pod.receiverName} counted ${dsp.pod.bundlesCounted} of ${dsp.pod.bundlesExpected}` : 'Receiver confirms the count', at: dsp?.pod?.deliveredAt, done: rank >= 4, bad: dsp?.pod ? dsp.pod.bundlesCounted !== dsp.pod.bundlesExpected : false },
-    { label: 'Invoiced', sub: inv ? `${inv.number} · ${fmtMoney(inv.total, inv.currency)} · EFRIS pending` : 'Invoice PDF to WhatsApp · fiscalised through EFRIS once connected', at: inv?.issuedAt, done: rank >= 5 },
+    { label: 'Invoiced', sub: inv ? `${inv.number} · ${fmtMoney(inv.total, inv.currency)} · EFRIS has no URA response` : 'Invoice document · EFRIS not connected in this demo', at: inv?.issuedAt, done: rank >= 5 },
     { label: 'Paid', sub: rank >= 6 ? `${fmtMoney(paidOnInv || total, order.currency)} received` : inv ? `${fmtMoney(inv.total - paidOnInv, inv.currency)} outstanding` : undefined, done: rank >= 6 },
   ];
   const doneCount = steps.filter((x) => x.done).length; const currentStep = steps.find((x) => !x.done);

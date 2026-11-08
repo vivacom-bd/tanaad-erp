@@ -1,11 +1,10 @@
-import { COMPANY } from '@/config/company';
 import { useRef, useState, type ReactNode } from 'react';
-import { Activity, AlertTriangle, BarChart3, Bell, Boxes, ChevronRight, Factory, Flame, History, Hourglass, Inbox, Landmark, MessageSquareText, PackageCheck, Recycle, Scale, ShieldCheck, Siren, Truck, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, Bell, Boxes, ChevronRight, Factory, Flame, History, Hourglass, Inbox, Landmark, PackageCheck, Recycle, Scale, ShieldCheck, Siren, Truck, Users, Wallet, type LucideIcon } from 'lucide-react';
 import type { ShiftKind, Site, SiteCode } from '@tanaad/domain';
 import { useStore, type AppState } from '@/data/store';
 import { useGo, useRefList } from '@/app/hooks';
-import { Avatar, Badge, Bar, Button, DataGrid, Empty, Kbd, Meter, Panel, Row, Sheet, StackedBar, Tabs, cn, useHotkey, useMedia, type Column } from '@/components/ui';
-import { ColumnChart, CountUp, Delta, Legend, Sparkline, pctChange } from '@/components/charts';
+import { Avatar, Badge, Bar, Button, DataGrid, Empty, Kbd, Meter, KpiStrip, PageHeader, Panel, Row, Stat, Sheet, StackedBar, Tabs, cn, useHotkey, useMedia, type Column } from '@/components/ui';
+import { ColumnChart, CountUp, Delta, Legend, pctChange } from '@/components/charts';
 import { SITE_LIST } from '@/config/sites';
 import { categoryColor } from '@/config/categories';
 import { SITE_COLOR } from '@/config/siteIdentity';
@@ -58,7 +57,7 @@ function numbersFor(s: AppState, site: Site, kind: ShiftKind) {
 }
 type SiteNumbers = ReturnType<typeof numbersFor>;
 
-/** One comparable line about a site. Sparklines only where a 7-day shape helps (cash, output). */
+/** One comparable line about a site. */
 interface Metric { id: string; drill: DrillKind; icon: LucideIcon; color: string; label: string; sub: string; value: ReactNode; delta?: ReactNode; spark?: number[]; meter?: { value: number; max: number; ok: boolean }; mark?: ReactNode }
 
 function metricsFor(p: SiteNumbers): Metric[] {
@@ -94,34 +93,16 @@ function metricsFor(p: SiteNumbers): Metric[] {
   ];
 }
 
-/** A headline number on the dark band. */
-function HeroStat({ label, short, value, sub, delta, spark, alert, onClick }: { label: string; short?: string; value: ReactNode; sub: ReactNode; delta?: ReactNode; spark?: number[]; alert?: boolean; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="group text-left min-w-0 rounded-lg border border-white/[0.08] bg-white/[0.05] hover:bg-white/[0.1] hover:border-white/20 transition-colors px-3 py-2 max-sm:px-2.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10.5px] uppercase tracking-[0.1em] max-sm:tracking-[0.06em] font-semibold text-white/50 truncate"><span className="max-sm:hidden">{label}</span><span className="sm:hidden">{short ?? label}</span></span>
-        {alert && <span className="size-1.5 rounded-full bg-[#ff9d8f] anim-live shrink-0" />}
-      </div>
-      <div className="flex items-end justify-between gap-2 mt-0.5">
-        <span className="num text-[22px] sm:text-[24px] font-semibold tracking-[-0.02em] leading-[1.15] whitespace-nowrap">{value}</span>
-        {spark && spark.length > 1 && <span className="max-lg:hidden pb-1 opacity-90"><Sparkline data={spark} width={64} height={22} color="var(--color-amber-400)" /></span>}
-      </div>
-      <div className="flex items-center gap-1.5 mt-0.5 min-w-0 min-h-[20px]">{delta}<span className={cn('text-[11.5px] text-white/55 truncate', !!delta && 'max-sm:hidden')}>{sub}</span></div>
-    </button>
-  );
-}
-
 /** One line of a site card: what it is, where it is heading, the number, and how it moved. */
 function MetricRow({ m, onClick }: { m: Metric; onClick: () => void }) {
   return (
     <button onClick={onClick} className="w-full min-w-0 flex items-center gap-2.5 px-[var(--pad)] py-1.5 touch:py-2 text-left border-b border-[var(--line)] hover:bg-[var(--hover)]">
-      <IconChip icon={m.icon} color={m.color} />
       <span className="min-w-0 flex-1">
         <span className="block t-sm font-medium text-[var(--text-2)] truncate">{m.label}</span>
         <span className="block t-xs text-[var(--text-3)] truncate">{m.sub}</span>
         {m.meter && <Bar value={m.meter.value} max={m.meter.max} tone={m.meter.ok ? 'ok' : 'warn'} height={3} className="mt-1" />}
       </span>
-      {m.mark ?? (m.spark && <Sparkline data={m.spark} width={60} height={24} color={m.color} />)}
+      {m.mark}
       <span className="shrink-0 min-w-[62px] flex flex-col items-end gap-0.5">
         <span className="num t-lg font-semibold leading-tight">{m.value}</span>
         {m.delta}
@@ -135,9 +116,8 @@ function SiteCard({ p, index, onDrill, onOpen, shift }: { p: SiteNumbers; index:
   const states = [{ label: 'Logged', value: p.logged, color: 'var(--ok)' }, { label: 'Not logged', value: p.notLogged, color: 'var(--warn)' }, { label: 'Down', value: p.down, color: 'var(--bad)' }, { label: 'Arriving', value: p.arriving, color: 'var(--text-4)' }];
   return (
     <Panel pad={false} className="relative overflow-hidden @container/site"
-      title={<span className="inline-flex items-center gap-2"><SiteMark site={p.site.id} size={24} />{p.site.name}</span>} sub={<span className="hidden @md/site:inline">{p.site.tagline.split(' · ').slice(1).join(' · ')}</span>}
+      title={<span className="inline-flex items-center gap-2"><SiteMark site={p.site.id} size={24} />{p.site.name}</span>}
       actions={<Button size="sm" onClick={onOpen} hotkey={String(index + 1)} hotkeyLabel={`Open the ${p.site.name} portal`}>Open portal</Button>}>
-      <span className="absolute inset-x-0 top-0 h-[3px]" style={{ background: SITE_COLOR[p.site.id] }} />
       <div className="grid @xl/site:grid-cols-2 @xl/site:[&>*:nth-child(odd)]:border-r @xl/site:[&>*:nth-child(odd)]:border-r-[var(--line)]">
         {metrics.map((m) => <MetricRow key={m.id} m={m} onClick={() => onDrill(m.drill)} />)}
         <button onClick={() => onDrill('machines')} className="w-full min-w-0 text-left px-[var(--pad)] py-2 hover:bg-[var(--hover)] @xl/site:border-b @xl/site:border-[var(--line)]">
@@ -153,31 +133,28 @@ function SiteCard({ p, index, onDrill, onOpen, shift }: { p: SiteNumbers; index:
   );
 }
 
-/** The CEOs' first screen: group band, three sites, cash, and what is waiting. */
+/** Group overview: cross-site status, site records, and open work. */
 export function Cockpit() {
   const s = useStore(); const go = useGo(); const kind = currentShiftKind(); const markRead = useStore((x) => x.markAlertsRead);
   const [drill, setDrill] = useState<Drill | null>(null);
   const [viewPref, setView] = useState<'cards' | 'matrix'>('cards'); const [cashDir, setCashDir] = useState<'in' | 'out'>('in');
   const wide = useMedia('(min-width: 900px)'); const view = wide ? viewPref : 'cards';
   const waiting = useRef<HTMLDivElement>(null);
-  const user = s.users.find((u) => u.id === s.session?.userId);
 
   const per = SITE_LIST.map((site) => numbersFor(s, liveSite(s, site), kind));
   const sum = (f: (p: SiteNumbers) => number) => per.reduce((t, p) => t + f(p), 0);
   const days = per[0].series.map((d) => d.day); const last = days.length - 1;
   const cashTotal = sum((p) => p.cash); const cashSpark = days.map((_, i) => sum((p) => p.cashSpark[i] ?? 0));
-  const hcTotal = sum((p) => p.hc.total); const exTotal = sum((p) => p.ex.length); const critical = sum((p) => p.critical);
-  const kgToday = sum((p) => p.today.kgOut);
+  const hcTotal = sum((p) => p.hc.total); const critical = sum((p) => p.critical);
   const allRecv = [...receivables(s)].sort((a, b) => b.balance - a.balance);
   const recvTotal = allRecv.reduce((t, r) => t + r.balance, 0); const recvOverdue = allRecv.filter((r) => r.ageDays > r.client.creditDays);
   const awaiting = s.orders.filter((o) => o.status === 'awaiting_approval').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
   const awaitingUsd = awaiting.reduce((t, o) => t + (o.currency === 'USD' ? orderTotal(o) : orderTotal(o) / s.fx), 0);
   const unread = s.alerts.filter((a) => !a.read); const alarm = unread[0];
   const exOpen = per.flatMap((p) => p.ex).filter((e) => e.kind !== 'credit_over_limit' || !awaiting.some((o) => e.detail.includes(o.number)));
+  const exTotal = exOpen.length;
   const decisions = awaiting.length + exOpen.length;
   const recent = [...s.audit].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6);
-  const shift = SITE_LIST[0].shifts.find((x) => x.kind === kind);
-  const greet = DEMO_HOUR < 12 ? 'Good morning' : DEMO_HOUR < 17 ? 'Good afternoon' : 'Good evening';
   const categories = useRefList('expense_category');
   const spendCats = categories.map((c) => ({ id: c.id, label: c.label, color: c.color ?? categoryColor(c.id as never) }));
   const spend = per.map((p) => {
@@ -197,7 +174,7 @@ export function Cockpit() {
   const review = (to: 'approvals' | 'credit', id: string) => { setPresetSelection(id); go.group(to); };
 
   useHotkey('v', () => setView((v) => (v === 'cards' ? 'matrix' : 'cards')), { label: 'Switch between site cards and the comparison matrix', enabled: wide });
-  useHotkey('w', () => { const el = waiting.current?.querySelector<HTMLElement>('[data-roving]'); el?.focus(); el?.scrollIntoView({ block: 'nearest' }); }, { label: 'Jump to "Waiting for you"' });
+  useHotkey('w', () => { const el = waiting.current?.querySelector<HTMLElement>('[data-roving]'); el?.focus(); el?.scrollIntoView({ block: 'nearest' }); }, { label: 'Jump to open items' });
 
   interface MatrixRow { id: string; drill: DrillKind; icon: LucideIcon; color: string; label: string; note: string; cells: { value: ReactNode; delta?: ReactNode; spark?: number[] }[]; total: ReactNode }
   const all = per.map(metricsFor);
@@ -220,55 +197,25 @@ export function Cockpit() {
     { id: 'stock', drill: 'stock', icon: Boxes, color: 'var(--series-5)', label: 'Stock on hand', note: 'labelled units in store', cells: per.map((p) => ({ value: fmtNum(p.stockBundles) })), total: dash },
   ];
   const matrixCols: Column<MatrixRow>[] = [
-    { key: 'm', header: 'Metric', cell: (r) => <span className="inline-flex items-center gap-2"><IconChip icon={r.icon} color={r.color} size="sm" /><span className="font-medium">{r.label}</span><span className="t-sm text-[var(--text-3)] max-xl:hidden">{r.note}</span></span> },
+    { key: 'm', header: 'Metric', cell: (r) => <span className="inline-flex items-center gap-2"><span className="font-medium">{r.label}</span><span className="t-sm text-[var(--text-3)] max-xl:hidden">{r.note}</span></span> },
     ...per.map((p, i): Column<MatrixRow> => ({ key: p.site.id, align: 'right', header: <span className="inline-flex items-center gap-1.5 normal-case tracking-normal t-sm text-[var(--text)]"><SiteMark site={p.site.id} size={18} />{p.site.name}</span>,
-      cell: (r) => { const c = r.cells[i]; return <span className="inline-flex items-center justify-end gap-2.5 align-middle">{c.spark && <span className="max-xl:hidden"><Sparkline data={c.spark} width={52} height={18} color={SITE_COLOR[p.site.id]} /></span>}<span className="min-w-[58px] inline-flex justify-start">{c.delta}</span><span className="num font-semibold min-w-[56px]">{c.value}</span></span>; } })),
+      cell: (r) => { const c = r.cells[i]; return <span className="inline-flex items-center justify-end gap-2.5 align-middle"><span className="min-w-[58px] inline-flex justify-start">{c.delta}</span><span className="num font-semibold min-w-[56px]">{c.value}</span></span>; } })),
     { key: 'g', header: 'Group', align: 'right', width: 110, cell: (r) => <span className="num font-semibold">{r.total}</span> },
   ];
 
   return (
     <div className="flex flex-col gap-[var(--gap)]">
-      {/* Group identity, shift label, where to go, and six numbers */}
-      <section className="hero relative overflow-hidden px-5 max-sm:px-3.5 py-4 max-sm:py-3 flex flex-col gap-3.5 max-sm:gap-3">
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
-          <div className="flex items-center gap-3.5 min-w-0">
-            <SiteMark site="group" size={48} className="rounded-xl max-sm:hidden" />
-            <div className="min-w-0">
-              <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-white/55">Group HQ · {fmtDayLong(s.today)}</div>
-              <h1 className="text-[24px] max-sm:text-[21px] font-semibold tracking-[-0.02em] leading-tight">{COMPANY.groupName}</h1>
-              <div className="text-[12.5px] text-white/60 sm:truncate">{greet}, {user?.name.split(' ')[0] ?? 'there'}. {decisions ? `${plural(decisions, 'decision')} waiting for you` : 'Nothing is waiting for you'}{critical ? `, ${critical} critical` : ''}.</div>
-            </div>
-          </div>
-          <div className="hidden md:flex flex-col justify-center min-w-[160px] px-3 py-2 rounded-lg border border-white/[0.08] bg-white/[0.05]">
-            <div className="inline-flex items-center gap-1.5 text-[12.5px] font-medium"><span className="size-1.5 rounded-full bg-[var(--color-amber-400)] anim-live" />{cap(kind)} shift</div>
-            <div className="text-[11.5px] text-white/55 mt-0.5">{SITE_LIST.length} sites · {shift ? `${shift.starts}–${shift.ends}` : 'open'} · {DEMO_HOUR}:20</div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2 ml-auto max-sm:ml-0 max-sm:w-full">
-            {alarm && (
-              <button onClick={openAlert} title={alarm.detail} className="anim-alarm inline-flex items-center gap-1.5 h-8 touch:h-10 px-3 rounded-lg bg-[rgb(239_122_105/.24)] text-[#ffc2b8] border border-[rgb(239_122_105/.5)] text-[12.5px] font-semibold whitespace-nowrap max-w-full">
-                <Siren className="size-3.5 shrink-0" /><span className="truncate">{alarm.title}</span>{unread.length > 1 && <span className="num font-medium opacity-80">+{unread.length - 1}</span>}
-              </button>
-            )}
-            <span className="contents max-sm:hidden">
-              <Button variant="inverse" icon={MessageSquareText} onClick={() => go.group('brief')} hotkey="b">Morning brief</Button>
-              <Button variant="inverse" icon={Landmark} onClick={() => go.group('credit')} hotkey="c" hotkeyLabel="Credit desk">Credit desk{awaiting.length > 0 && <span className="num px-1.5 rounded-[4px] bg-white/15 t-xs font-semibold">{awaiting.length}</span>}</Button>
-              <Button variant="accent" icon={Inbox} onClick={() => go.group('approvals')} hotkey="a" hotkeyLabel="Approvals">Approvals{exTotal > 0 && <span className="num px-1.5 rounded-[4px] bg-black/20 t-xs font-semibold">{exTotal}</span>}</Button>
-            </span>
-            <span className="sm:hidden grid grid-cols-2 gap-2 w-full">
-              <Button variant="accent" icon={Inbox} onClick={() => go.group('approvals')}>Approvals{exTotal > 0 && <span className="num px-1.5 rounded-[4px] bg-black/20 t-xs font-semibold">{exTotal}</span>}</Button>
-              <Button variant="inverse" icon={Landmark} onClick={() => go.group('credit')}>Credit desk{awaiting.length > 0 && <span className="num px-1.5 rounded-[4px] bg-white/15 t-xs font-semibold">{awaiting.length}</span>}</Button>
-            </span>
-          </div>
-        </div>
-        <div data-theme="dark" className="grid grid-cols-3 xl:grid-cols-6 gap-2 max-sm:gap-1.5">
-          <HeroStat label={`Cash · ${SITE_LIST.length} safes`} short="Cash, UGX" value={<CountUp value={cashTotal} format={compact} />} delta={<Delta value={pctChange(cashTotal, cashSpark[last - 1] ?? 0)} label="against yesterday's closing" />} sub="UGX expected" spark={cashSpark} onClick={() => setDrill({ site: 'all', kind: 'cash' })} />
-          <HeroStat label="On shift" value={<CountUp value={hcTotal} />} delta={<Delta value={pctChange(sum((p) => p.hcShift), sum((p) => p.hcYesterday))} label="against yesterday, same shift" />} sub="people" spark={days.map((_, i) => sum((p) => p.series[i]?.headcount ?? 0))} onClick={() => setDrill({ site: 'all', kind: 'headcount' })} />
-          <HeroStat label="Produced today" value={<><CountUp value={kgToday / 1000} format={(n) => n.toFixed(1)} /><span className="text-[14px] text-white/55 font-medium"> t</span></>} short="Produced" sub={<><span className="max-sm:hidden xl:max-2xl:hidden">{per.map((p) => `${fmtNum(p.today.units)} ${unitName(p.site.id)}`).join(' · ')}</span><span className="sm:hidden xl:max-2xl:inline" title={per.map((p) => `${fmtNum(p.today.units)} ${unitName(p.site.id)}`).join(' · ')}>{fmtNum(kgToday)} kg out, all sites</span></>} onClick={() => setDrill({ site: 'all', kind: 'output' })} />
-          <HeroStat label="To decide" value={<CountUp value={exTotal} />} alert={critical > 0} delta={critical ? <Badge tone="bad" dot>{critical} critical</Badge> : undefined} sub={critical ? '' : exTotal ? 'none critical' : 'all clear'} onClick={() => setDrill({ site: 'all', kind: 'exceptions' })} />
-          <HeroStat label="Awaiting approval" short="To approve" value={<>$<CountUp value={awaitingUsd} format={compact} /></>} sub={awaiting.length ? `${plural(awaiting.length, 'export order')}` : 'no export orders'} onClick={() => setDrill({ site: 'all', kind: 'orders' })} />
-          <HeroStat label="Receivables" value={<>$<CountUp value={recvTotal} format={compact} /></>} delta={recvOverdue.length ? <Badge tone="warn" dot>{recvOverdue.length} past terms</Badge> : undefined} sub={recvOverdue.length ? '' : 'all within terms'} onClick={() => setDrill({ site: 'all', kind: 'receivables' })} />
-        </div>
-      </section>
+      <PageHeader title="Group overview" subtitle={`All sites · ${fmtDayLong(s.today)} · ${kind} shift`}
+        actions={<>
+          {alarm && <Button icon={Siren} onClick={openAlert} title={alarm.detail} className="text-[var(--bad)]">{alarm.title}{unread.length > 1 && <span className="num opacity-80">+{unread.length - 1}</span>}</Button>}
+          <Button variant="primary" icon={Inbox} onClick={() => go.group('approvals')} hotkey="a" hotkeyLabel="Approvals">Approvals{exTotal > 0 && <span className="num t-xs font-semibold opacity-80">{exTotal}</span>}</Button>
+        </>} />
+      <KpiStrip>
+        <Stat label={`Cash · ${SITE_LIST.length} safes`} value={<CountUp value={cashTotal} format={compact} />} delta={<Delta value={pctChange(cashTotal, cashSpark[last - 1] ?? 0)} label="against yesterday's closing" />} sub="UGX expected" onClick={() => setDrill({ site: 'all', kind: 'cash' })} />
+        <Stat label="Open exceptions" value={<CountUp value={exTotal} />} delta={critical ? <Badge tone="bad" dot>{critical} critical</Badge> : undefined} sub={critical ? undefined : exTotal ? 'none critical' : 'none open'} onClick={() => setDrill({ site: 'all', kind: 'exceptions' })} />
+        <Stat label="Awaiting approval" value={<>$<CountUp value={awaitingUsd} format={compact} /></>} sub={awaiting.length ? `${plural(awaiting.length, 'export order')}` : 'no export orders'} onClick={() => setDrill({ site: 'all', kind: 'orders' })} />
+        <Stat label="Receivables" value={<>$<CountUp value={recvTotal} format={compact} /></>} delta={recvOverdue.length ? <Badge tone="warn" dot>{recvOverdue.length} past terms</Badge> : undefined} sub={recvOverdue.length ? undefined : 'all within terms'} onClick={() => setDrill({ site: 'all', kind: 'receivables' })} />
+      </KpiStrip>
 
       <div className="flex items-center justify-between gap-3 -mb-1">
         <div className="flex items-baseline gap-2 min-w-0"><h2 className="t-lg font-semibold whitespace-nowrap">The three sites</h2><span className="t-sm text-[var(--text-3)] truncate">today so far, against yesterday and the last six working days</span></div>
@@ -341,9 +288,9 @@ export function Cockpit() {
             )}
           </Panel>
 
-          <Panel icon={Inbox} title="Waiting for you" sub={decisions ? plural(decisions, 'decision') : undefined} pad={false}
+          <Panel icon={Inbox} title="Open items across sites" sub={decisions ? plural(decisions, 'item') : undefined} pad={false}
             footer={<div className="flex items-center justify-between gap-3"><span className="touch:hidden inline-flex items-center gap-1.5"><Kbd keys="w" />jump here<Kbd keys="arrowup" /><Kbd keys="arrowdown" />move<Kbd keys="enter" />open</span><button onClick={() => go.group('approvals')} className="font-medium text-[var(--text)] hover:underline ml-auto">All in Approvals</button></div>}>
-            {decisions === 0 ? <div className="p-[var(--pad)]"><Empty icon={Inbox} title="Nothing is waiting for you" hint="Export orders and exceptions land here the moment a site raises them." /></div> : (
+            {decisions === 0 ? <div className="p-[var(--pad)]"><Empty icon={Inbox} title="No open items" hint="Export orders and site exceptions appear here for review." /></div> : (
               <div ref={waiting} onKeyDown={rovingKeys}>
                 {awaiting.map((o, i) => {
                   const c = s.clients.find((x) => x.id === o.clientId); const b = clientBalance(s, o.clientId); const total = orderTotal(o); const pct = c?.creditLimit ? Math.round(((b.balance + total) / c.creditLimit) * 100) : 0;
@@ -417,7 +364,7 @@ function DrillBody({ site, kind, onClose }: { site: Site; kind: DrillKind; onClo
     const stage = site.id === 'mats' ? 'weave' : site.id === 'bags' ? 'convert' : 'pelletise';
     const rows = s.production.filter((p) => p.siteId === site.id && p.day === s.today && p.stageCode === stage).sort((a, b) => a.machineId.localeCompare(b.machineId, undefined, { numeric: true }));
     if (!rows.length) return <Empty icon={Factory} title="Nothing logged yet today" />;
-    return <>{rows.map((e) => { const m = s.machines.find((x) => x.id === e.machineId); const pr = s.products.find((x) => x.id === e.productId); const bench = s.benchmarks.find((b) => b.machineId === e.machineId && b.productId === e.productId)?.unitsPerShift; return <Row key={e.id} left={<span className="size-2.5 rounded-[3px] shrink-0" style={{ background: pr?.colour ?? 'var(--text-4)' }} />} title={`${m?.code ?? e.machineId}${pr ? ` · ${pr.internalName}` : ''}`} sub={`${person(e.operatorId ?? '')?.fullName ?? 'No operator'} · ${e.downtimeMin ? `${e.downtimeMin} min down${e.downtimeReason ? ` (${e.downtimeReason})` : ' (no reason)'}` : 'no downtime'} · ${fmtTime(e.at)}`} right={<span className="num t-base"><span className="font-semibold">{fmtNum(e.goodUnits)}</span>{bench ? <span className="text-[var(--text-3)]"> / {fmtNum(bench)}</span> : <span className="text-[var(--text-3)]"> · {fmtKg(e.outputKg)}</span>}</span>} />; })}</>;
+    return <>{rows.map((e) => { const m = s.machines.find((x) => x.id === e.machineId); const pr = s.products.find((x) => x.id === e.productId); const bench = s.benchmarks.find((b) => b.machineId === e.machineId && b.productId === e.productId)?.unitsPerShift; return <Row key={e.id} left={null} title={`${m?.code ?? e.machineId}${pr ? ` · ${pr.internalName}` : ''}`} sub={`${person(e.operatorId ?? '')?.fullName ?? 'No operator'} · ${e.downtimeMin ? `${e.downtimeMin} min down${e.downtimeReason ? ` (${e.downtimeReason})` : ' (no reason)'}` : 'no downtime'} · ${fmtTime(e.at)}`} right={<span className="num t-base"><span className="font-semibold">{fmtNum(e.goodUnits)}</span>{bench ? <span className="text-[var(--text-3)]"> / {fmtNum(bench)}</span> : <span className="text-[var(--text-3)]"> · {fmtKg(e.outputKg)}</span>}</span>} />; })}</>;
   }
   if (kind === 'machines') {
     const wall = machineWall(s, site.id, s.today, currentShiftKind());
@@ -462,7 +409,7 @@ function DrillBody({ site, kind, onClose }: { site: Site; kind: DrillKind; onClo
   }
   const rows = stockByProduct(s, site.id);
   if (!rows.length) return <Empty icon={Boxes} title="Nothing in stock" />;
-  return <>{rows.map((r) => <Row key={r.product.id} left={<span className="size-2.5 rounded-[3px] shrink-0" style={{ background: r.product.colour ?? 'var(--text-4)' }} />} title={r.product.internalName} sub={`${fmtNum(r.pieces)} pieces · ${fmtKg(r.kg)} · ${plural(r.zones.size, 'zone')}`} right={<span className="num t-base font-semibold">{fmtNum(r.bundles)}</span>} />)}</>;
+  return <>{rows.map((r) => <Row key={r.product.id} left={null} title={r.product.internalName} sub={`${fmtNum(r.pieces)} pieces · ${fmtKg(r.kg)} · ${plural(r.zones.size, 'zone')}`} right={<span className="num t-base font-semibold">{fmtNum(r.bundles)}</span>} />)}</>;
 }
 
 /** The ledger behind a number: one site, or the three sites one after another. */
