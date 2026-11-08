@@ -5,7 +5,7 @@ import type { ShiftKind, Site, SiteCode } from '@tanaad/domain';
 import { useStore, type AppState } from '@/data/store';
 import { useGo, useRefList } from '@/app/hooks';
 import { Avatar, Badge, Bar, Button, DataGrid, Empty, Kbd, Meter, Panel, Row, Sheet, StackedBar, Tabs, cn, useHotkey, useMedia, type Column } from '@/components/ui';
-import { ColumnChart, CountUp, Delta, Legend, LineChart, Sparkline, TimeTrack, pctChange } from '@/components/charts';
+import { ColumnChart, CountUp, Delta, Legend, Sparkline, pctChange } from '@/components/charts';
 import { SITE_LIST } from '@/config/sites';
 import { categoryColor } from '@/config/categories';
 import { SITE_COLOR } from '@/config/siteIdentity';
@@ -18,7 +18,8 @@ type DrillKind = 'cash' | 'headcount' | 'output' | 'machines' | 'waste' | 'dispa
 interface Drill { site: SiteCode | 'all'; kind: DrillKind }
 
 const STOCK_UNIT: Record<SiteCode, string> = { mats: 'bundles', bags: 'packs and rolls', recycling: 'sacks' };
-const PROGRESS = Math.max(0.1, Math.min(1, (DEMO_HOUR - 7) / 12));
+/** Linear share of the day used only to sketch pace — not a real due time. */
+const PACE = Math.max(0.1, Math.min(1, (DEMO_HOUR - 7) / 12));
 const avg = (xs: number[]) => (xs.length ? xs.reduce((t, x) => t + x, 0) / xs.length : 0);
 
 /** Everything the cockpit shows about one site, worked out once. */
@@ -32,26 +33,32 @@ function numbersFor(s: AppState, site: Site, kind: ShiftKind) {
   const mb = massBalanceDay(s, site.id, s.today);
   const ex = openExceptions(s, site.id); const recv = receivables(s, site.id); const stock = stockByProduct(s, site.id);
   const dsp = s.dispatches.filter((d) => d.siteId === site.id && d.createdAt.startsWith(s.today));
-  const due = Math.round((today.target || avg(past.map((d) => d.units))) * PROGRESS);
+  let logged = 0, notLogged = 0, down = 0, arriving = 0, stockBundles = 0, stockKg = 0;
+  for (const t of wall) {
+    if (t.state === 'arriving') arriving += 1;
+    else if (t.state === 'down') down += 1;
+    else if (t.state === 'not_logged') notLogged += 1;
+    else logged += 1;
+  }
+  for (const r of stock) { stockBundles += r.bundles; stockKg += r.kg; }
   return {
-    site, series, today, yesterday, past, cd, cs, cash, hc, wall, mb, ex, recv, dsp, due,
+    site, series, today, yesterday, cs, cash, hc, wall, mb, ex, recv, dsp,
+    due: Math.round((today.target || avg(past.map((d) => d.units))) * PACE),
     benchmarked: today.target > 0,
     hcShift: headcount(s, site.id, s.today, kind).total,
     hcYesterday: yesterday ? headcount(s, site.id, yesterday.day, kind).total : 0,
     critical: ex.filter((e) => e.severity === 'critical').length,
-    logged: wall.filter((t) => t.state === 'ok' || t.state === 'logged' || t.state === 'below').length,
-    notLogged: wall.filter((t) => t.state === 'not_logged').length,
-    down: wall.filter((t) => t.state === 'down').length,
-    arriving: wall.filter((t) => t.state === 'arriving').length,
+    logged, notLogged, down, arriving,
     avgWaste: avg(past.map((d) => d.wastePct)),
     toLoad: s.orders.filter((o) => o.siteId === site.id && (o.status === 'approved' || o.status === 'picking')).length,
     recvTotal: recv.reduce((t, r) => t + r.balance, 0),
-    stockBundles: stock.reduce((t, r) => t + r.bundles, 0), stockKg: stock.reduce((t, r) => t + r.kg, 0),
+    stockBundles, stockKg,
+    cashSpark: [...past.map((d) => d.closing), cash],
   };
 }
 type SiteNumbers = ReturnType<typeof numbersFor>;
 
-/** One comparable line about a site. The same definition feeds the site cards and the matrix. */
+/** One comparable line about a site. Sparklines only where a 7-day shape helps (cash, output). */
 interface Metric { id: string; drill: DrillKind; icon: LucideIcon; color: string; label: string; sub: string; value: ReactNode; delta?: ReactNode; spark?: number[]; meter?: { value: number; max: number; ok: boolean }; mark?: ReactNode }
 
 function metricsFor(p: SiteNumbers): Metric[] {
@@ -62,20 +69,20 @@ function metricsFor(p: SiteNumbers): Metric[] {
   return [
     { id: 'cash', drill: 'cash', icon: Wallet, color: 'var(--series-2)', label: 'Cash expected, UGX', value: compact(p.cash),
       sub: p.cs ? `in ${compact(today.cashIn)} · out ${compact(today.cashOut)}` : 'no cash page today',
-      delta: <Delta value={yesterday ? pctChange(p.cash, yesterday.closing) : null} label="against yesterday's closing" />, spark: [...p.past.map((d) => d.closing), p.cash] },
+      delta: <Delta value={yesterday ? pctChange(p.cash, yesterday.closing) : null} label="against yesterday's closing" />, spark: p.cashSpark },
     { id: 'people', drill: 'headcount', icon: Users, color: 'var(--series-1)', label: 'On shift', value: fmtNum(p.hc.total),
       sub: `${p.hc.present} full · ${p.hc.half} half day`,
-      delta: <Delta value={pctChange(p.hcShift, p.hcYesterday)} label="against yesterday, same shift" />, spark: series.map((d) => d.headcount) },
+      delta: <Delta value={pctChange(p.hcShift, p.hcYesterday)} label="against yesterday, same shift" /> },
     { id: 'output', drill: 'output', icon: PackageCheck, color: 'var(--series-3)', label: `${cap(unit)} so far`, value: fmtNum(today.units),
-      sub: p.due ? `${fmtNum(p.due)} ${p.benchmarked ? 'due' : 'usual'} by now` : 'Nothing to compare against yet',
-      delta: p.due ? <Delta value={(today.units / p.due) * 100 - 100} label={p.benchmarked ? 'against the benchmark due by now' : 'against the usual pace by now'} /> : undefined,
+      sub: p.due ? `${fmtNum(p.due)} ${p.benchmarked ? 'benchmark' : 'usual'} pace so far` : 'Nothing to compare against yet',
+      delta: p.due ? <Delta value={(today.units / p.due) * 100 - 100} label={p.benchmarked ? 'against benchmark pace so far' : 'against usual pace so far'} /> : undefined,
       spark: series.map((d) => d.units), meter: p.due ? { value: today.units, max: Math.max(p.due, today.units), ok: today.units / p.due >= site.thresholds.benchmarkPct / 100 } : undefined },
     { id: 'waste', drill: 'waste', icon: site.id === 'recycling' ? Recycle : Flame, color: 'var(--series-4)', label: 'Waste, measured', value: `${today.wastePct.toFixed(1)}%`,
       sub: `${fmtKg(Math.round(p.mb.wasteKg))} of ${fmtKg(Math.round(p.mb.kgIn))} in`,
-      delta: <Delta value={today.wastePct - p.avgWaste} suffix=" pt" goodWhen="down" label="against the 6-day average" />, spark: series.map((d) => d.wastePct) },
+      delta: <Delta value={today.wastePct - p.avgWaste} suffix=" pt" goodWhen="down" label="against the 6-day average" /> },
     { id: 'dispatches', drill: 'dispatches', icon: Truck, color: 'var(--series-7)', label: 'Dispatches', value: fmtNum(p.dsp.length),
       sub: p.dsp.length ? `${passed} passed the gate${held ? ` · ${held} held` : ''}` : p.toLoad ? `${plural(p.toLoad, 'order')} ready to load` : 'None today, nothing waiting',
-      delta: <Delta value={yesterday ? pctChange(today.dispatches, yesterday.dispatches) : null} label="against yesterday" />, spark: series.map((d) => d.dispatches) },
+      delta: <Delta value={yesterday ? pctChange(today.dispatches, yesterday.dispatches) : null} label="against yesterday" /> },
     { id: 'exceptions', drill: 'exceptions', icon: AlertTriangle, color: p.critical ? 'var(--bad)' : p.ex.length ? 'var(--warn)' : 'var(--ok)', label: 'To decide', value: fmtNum(p.ex.length),
       sub: p.ex.length ? bySeverity.filter((x) => x.value).map((x) => `${x.value} ${x.label.toLowerCase()}`).join(' · ') : 'All clear',
       delta: p.critical ? <Badge tone="bad" dot>{p.critical} critical</Badge> : undefined,
@@ -146,7 +153,7 @@ function SiteCard({ p, index, onDrill, onOpen, shift }: { p: SiteNumbers; index:
   );
 }
 
-/** The CEOs' first screen: the group in one band, the three sites side by side, then money, people and what is waiting. */
+/** The CEOs' first screen: group band, three sites, cash, and what is waiting. */
 export function Cockpit() {
   const s = useStore(); const go = useGo(); const kind = currentShiftKind(); const markRead = useStore((x) => x.markAlertsRead);
   const [drill, setDrill] = useState<Drill | null>(null);
@@ -158,15 +165,15 @@ export function Cockpit() {
   const per = SITE_LIST.map((site) => numbersFor(s, liveSite(s, site), kind));
   const sum = (f: (p: SiteNumbers) => number) => per.reduce((t, p) => t + f(p), 0);
   const days = per[0].series.map((d) => d.day); const last = days.length - 1;
-  const cashTotal = sum((p) => p.cash); const cashSpark = days.map((_, i) => sum((p) => (i === last ? p.cash : p.series[i]?.closing ?? 0)));
+  const cashTotal = sum((p) => p.cash); const cashSpark = days.map((_, i) => sum((p) => p.cashSpark[i] ?? 0));
   const hcTotal = sum((p) => p.hc.total); const exTotal = sum((p) => p.ex.length); const critical = sum((p) => p.critical);
   const kgToday = sum((p) => p.today.kgOut);
-  const allRecv = receivables(s); const recvTotal = allRecv.reduce((t, r) => t + r.balance, 0); const recvOverdue = allRecv.filter((r) => r.ageDays > r.client.creditDays);
+  const allRecv = [...receivables(s)].sort((a, b) => b.balance - a.balance);
+  const recvTotal = allRecv.reduce((t, r) => t + r.balance, 0); const recvOverdue = allRecv.filter((r) => r.ageDays > r.client.creditDays);
   const awaiting = s.orders.filter((o) => o.status === 'awaiting_approval').sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-  const usd = (o: (typeof awaiting)[number]) => (o.currency === 'USD' ? orderTotal(o) : orderTotal(o) / s.fx);
-  const awaitingUsd = awaiting.reduce((t, o) => t + usd(o), 0);
+  const awaitingUsd = awaiting.reduce((t, o) => t + (o.currency === 'USD' ? orderTotal(o) : orderTotal(o) / s.fx), 0);
   const unread = s.alerts.filter((a) => !a.read); const alarm = unread[0];
-  const exOpen = openExceptions(s).filter((e) => !(e.kind === 'credit_over_limit' && awaiting.some((o) => e.detail.includes(o.number))));
+  const exOpen = per.flatMap((p) => p.ex).filter((e) => e.kind !== 'credit_over_limit' || !awaiting.some((o) => e.detail.includes(o.number)));
   const decisions = awaiting.length + exOpen.length;
   const recent = [...s.audit].sort((a, b) => b.at.localeCompare(a.at)).slice(0, 6);
   const shift = SITE_LIST[0].shifts.find((x) => x.kind === kind);
@@ -175,9 +182,16 @@ export function Cockpit() {
   const spendCats = categories.map((c) => ({ id: c.id, label: c.label, color: c.color ?? categoryColor(c.id as never) }));
   const spend = per.map((p) => {
     const out = (p.cs?.entries ?? []).filter((e) => e.direction === 'out');
-    const segments = spendCats.map((c) => ({ label: c.label, color: c.color, value: out.filter((e) => e.category === c.id || (c.id === 'wages' && e.category === 'payout')).reduce((t, e) => t + e.amount, 0) }));
+    const byCat = new Map<string, number>();
+    for (const e of out) {
+      const id = e.category === 'payout' ? 'wages' : e.category;
+      byCat.set(id, (byCat.get(id) ?? 0) + e.amount);
+    }
+    const segments = spendCats.map((c) => ({ label: c.label, color: c.color, value: byCat.get(c.id) ?? 0 }));
     const total = segments.reduce((t, x) => t + x.value, 0);
-    return { p, segments, total, lines: out.length, top: total ? [...segments].sort((a, b) => b.value - a.value)[0] : undefined };
+    let top = segments[0];
+    for (const seg of segments) if (seg.value > top.value) top = seg;
+    return { p, segments, total, lines: out.length, top: total ? top : undefined };
   });
   const openAlert = () => { markRead(); go.group('approvals'); };
   const review = (to: 'approvals' | 'credit', id: string) => { setPresetSelection(id); go.group(to); };
@@ -185,7 +199,6 @@ export function Cockpit() {
   useHotkey('v', () => setView((v) => (v === 'cards' ? 'matrix' : 'cards')), { label: 'Switch between site cards and the comparison matrix', enabled: wide });
   useHotkey('w', () => { const el = waiting.current?.querySelector<HTMLElement>('[data-roving]'); el?.focus(); el?.scrollIntoView({ block: 'nearest' }); }, { label: 'Jump to "Waiting for you"' });
 
-  /* Matrix: rows are metrics, columns are sites. */
   interface MatrixRow { id: string; drill: DrillKind; icon: LucideIcon; color: string; label: string; note: string; cells: { value: ReactNode; delta?: ReactNode; spark?: number[] }[]; total: ReactNode }
   const all = per.map(metricsFor);
   const pick = (id: string) => all.map((ms) => { const m = ms.find((x) => x.id === id); return m ? { value: m.value, delta: m.delta, spark: m.spark } : { value: <span className="text-[var(--text-4)]">—</span> }; });
@@ -197,7 +210,7 @@ export function Cockpit() {
     { id: 'cashOut', drill: 'cash', icon: Wallet, color: 'var(--series-8)', label: 'Cash out today', note: 'UGX, expenses and wages', cells: per.map((p) => ({ value: compact(p.today.cashOut), delta: <Delta value={p.yesterday ? pctChange(p.today.cashOut, p.yesterday.cashOut) : null} goodWhen="none" />, spark: p.series.map((d) => d.cashOut) })), total: compact(sum((p) => p.today.cashOut)) },
     { ...metricOf('people'), note: 'all shifts today', cells: pick('people'), total: fmtNum(hcTotal) },
     { ...metricOf('output'), label: 'Output so far', note: per.map((p) => unitName(p.site.id)).join(', '), cells: pick('output'), total: dash },
-    { id: 'pace', drill: 'output', icon: BarChart3, color: 'var(--series-3)', label: 'Against due by now', note: 'benchmark, or the usual pace', cells: per.map((p) => ({ value: p.due ? <span className="inline-flex items-center gap-2"><span className="w-[64px] shrink-0"><Bar value={p.today.units} max={Math.max(p.due, p.today.units)} tone={p.today.units / p.due >= p.site.thresholds.benchmarkPct / 100 ? 'ok' : 'warn'} /></span>{Math.round((p.today.units / p.due) * 100)}%</span> : dash })), total: dash },
+    { id: 'pace', drill: 'output', icon: BarChart3, color: 'var(--series-3)', label: 'Pace so far', note: 'against benchmark, or usual output', cells: per.map((p) => ({ value: p.due ? <span className="inline-flex items-center gap-2"><span className="w-[64px] shrink-0"><Bar value={p.today.units} max={Math.max(p.due, p.today.units)} tone={p.today.units / p.due >= p.site.thresholds.benchmarkPct / 100 ? 'ok' : 'warn'} /></span>{Math.round((p.today.units / p.due) * 100)}%</span> : dash })), total: dash },
     { ...metricOf('waste'), note: 'share of kilos in', cells: pick('waste'), total: dash },
     { id: 'machines', drill: 'machines', icon: Activity, color: 'var(--series-7)', label: 'Machines logged', note: `${kind} shift`, cells: per.map((p) => ({ value: <>{p.logged}<span className="text-[var(--text-3)] font-normal"> / {p.wall.length - p.arriving}</span></>, delta: p.down ? <Badge tone="bad" dot>{p.down} down</Badge> : p.notLogged ? <Badge tone="warn" dot>{p.notLogged} not logged</Badge> : undefined })), total: <>{sum((p) => p.logged)}<span className="text-[var(--text-3)] font-normal"> / {sum((p) => p.wall.length - p.arriving)}</span></> },
     { id: 'downtime', drill: 'output', icon: Hourglass, color: 'var(--series-6)', label: 'Downtime', note: 'minutes today', cells: per.map((p) => ({ value: fmtNum(p.today.downtimeMin), delta: <Delta value={p.yesterday ? pctChange(p.today.downtimeMin, p.yesterday.downtimeMin) : null} goodWhen="down" />, spark: p.series.map((d) => d.downtimeMin) })), total: fmtNum(sum((p) => p.today.downtimeMin)) },
@@ -215,7 +228,7 @@ export function Cockpit() {
 
   return (
     <div className="flex flex-col gap-[var(--gap)]">
-      {/* Group identity, the shift clock, where to go, and six numbers */}
+      {/* Group identity, shift label, where to go, and six numbers */}
       <section className="hero relative overflow-hidden px-5 max-sm:px-3.5 py-4 max-sm:py-3 flex flex-col gap-3.5 max-sm:gap-3">
         <div className="flex flex-wrap items-center gap-x-8 gap-y-3">
           <div className="flex items-center gap-3.5 min-w-0">
@@ -226,9 +239,9 @@ export function Cockpit() {
               <div className="text-[12.5px] text-white/60 sm:truncate">{greet}, {user?.name.split(' ')[0] ?? 'there'}. {decisions ? `${plural(decisions, 'decision')} waiting for you` : 'Nothing is waiting for you'}{critical ? `, ${critical} critical` : ''}.</div>
             </div>
           </div>
-          <div className="flex-1 min-w-[240px] max-w-[440px] max-md:hidden">
-            <div className="flex items-center justify-between mb-2 text-[12.5px]"><span className="inline-flex items-center gap-1.5 font-medium"><span className="size-1.5 rounded-full bg-[var(--color-amber-400)] anim-live" />{cap(kind)} shift at {SITE_LIST.length} sites</span><span className="text-white/60">{DEMO_HOUR - 7} h in · {19 - DEMO_HOUR} h left</span></div>
-            <TimeTrack progress={PROGRESS} startLabel={shift?.starts ?? '07:00'} endLabel={shift?.ends ?? '19:00'} nowLabel={`${DEMO_HOUR}:20 now`} onDark />
+          <div className="hidden md:flex flex-col justify-center min-w-[160px] px-3 py-2 rounded-lg border border-white/[0.08] bg-white/[0.05]">
+            <div className="inline-flex items-center gap-1.5 text-[12.5px] font-medium"><span className="size-1.5 rounded-full bg-[var(--color-amber-400)] anim-live" />{cap(kind)} shift</div>
+            <div className="text-[11.5px] text-white/55 mt-0.5">{SITE_LIST.length} sites · {shift ? `${shift.starts}–${shift.ends}` : 'open'} · {DEMO_HOUR}:20</div>
           </div>
           <div className="flex flex-wrap items-center gap-2 ml-auto max-sm:ml-0 max-sm:w-full">
             {alarm && (
@@ -250,14 +263,13 @@ export function Cockpit() {
         <div data-theme="dark" className="grid grid-cols-3 xl:grid-cols-6 gap-2 max-sm:gap-1.5">
           <HeroStat label={`Cash · ${SITE_LIST.length} safes`} short="Cash, UGX" value={<CountUp value={cashTotal} format={compact} />} delta={<Delta value={pctChange(cashTotal, cashSpark[last - 1] ?? 0)} label="against yesterday's closing" />} sub="UGX expected" spark={cashSpark} onClick={() => setDrill({ site: 'all', kind: 'cash' })} />
           <HeroStat label="On shift" value={<CountUp value={hcTotal} />} delta={<Delta value={pctChange(sum((p) => p.hcShift), sum((p) => p.hcYesterday))} label="against yesterday, same shift" />} sub="people" spark={days.map((_, i) => sum((p) => p.series[i]?.headcount ?? 0))} onClick={() => setDrill({ site: 'all', kind: 'headcount' })} />
-          <HeroStat label="Produced today" value={<><CountUp value={kgToday / 1000} format={(n) => n.toFixed(1)} /><span className="text-[14px] text-white/55 font-medium"> t</span></>} short="Produced" sub={<><span className="max-sm:hidden xl:max-2xl:hidden">{per.map((p) => `${fmtNum(p.today.units)} ${unitName(p.site.id)}`).join(' · ')}</span><span className="sm:hidden xl:max-2xl:inline" title={per.map((p) => `${fmtNum(p.today.units)} ${unitName(p.site.id)}`).join(' · ')}>{fmtNum(kgToday)} kg out, all sites</span></>} spark={days.map((_, i) => sum((p) => p.series[i]?.kgOut ?? 0))} onClick={() => setDrill({ site: 'all', kind: 'output' })} />
+          <HeroStat label="Produced today" value={<><CountUp value={kgToday / 1000} format={(n) => n.toFixed(1)} /><span className="text-[14px] text-white/55 font-medium"> t</span></>} short="Produced" sub={<><span className="max-sm:hidden xl:max-2xl:hidden">{per.map((p) => `${fmtNum(p.today.units)} ${unitName(p.site.id)}`).join(' · ')}</span><span className="sm:hidden xl:max-2xl:inline" title={per.map((p) => `${fmtNum(p.today.units)} ${unitName(p.site.id)}`).join(' · ')}>{fmtNum(kgToday)} kg out, all sites</span></>} onClick={() => setDrill({ site: 'all', kind: 'output' })} />
           <HeroStat label="To decide" value={<CountUp value={exTotal} />} alert={critical > 0} delta={critical ? <Badge tone="bad" dot>{critical} critical</Badge> : undefined} sub={critical ? '' : exTotal ? 'none critical' : 'all clear'} onClick={() => setDrill({ site: 'all', kind: 'exceptions' })} />
           <HeroStat label="Awaiting approval" short="To approve" value={<>$<CountUp value={awaitingUsd} format={compact} /></>} sub={awaiting.length ? `${plural(awaiting.length, 'export order')}` : 'no export orders'} onClick={() => setDrill({ site: 'all', kind: 'orders' })} />
           <HeroStat label="Receivables" value={<>$<CountUp value={recvTotal} format={compact} /></>} delta={recvOverdue.length ? <Badge tone="warn" dot>{recvOverdue.length} past terms</Badge> : undefined} sub={recvOverdue.length ? '' : 'all within terms'} onClick={() => setDrill({ site: 'all', kind: 'receivables' })} />
         </div>
       </section>
 
-      {/* Site comparison */}
       <div className="flex items-center justify-between gap-3 -mb-1">
         <div className="flex items-baseline gap-2 min-w-0"><h2 className="t-lg font-semibold whitespace-nowrap">The three sites</h2><span className="t-sm text-[var(--text-3)] truncate">today so far, against yesterday and the last six working days</span></div>
         <Tabs className="max-[899px]:hidden shrink-0" value={view} onChange={setView} tabs={[{ value: 'cards', label: 'Cards' }, { value: 'matrix', label: <>Matrix<Kbd keys="v" /></> }]} />
@@ -270,13 +282,13 @@ export function Cockpit() {
         </div>
       ) : (
         <Panel pad={false} icon={BarChart3} title="Site comparison" sub="read across a row to compare the sites"
-          footer={<span>Select a row to see the records behind it at all three sites. Sparklines cover the last 7 working days; the chip beside a number is the change against yesterday.</span>}>
+          footer={<span>Select a row to see the records behind it at all three sites. The chip beside a number is the change against yesterday.</span>}>
           <DataGrid bare rows={matrix} columns={matrixCols} rowKey={(r) => r.id} onRowClick={(r) => setDrill({ site: 'all', kind: r.drill })} />
         </Panel>
       )}
-      <p className="t-xs text-[var(--text-3)] -mt-1">Select any number to see the records behind it. Cash is the expected closing of the open page; it becomes actual when the cashier counts and signs.</p>
+      <p className="t-xs text-[var(--text-3)] -mt-1">Select a number to open the records behind it. Cash is expected closing until the cashier counts and signs.</p>
 
-      {/* Money and people on the left, what needs the CEOs on the right */}
+      {/* Cash and receivables on the left, what needs the CEOs on the right */}
       <div className="grid gap-[var(--gap)] xl:grid-cols-[minmax(0,1fr)_360px] items-start">
         <div className="flex flex-col gap-[var(--gap)] min-w-0">
           <Panel icon={Wallet} title={cashDir === 'in' ? 'Cash in per day' : 'Cash out per day'} sub="UGX by site · 7 working days"
@@ -285,12 +297,9 @@ export function Cockpit() {
             <ColumnChart height={200} series={per.map((p) => ({ name: p.site.name, color: SITE_COLOR[p.site.id] }))} data={days.map((d, i) => ({ label: fmtDayShort(d), values: per.map((p) => (cashDir === 'in' ? p.series[i]?.cashIn : p.series[i]?.cashOut) ?? 0), partial: i === last }))} />
           </Panel>
           <div className="grid gap-[var(--gap)] md:grid-cols-2">
-            <Panel icon={Users} title="People on shift" sub="per site · 7 working days">
-              <LineChart height={190} partialLast labels={days.map(fmtDayShort)} series={per.map((p) => ({ name: p.site.shortName, color: SITE_COLOR[p.site.id], data: p.series.map((d) => d.headcount) }))} />
-            </Panel>
             <Panel icon={Landmark} title="Export receivables" sub="USD by client, against the credit limit" actions={<Button size="sm" variant="ghost" onClick={() => go.group('credit')}>Credit desk</Button>}
               footer={<div className="flex items-center justify-between gap-3"><span>Outstanding</span><span className="num font-semibold text-[var(--text)]">{fmtUSD(recvTotal)}</span></div>}>
-              {allRecv.length === 0 ? <Empty icon={Landmark} title="Nothing outstanding" hint="Local orders are cash before delivery; only export clients carry a balance." /> : allRecv.sort((a, b) => b.balance - a.balance).map((r) => {
+              {allRecv.length === 0 ? <Empty icon={Landmark} title="Nothing outstanding" hint="Local orders are cash before delivery; only export clients carry a balance." /> : allRecv.map((r) => {
                 const late = r.ageDays > r.client.creditDays;
                 return (
                   <button key={r.client.id} onClick={() => setDrill({ site: 'all', kind: 'receivables' })} className="block w-full text-left rounded-md -mx-1.5 px-1.5 hover:bg-[var(--hover)]">
@@ -301,11 +310,6 @@ export function Cockpit() {
                   </button>
                 );
               })}
-            </Panel>
-          </div>
-          <div className="grid gap-[var(--gap)] md:grid-cols-2">
-            <Panel icon={PackageCheck} title="Kilos out per day" sub="kg by site · 7 working days" footer={<span className="num">Today so far: {per.map((p) => `${p.site.shortName} ${fmtKg(p.today.kgOut)}`).join(' · ')}</span>}>
-              <ColumnChart height={190} format={(n) => `${compact(n)}`} series={per.map((p) => ({ name: p.site.shortName, color: SITE_COLOR[p.site.id] }))} data={days.map((d, i) => ({ label: fmtDayShort(d), values: per.map((p) => p.series[i]?.kgOut ?? 0), partial: i === last }))} />
             </Panel>
             <Panel icon={Wallet} title="Money out today" sub="UGX by category, per site" actions={<Button size="sm" variant="ghost" onClick={() => go.group('pnl')}>P&L</Button>}
               footer={categories.length ? <Legend items={spendCats.map((c) => ({ label: c.label, color: c.color }))} /> : undefined}>

@@ -38,7 +38,6 @@ const groupRoutes = [
   g('audit', () => import('@/features/group/AuditFeed'), 'AuditFeed'),
   g('people', () => import('@/features/group/GroupPeople'), 'GroupPeople'),
   g('pnl', () => import('@/features/group/Pnl'), 'Pnl'),
-  g('ask', () => import('@/features/group/Ask'), 'Ask'),
   g('settings', () => import('@/features/settings/Settings'), 'Settings'),
 ];
 

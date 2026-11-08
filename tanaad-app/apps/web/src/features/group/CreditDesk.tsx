@@ -1,12 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ClockAlert, Download, Gauge, Hourglass, Landmark, MessageSquareText, Pause, Send, ShieldCheck } from 'lucide-react';
+import { Check, ClockAlert, Copy, Download, Gauge, Hourglass, Landmark, MessageSquareText, Pause, ShieldCheck } from 'lucide-react';
 import type { Client, Order } from '@tanaad/domain';
 import { useStore, type AppState } from '@/data/store';
 import { useQueryParam } from '@/app/hooks';
 import { Avatar, Badge, Bar, Button, DataGrid, Empty, Input, Kbd, KpiStrip, Note, PageHeader, Panel, SearchInput, Sheet, Stat, Tabs, Toolbar, cn, useMedia, type Column } from '@/components/ui';
 import { CountUp, Delta, Legend, pctChange } from '@/components/charts';
 import { WhatsAppPreview } from '@/components/WhatsAppPreview';
-import { messaging } from '@/devices';
 import { SITES } from '@/config/sites';
 import { addDays, clientBalance, orderTotal } from '@/data/selectors';
 import { compact, fmtDateTime, fmtDayShort, fmtMoney, fmtNum, fmtUSD } from '@/data/format';
@@ -39,13 +38,13 @@ function CreditMeter({ limit, balance, order, currency }: { limit: number; balan
   );
 }
 
-/** Export orders awaiting approval with the client's credit picture; receivables and WhatsApp statements below. */
+/** Export orders awaiting approval with the client's credit picture; receivables and statement preview below. */
 export function CreditDesk() {
   const s = useStore(); const decideOrder = useStore((x) => x.decideOrder); const toast = useStore((x) => x.toast);
   const q0 = useQueryParam('q'); const [q, setQ] = useState(q0 ?? ''); const [filter, setFilter] = useState<'all' | 'balance' | 'late'>('all'); const [market, setMarket] = useState('all');
   const [selId, setSelId] = useState<string | null>(() => takePresetSelection());
   const [armed, setArmed] = useState<Verdict | null>(null); const [reason, setReason] = useState('');
-  const [statement, setStatement] = useState<Client | null>(null); const [sending, setSending] = useState(false); const [sentId, setSentId] = useState<string | null>(null);
+  const [statement, setStatement] = useState<Client | null>(null);
   const wide = useMedia('(min-width: 640px)');
   const reasonRef = useRef<HTMLInputElement>(null); const listRef = useRef<HTMLDivElement>(null);
 
@@ -88,11 +87,15 @@ export function CreditDesk() {
       `Balance due: ${fmtMoney(b.balance, c.currencyPref)}`, `Credit terms: ${c.creditDays} days · limit ${fmtMoney(c.creditLimit, c.currencyPref)}`,
     ];
   };
-  const openStatement = (c: Client) => { setStatement(c); setSentId(null); };
-  const send = async () => {
-    if (!statement || sending || sentId) return; setSending(true);
-    const r = await messaging.sendWhatsApp(statement.whatsapp, statementLines(statement).join('\n'), `Statement-${statement.name.split(' ')[0]}-${s.today}.pdf`);
-    setSending(false); setSentId(r.id); toast({ kind: 'ok', title: `Statement sent to ${statement.contact}`, detail: `WhatsApp message ${r.id}` });
+  const openStatement = (c: Client) => setStatement(c);
+  const copyStatement = async () => {
+    if (!statement) return;
+    try {
+      await navigator.clipboard.writeText(statementLines(statement).join('\n'));
+      toast({ kind: 'ok', title: 'Statement copied', detail: `Paste to ${statement.contact} on WhatsApp when ready.` });
+    } catch {
+      toast({ kind: 'warn', title: 'Could not copy', detail: 'Select the preview text and copy it by hand.' });
+    }
   };
 
   /* Headline numbers */
@@ -116,7 +119,7 @@ export function CreditDesk() {
     { key: 'age', header: 'Ageing', sort: (r) => (r.openInvoices.length ? r.ageDays : -1), cell: (r) => (!r.openInvoices.length ? <span className="text-[var(--text-4)]">none open</span> : late(r) ? <Badge tone="bad" dot>{r.ageDays} d · {r.ageDays - r.client.creditDays} over terms</Badge> : <Badge tone="neutral">{r.ageDays} d of {r.client.creditDays}</Badge>) },
     { key: 'open', header: 'Open invoices', align: 'right', mono: true, sort: (r) => r.openInvoices.length, cell: (r) => fmtNum(r.openInvoices.length) },
     { key: 'last', header: 'Last payment', sort: (r) => r.lastPayment?.at ?? '', cell: (r) => (r.lastPayment ? <span className="num">{fmtMoney(r.lastPayment.amount, r.lastPayment.currency)} <span className="text-[var(--text-3)]">· {fmtDayShort(r.lastPayment.at.slice(0, 10))}</span></span> : <span className="text-[var(--text-4)]">never</span>) },
-    { key: 'act', header: '', align: 'right', cell: (r) => <Button size="sm" icon={MessageSquareText} onClick={(e) => { e.stopPropagation(); openStatement(r.client); }}>Send statement</Button> },
+    { key: 'act', header: '', align: 'right', cell: (r) => <Button size="sm" icon={MessageSquareText} onClick={(e) => { e.stopPropagation(); openStatement(r.client); }}>Preview statement</Button> },
   ];
 
   /* Selected order */
@@ -190,7 +193,7 @@ export function CreditDesk() {
                     <KV k="This order" v={fmtMoney(total, selected.currency)} />
                     <KV k="After this order" v={<span className={cn('font-semibold', afterPct > 100 && 'text-[var(--bad)]')}>{fmtMoney(after, c.currencyPref)} · {Math.round(afterPct)}%</span>} />
                   </div>
-                  <Button className="mt-2" size="sm" variant="ghost" icon={MessageSquareText} onClick={() => openStatement(c)}>Send {c.contact} a statement</Button>
+                  <Button className="mt-2" size="sm" variant="ghost" icon={MessageSquareText} onClick={() => openStatement(c)}>Preview statement for {c.contact}</Button>
                 </section>
               </div>
               <div className="mt-auto px-[var(--pad)] py-2.5 border-t border-[var(--line)] bg-[var(--surface-2)] lg:rounded-br-[9px] max-lg:rounded-b-[9px]">
@@ -229,8 +232,8 @@ export function CreditDesk() {
       </Panel>
       </div>
 
-      <Sheet open={!!statement} onClose={() => setStatement(null)} title={statement ? `Statement · ${statement.name}` : ''} sub={statement ? `${statement.whatsapp} · sent as ${user?.name ?? 'Tanaad'}` : undefined}
-        footer={statement && <Button variant="ok" icon={Send} disabled={sending || !!sentId} hotkey="mod+enter" hotkeyLabel="Send the statement on WhatsApp" onClick={send}>{sentId ? `Sent · ${sentId}` : sending ? 'Sending…' : `Send to ${statement.contact} on WhatsApp`}</Button>}>
+      <Sheet open={!!statement} onClose={() => setStatement(null)} title={statement ? `Statement · ${statement.name}` : ''} sub={statement ? `${statement.whatsapp} · prepared as ${user?.name ?? 'Tanaad'}` : undefined}
+        footer={statement && <Button variant="ok" icon={Copy} hotkey="mod+enter" hotkeyLabel="Copy the statement" onClick={copyStatement}>Copy for {statement.contact}</Button>}>
         {statement && (() => { const sb = clientBalance(s, statement.id); return (
           <div className="flex flex-col gap-3">
             <div className="surface-2 px-3 py-1">
@@ -238,8 +241,8 @@ export function CreditDesk() {
               <KV k="Credit limit" v={`${fmtMoney(statement.creditLimit, statement.currencyPref)} · ${statement.creditDays}-day terms`} />
               <KV k="Oldest open invoice" v={sb.openInvoices.length ? <Badge tone={sb.ageDays > statement.creditDays ? 'bad' : 'neutral'}>{sb.ageDays} days</Badge> : 'none open'} />
             </div>
-            <WhatsAppPreview className="mx-auto w-full" to={`${statement.contact} · ${statement.name}`} lines={statementLines(statement)} attachment={`Statement-${statement.name.split(' ')[0]}-${s.today}.pdf`} sent={!!sentId} />
-            <p className="t-xs text-[var(--text-3)]">The PDF statement is attached to the message. The text is built from the invoices and payments on record for this client.</p>
+            <WhatsAppPreview className="mx-auto w-full" to={`${statement.contact} · ${statement.name}`} lines={statementLines(statement)} sent={false} />
+            <p className="t-xs text-[var(--text-3)]">Text is built from invoices and payments on record. Copy it and paste into WhatsApp yourself — this demo does not send messages.</p>
           </div>
         ); })()}
       </Sheet>

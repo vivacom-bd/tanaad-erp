@@ -1,5 +1,5 @@
 import { COMPANY } from '@/config/company';
-import { Keyboard, ShieldCheck, WifiOff } from 'lucide-react';
+import { Banknote, Factory, Truck } from 'lucide-react';
 
 /** Decorative woven pattern: a nod to the mats, drawn as crossing bands. Purely ornamental. */
 export function WeavePattern({ className }: { className?: string }) {
@@ -36,14 +36,14 @@ export function BrandPanel() {
       <WeavePattern className="absolute inset-0 w-full h-full text-white/[0.055]" />
       <div className="relative"><Logo onDark size={36} /></div>
       <div className="relative">
-        <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 h-7 text-[12px] text-white/75 mb-5"><span className="size-1.5 rounded-full bg-[var(--color-amber-400)] anim-live" />Mats · Bags · Recycling · Group HQ</div>
-        <h1 className="text-[38px] leading-[1.08] font-semibold tracking-[-0.025em] max-w-[15ch]">One group. Three operations. <span className="text-[var(--color-amber-400)]">One set of numbers.</span></h1>
-        <p className="mt-4 text-[15px] leading-relaxed text-white/65 max-w-[44ch]">Every kilogram weighed twice, every shilling in a category, every change on record. Built for the factory floor and the owner's phone alike.</p>
+        <div className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3 h-7 text-[12px] text-white/75 mb-5">Mats · Tanaad Packages Ltd · HDPE recycling</div>
+        <h1 className="text-[38px] leading-[1.08] font-semibold tracking-[-0.025em] max-w-[15ch]">One group. Three operations. <span className="text-[var(--color-amber-400)]">Clear daily records.</span></h1>
+        <p className="mt-4 text-[15px] leading-relaxed text-white/65 max-w-[44ch]">A digital version of the books already used across the factory floor.</p>
         <div className="mt-9 grid gap-3 max-w-[420px]">
           {[
-            { icon: WifiOff, title: 'Works through power and network cuts', text: 'Keeps recording on the device, syncs when the line is back.' },
-            { icon: Keyboard, title: 'Keyboard-first at the desk, big targets on the floor', text: 'One app that fits the cashier, the supervisor and the CEO.' },
-            { icon: ShieldCheck, title: 'Nothing disappears', text: 'Append-only ledger: edits, overrides and reopenings are all visible.' },
+            { icon: Factory, title: 'Production', text: 'Record output by machine and shift.' },
+            { icon: Banknote, title: 'Attendance and cash', text: 'Keep daily headcount, wages and expenses together.' },
+            { icon: Truck, title: 'Stock and dispatch', text: 'Count finished goods and loads leaving each site.' },
           ].map((f) => (
             <div key={f.title} className="flex items-start gap-3 rounded-xl border border-white/10 bg-white/[0.045] px-3.5 py-3 backdrop-blur-sm">
               <span className="size-8 rounded-lg bg-[rgb(217_126_34/.18)] text-[var(--color-amber-400)] grid place-items-center shrink-0"><f.icon className="size-4" /></span>
@@ -52,7 +52,7 @@ export function BrandPanel() {
           ))}
         </div>
       </div>
-      <div className="relative flex items-center justify-between text-[12px] text-white/40"><span>{COMPANY.groupName} · {COMPANY.location}</span><span>v0.2 demo · seeded from the August 2026 site visit</span></div>
+      <div className="relative text-[12px] text-white/40">{COMPANY.name} · {COMPANY.location}</div>
     </div>
   );
 }

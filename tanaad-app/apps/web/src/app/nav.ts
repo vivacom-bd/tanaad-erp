@@ -18,7 +18,6 @@ import {
   ScrollText,
   Settings,
   ShoppingCart,
-  Sparkles,
   Tag,
   Truck,
   Users,
@@ -62,7 +61,7 @@ export const SITE_NAV: NavItem[] = [
   { to: 'production/sacks', hub: 'production', label: 'Pellet Sacks', icon: Tag, group: 'Production', sites: ['recycling'], roles: ['supervisor', 'site_manager'] },
   { to: 'production/sheet', hub: 'production', keys: 'g h', label: 'Shift Handover Log', icon: ScrollText, group: 'Production', roles: ['supervisor', 'site_manager', 'ceo', 'group_admin'] },
   { to: 'production/labels', hub: 'production', keys: 'g j', label: 'Print Labels', icon: Tag, group: 'Production', roles: ['supervisor', 'site_manager', 'storekeeper'] },
-  { to: 'production/scan', hub: 'production', keys: 'g f', label: 'Scan Barcode', icon: Sparkles, group: 'Production' },
+  { to: 'production/scan', hub: 'production', keys: 'g f', label: 'Scan Barcode', icon: Tag, group: 'Production' },
 
   // People & Attendance
   { to: 'reports/attendance', hub: 'people', keys: 'g a', label: 'Attendance & Wages', icon: Users, group: 'People', roles: ['supervisor', 'site_manager', 'cashier', 'ceo', 'group_admin'] },
@@ -113,7 +112,6 @@ export const GROUP_NAV: NavItem[] = [
   { to: 'audit', hub: 'records', keys: 'g u', label: 'Audit Feed', icon: ScrollText },
   { to: 'people', hub: 'finance', keys: 'g p', label: 'Group People', icon: Users },
   { to: 'pnl', hub: 'finance', keys: 'g l', label: 'P&L & Unit Costs', icon: BarChart3 },
-  { to: 'ask', hub: 'ask', label: 'Ask the Business', icon: Sparkles },
   { to: 'settings', hub: 'settings', keys: 'g ,', label: 'Group Settings', icon: Settings },
 ];
 
@@ -158,6 +156,5 @@ export const GROUP_HUBS: Hub[] = [
   { key: 'decisions', label: 'Decisions & Approvals', icon: Bell },
   { key: 'finance', label: 'Finance & People', icon: BarChart3 },
   { key: 'records', label: 'Brief & Audit Log', icon: ScrollText },
-  { key: 'ask', label: 'Ask the Business', icon: Sparkles },
   { key: 'settings', label: 'Settings', icon: Settings },
 ];

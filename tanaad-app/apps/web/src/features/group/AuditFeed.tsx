@@ -55,7 +55,7 @@ export function AuditFeed() {
   return (
     <div>
       <PageHeader eyebrow="Group HQ" title="Audit feed" meta={<Badge tone="ok"><Lock className="size-3" />Append-only</Badge>}
-        subtitle="Who changed what, where, from which device, and why. Nothing in this feed can be deleted: a correction adds a new line, it never erases the old one."
+        subtitle="Who changed what, where, on which station, and why. Corrections add a new line; they do not erase the old one. Demo reset clears the feed."
         actions={<Button icon={Download} hotkey="e" hotkeyLabel="Export the feed as CSV" onClick={exportCsv}>Export</Button>} />
 
       <div className="flex flex-col gap-[var(--gap)]">
@@ -68,7 +68,7 @@ export function AuditFeed() {
         </KpiStrip>
 
         <Split asideWidth={340} aside={<>
-          <Note tone="ok" icon={ShieldCheck}><span className="font-medium">Append-only by design.</span> Every line is written once with the person, the device and the time. Corrections are new lines that point at the old one; there is no delete, for anyone.</Note>
+          <Note tone="ok" icon={ShieldCheck}><span className="font-medium">Append-only in normal use.</span> Every line is written once with the person, the station id, and the time. Corrections are new lines. A demo reset is the only wipe.</Note>
           <Panel icon={BarChart3} title="By event type" sub="lines in view">
             {byKind.length === 0 ? <div className="t-sm text-[var(--text-3)]">Nothing in view.</div> : byKind.map(([k, n]) => <Meter key={k} label={humanKind(k)} value={n} max={byKind[0][1]} display={fmtNum(n)} />)}
           </Panel>

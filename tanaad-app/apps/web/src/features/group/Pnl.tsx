@@ -100,7 +100,7 @@ export function Pnl() {
     ]);
     toast({ kind: 'ok', title: 'P&L exported', detail: `${meta.long} · ${rows.length} sites and ${costs.length} products` });
   };
-  const print = () => { window.print(); toast({ kind: 'info', title: 'Sent to printer', detail: `Group P&L · ${meta.long}` }); };
+  const print = () => { window.print(); toast({ kind: 'info', title: 'Print dialog opened', detail: `Group P&L · ${meta.long}` }); };
   useHotkey('1', () => setPeriod('1'), { label: 'Period: today' });
   useHotkey('2', () => setPeriod('3'), { label: 'Period: 3 days' });
   useHotkey('3', () => setPeriod('7'), { label: 'Period: 7 days' });

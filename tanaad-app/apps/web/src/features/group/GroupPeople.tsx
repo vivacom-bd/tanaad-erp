@@ -224,7 +224,7 @@ export function GroupPeople() {
               <div key={x.site} className="py-2 border-b border-[var(--line)] last:border-b-0">
                 <div className="flex items-center justify-between gap-3 mb-1.5 t-base"><span className="inline-flex items-center gap-2 font-medium"><SiteTag site={x.site} />{x.site === sharedRow.person.homeSiteId && <Badge tone="neutral">Home</Badge>}</span><span className="num t-sm text-[var(--text-2)]">{x.days} days · {x.pct}% of cost</span></div>
                 <Bar value={x.days} max={sharedRow.total} tone="series" />
-                {sharedRow.eng && <div className="t-sm text-[var(--text-3)] mt-1 num">Implied share of the rate: {fmtUGX(Math.round((sharedRow.eng.rate * x.pct) / 100))}</div>}
+                {sharedRow.eng && <div className="t-sm text-[var(--text-3)] mt-1 num">Estimate from days worked (not posted): {fmtUGX(Math.round((sharedRow.eng.rate * x.pct) / 100))}</div>}
               </div>
             ))}
           </>
