@@ -1,14 +1,12 @@
 import { forwardRef, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { Factory, FlaskConical, LayoutGrid, Package, Scissors, Warehouse, Wind, type LucideIcon } from 'lucide-react';
 import type { Label, Machine, Person, Product, Site, SiteCode } from '@tanaad/domain';
 import { useStore } from '@/data/store';
-import { useGo, useRefList, useSite } from '@/app/hooks';
+import { useRefList, useSite } from '@/app/hooks';
 import { shiftId, currentShiftKind } from '@/data/selectors';
-import { MiniBars, cn, useHotkey, type Tone } from '@/components/ui';
+import { MiniBars, cn, type Tone } from '@/components/ui';
 import { PersonPicker } from '@/components/PersonPicker';
 import { Sticker } from '@/components/Sticker';
 import { printer } from '@/devices';
-import { fmtNum } from '@/data/format';
 
 /* ───────────────────────────── Colours ───────────────────────────── */
 /** The site's colours as set up in Settings → Master data: names in the user's order, and the swatch of each. */
@@ -105,82 +103,6 @@ export function PrintRun({ labels, site, product, machine, operator, shiftKind, 
 /** Small column trend for day and week summaries. One hue; the current period is drawn lighter because it is still running. */
 export function TrendBars({ points, format }: { points: { key: string; label: string; value: number; current?: boolean }[]; format?: (v: number) => string }) {
   return <MiniBars data={points.map((p) => ({ label: p.label, value: p.value, partial: p.current }))} format={format} height={88} />;
-}
-
-/* ───────────────────────────── The seven-stage flow ───────────────────────────── */
-const STAGE_META: Record<string, { short: string; icon: LucideIcon; to?: string }> = {
-  raw: { short: 'Raw', icon: Package },
-  mixer: { short: 'Mixer', icon: FlaskConical, to: 'production/mixer' },
-  extrude: { short: 'Extruders', icon: Factory, to: 'production/extruders' },
-  dry: { short: 'Drying', icon: Wind, to: 'production/extruders' },
-  weave: { short: 'Weaving', icon: LayoutGrid, to: 'production/wall' },
-  finish: { short: 'Finishing', icon: Scissors, to: 'production/finishing' },
-  store: { short: 'Store', icon: Warehouse },
-};
-
-/** Today's figure at every stage of the mats flow, so each workstation shows where the kilos are. */
-function useFlowFigures(): Record<string, { value: string; unit: string; title: string }> {
-  const production = useStore((s) => s.production); const labels = useStore((s) => s.labels); const today = useStore((s) => s.today);
-  return useMemo(() => {
-    const prod = production.filter((p) => p.siteId === 'mats' && p.day === today);
-    const sum = (stage: string, f: (p: (typeof prod)[number]) => number) => Math.round(prod.filter((p) => p.stageCode === stage).reduce((t, p) => t + f(p), 0));
-    const mine = labels.filter((l) => l.siteId === 'mats');
-    return {
-      raw: { value: fmtNum(sum('mixer', (p) => p.inputKg)), unit: 'kg', title: 'Pellets and masterbatch issued to the mixer today' },
-      mixer: { value: fmtNum(mine.filter((l) => l.kind === 'batch' && l.day === today).length), unit: 'batches', title: 'Mixer batches labelled today' },
-      extrude: { value: fmtNum(sum('extrude', (p) => p.outputKg)), unit: 'kg', title: 'String out of the extruders today' },
-      dry: { value: fmtNum(mine.filter((l) => l.kind === 'rack' && l.status === 'in_stock').length), unit: 'racks', title: 'Drying racks waiting for weaving' },
-      weave: { value: fmtNum(sum('weave', (p) => p.goodUnits)), unit: 'mats', title: 'Mats woven today' },
-      finish: { value: fmtNum(mine.filter((l) => l.kind === 'bundle' && l.day === today).length), unit: 'bundles', title: 'Bundles labelled today' },
-      store: { value: fmtNum(mine.filter((l) => l.kind === 'bundle' && l.status === 'in_stock').length), unit: 'bundles', title: 'Bundles in the store now' },
-    };
-  }, [production, labels, today]);
-}
-
-/**
- * The process strip: every stage of the site's flow with today's figure, the current stage marked.
- * Stages with their own screen are links; [ and ] step to the previous and next one.
- */
-export function FlowStrip({ current, note }: { current: string | string[]; note?: ReactNode }) {
-  const site = useSite(); const go = useGo(); const figures = useFlowFigures();
-  const cur = Array.isArray(current) ? current : [current];
-  const scroller = useRef<HTMLDivElement>(null);
-  const stages = [...site.stages].sort((a, b) => a.sequence - b.sequence);
-  const here = STAGE_META[cur[0]]?.to;
-  const screens = stages.map((st) => ({ to: STAGE_META[st.code]?.to, name: STAGE_META[st.code]?.short ?? st.name })).filter((x, i, all): x is { to: string; name: string } => !!x.to && all.findIndex((y) => y.to === x.to) === i);
-  const at = screens.findIndex((x) => x.to === here);
-  const prev = at > 0 ? screens[at - 1] : undefined; const next = at >= 0 && at < screens.length - 1 ? screens[at + 1] : undefined;
-  useHotkey(prev ? '[' : null, () => prev && go.site(prev.to), { label: `Previous stage${prev ? `: ${prev.name}` : ''}` });
-  useHotkey(next ? ']' : null, () => next && go.site(next.to), { label: `Next stage${next ? `: ${next.name}` : ''}` });
-  useEffect(() => {
-    const box = scroller.current; const el = box?.querySelector<HTMLElement>('[aria-current="step"]');
-    if (box && el) box.scrollLeft = el.offsetLeft - (box.clientWidth - el.offsetWidth) / 2;
-  }, []);
-  return (
-    <section className="surface overflow-hidden" aria-label={`${site.name} process`}>
-      <div ref={scroller} className="flex overflow-x-auto no-scrollbar">
-        {stages.map((st, i) => {
-          const meta = STAGE_META[st.code]; const Icon = meta?.icon ?? Package; const on = cur.includes(st.code); const fig = figures[st.code];
-          const link = !!meta?.to && meta.to !== here;
-          const body = (
-            <>
-              <span className="hidden xl:grid size-7 rounded-md place-items-center shrink-0" style={{ background: on ? 'color-mix(in srgb, var(--accent) 18%, transparent)' : 'var(--surface-3)', color: on ? 'var(--accent-strong)' : 'var(--text-3)' }}><Icon className="size-4" strokeWidth={2} /></span>
-              <span className="min-w-0">
-                <span className={cn('block t-xs whitespace-nowrap', on ? 'font-semibold text-[var(--text)]' : 'text-[var(--text-3)]')}><span className="num">{i + 1}</span> · {meta?.short ?? st.name}</span>
-                <span className="block t-base font-semibold num whitespace-nowrap leading-tight">{fig?.value ?? '—'}{fig && <span className="t-xs font-normal text-[var(--text-3)]"> {fig.unit}</span>}</span>
-              </span>
-              {on && <span className="absolute left-0 right-0 bottom-0 h-[2px] bg-[var(--accent)]" />}
-            </>
-          );
-          const cls = cn('relative flex-1 min-w-[104px] flex items-center gap-2.5 px-3 py-2 text-left border-r border-[var(--line)] last:border-r-0', on && 'bg-[var(--selected)]');
-          return link
-            ? <button key={st.code} type="button" title={fig?.title} onClick={() => go.site(meta!.to!)} className={cn(cls, 'hover:bg-[var(--hover)] outline-offset-[-2px]')}>{body}</button>
-            : <div key={st.code} title={fig?.title} aria-current={on ? 'step' : undefined} className={cls}>{body}</div>;
-        })}
-      </div>
-      {note && <div className="px-[var(--pad)] py-2 border-t border-[var(--line)] bg-[var(--surface-2)] t-sm text-[var(--text-2)]">{note}</div>}
-    </section>
-  );
 }
 
 /* ───────────────────────────── Workstation layout and form pieces ───────────────────────────── */

@@ -14,7 +14,7 @@ import { NumberFields, SetupHint, Swatch, type NumField } from './parts';
 
 const KIND_NAME: Record<LabelKind, string> = { batch: 'Batch', rack: 'Rack', bundle: 'Bundle', roll: 'Roll', pack: 'Pack', sack: 'Sack', bag: 'Bag' };
 
-/** Generic label printer: one form (kind, product or colour, quantity, machine, operator), a live sticker beside it, and what was printed last. */
+/** Create a label record and preview its sticker. Physical printer integration is not available in the demo. */
 export function PrintLabel() {
   const s = useStore(); const site = useSite(); const session = useSession(); const createLabel = useStore((x) => x.createLabel); const touch = useIsTouch();
   const stages = useMemo(() => site.stages.filter((st): st is Stage & { producesLabel: LabelKind } => !!st.producesLabel), [site.stages]);
@@ -57,19 +57,19 @@ export function PrintLabel() {
   const zoneFor = () => { const z = s.zones.filter((zz) => zz.siteId === site.id); const re = kind === 'roll' ? /roll/i : kind === 'pack' ? /finished|pack/i : kind === 'sack' ? /pellet|raw/i : kind === 'bundle' ? /front|store/i : null; return re ? (z.find((zz) => re.test(zz.name)) ?? z[0])?.id : undefined; };
   const doPrint = async () => {
     if (printing) return;
-    if (!canPrint) { setTried(true); useStore.getState().toast({ kind: 'warn', title: 'Nothing printed yet', detail: `Still needed: ${missing.join(', ')}` }); return; }
+    if (!canPrint) { setTried(true); useStore.getState().toast({ kind: 'warn', title: 'Label not recorded', detail: `Still needed: ${missing.join(', ')}` }); return; }
     const l = createLabel({ siteId: site.id, kind, productId: productId ?? undefined, stageCode, machineId: machineId ?? undefined, operatorId: operatorId ?? (session?.userId ? s.users.find((u) => u.id === session.userId)?.personId : undefined), shiftId: sid, day: s.today, qtyUnits: draft.qtyUnits, qtyKg: draft.qtyKg, zoneId: zoneFor(), parentIds: [], colour, grade });
     setPrinting(true); await printer.print({ code: l.code, lines: [product?.internalName ?? colour ?? kind, `${l.qtyKg} kg`] }); setPrinting(false); setTried(false);
     setRecent((r) => [l.id, ...r].slice(0, 12));
-    useStore.getState().toast({ kind: 'ok', title: `${KIND_NAME[kind]} sticker printed`, detail: `${l.code} · ${product?.internalName ?? colour ?? grade ?? ''} · ${l.qtyKg} kg` });
+    useStore.getState().toast({ kind: 'ok', title: `${KIND_NAME[kind]} label recorded`, detail: `${l.code} · sticker preview ready. No physical label was printed.` });
     // The choices stay for the next lot; the keyboard goes back to the quantity.
     if (!touch) { const el = form.current?.querySelector<HTMLInputElement>('input[inputmode]'); el?.focus(); el?.select(); }
   };
-  const reprint = async (l: Label) => { setPrinting(true); await printer.print({ code: l.code, lines: [] }); setPrinting(false); useStore.getState().toast({ kind: 'ok', title: 'Reprinted', detail: l.code }); };
+  const reprint = async (l: Label) => { setPrinting(true); await printer.print({ code: l.code, lines: [] }); setPrinting(false); useStore.getState().toast({ kind: 'ok', title: 'Sticker preview ready', detail: `${l.code} · no physical label was printed.` }); };
   const recentLabels = useMemo(() => { const mine = s.labels.filter((l) => l.siteId === site.id); const fromSession = recent.map((id) => mine.find((l) => l.id === id)).filter((l): l is Label => !!l); const seedRecent = [...mine].reverse().filter((l) => !recent.includes(l.id)).slice(0, Math.max(0, 8 - fromSession.length)); return [...fromSession, ...seedRecent]; }, [s.labels, site.id, recent]);
   const todays = useMemo(() => s.labels.filter((l) => l.siteId === site.id && l.day === s.today), [s.labels, site.id, s.today]);
 
-  if (stages.length === 0) return <div><PageHeader eyebrow={`${site.name} · Production`} title="Print label" /><Empty icon={Tag} title="No label stages configured" hint="No stage of this site prints a sticker. Stages are set up with the site in Settings." /></div>;
+  if (stages.length === 0) return <div><PageHeader eyebrow={`${site.name} · Production`} title="Create label" /><Empty icon={Tag} title="No label stages configured" hint="No stage of this site has a label type configured." /></div>;
 
   const toMeasure = !!product && product.weightStatus === 'to_be_measured' && perLabel;
   const fields: NumField<'units' | 'kg'>[] = [
@@ -83,7 +83,7 @@ export function PrintLabel() {
   const kindCols: Column<(typeof byKind)[number]>[] = [
     { key: 'k', header: 'Kind', cell: (k) => <span className="font-medium">{KIND_NAME[k.kind]}</span> },
     { key: 's', header: 'Stage', truncate: 160, cell: (k) => <span className="text-[var(--text-2)]">{k.stage}</span> },
-    { key: 'n', header: 'Printed today', cell: (k) => <span className="flex items-center gap-2"><span className="w-[84px] shrink-0 hidden sm:block"><Bar value={k.n} max={maxN} tone="series" /></span><span className="num font-medium">{fmtNum(k.n)}</span></span> },
+    { key: 'n', header: 'Labels recorded today', cell: (k) => <span className="flex items-center gap-2"><span className="w-[84px] shrink-0 hidden sm:block"><Bar value={k.n} max={maxN} tone="series" /></span><span className="num font-medium">{fmtNum(k.n)}</span></span> },
     { key: 'kg', header: 'Kg', align: 'right', mono: true, cell: (k) => (k.n ? fmtNum(Math.round(k.kg)) : <span className="text-[var(--text-4)]">—</span>) },
     { key: 'l', header: 'Last code', align: 'right', cell: (k) => (k.last ? <span className="code text-[var(--text-2)]">{k.last}</span> : <span className="text-[var(--text-4)]">—</span>) },
   ];
@@ -91,30 +91,30 @@ export function PrintLabel() {
     { key: 'code', header: 'Code', cell: (l) => <span className={cn('code font-medium', recent.includes(l.id) && 'text-[var(--accent-strong)]')}>{l.code}</span> },
     { key: 'what', header: 'Lot', truncate: 96, cell: (l) => <span className="text-[var(--text-2)]">{what(l)}</span> },
     { key: 'kg', header: 'Kg', align: 'right', mono: true, cell: (l) => fmtNum(l.qtyKg) },
-    { key: 're', header: '', width: 36, align: 'right', cell: (l) => <IconButton icon={RotateCcw} label={`Reprint ${l.code}`} onClick={() => reprint(l)} disabled={printing} className="ctl-sm!" /> },
+    { key: 're', header: '', width: 36, align: 'right', cell: (l) => <IconButton icon={RotateCcw} label={`Preview ${l.code}`} onClick={() => reprint(l)} disabled={printing} className="ctl-sm!" /> },
   ];
 
   return (
     <div>
-      <PageHeader eyebrow={`${site.name} · Production`} title="Print label" subtitle="A sticker on every lot. Pick, type the weight, print."
-        meta={<><Badge tone={printer.status() === 'ready' ? 'ok' : 'bad'} dot>{printer.status() === 'ready' ? 'Printer ready' : 'Printer offline'}</Badge><Badge tone="neutral">{fmtNum(todays.length)} printed today</Badge></>} />
+      <PageHeader eyebrow={`${site.name} · Production`} title="Create label" subtitle="Create a label record and review the sticker preview. Physical printing is not connected in this demo."
+        meta={<><Badge tone="neutral" dot>Printer</Badge><Badge tone="neutral">{fmtNum(todays.length)} labels recorded today</Badge></>} />
       {site.toBeConfirmed && <Note tone="warn" className="mb-[var(--gap)]">{site.toBeConfirmed}</Note>}
       <Split asideWidth={360} aside={<>
         <Panel icon={Eye} title="Preview" sub={`${fmtDayShort(s.today)} · ${shiftKind} shift · next code`}>
           <div className="flex flex-col items-center">
             <div className="overflow-hidden rounded-md max-w-full"><Sticker label={draft} product={product} machine={machine} operator={operator} site={site} shiftKind={shiftKind} printing={printing} /></div>
-            <div className="t-xs text-[var(--text-3)] mt-2 text-center">{printing ? 'Printing…' : canPrint ? 'This is what comes out of the printer.' : `Fills in as you choose. Still needed: ${missing.join(', ')}.`}</div>
+            <div className="t-xs text-[var(--text-3)] mt-2 text-center">{printing ? 'Preparing preview…' : canPrint ? 'Sticker preview. No physical label is printed.' : `Fills in as you choose. Still needed: ${missing.join(', ')}.`}</div>
           </div>
         </Panel>
-        <Panel icon={History} title="Recently printed" sub={`${fmtNum(todays.length)} today · ${fmtKg(Math.round(todays.reduce((t, l) => t + l.qtyKg, 0)))}`} pad={false}>
-          <DataGrid bare dense rows={recentLabels} columns={recentCols} rowKey={(l) => l.id} empty="Nothing printed yet." />
+        <Panel icon={History} title="Recently recorded" sub={`${fmtNum(todays.length)} today · ${fmtKg(Math.round(todays.reduce((t, l) => t + l.qtyKg, 0)))}`} pad={false}>
+          <DataGrid bare dense rows={recentLabels} columns={recentCols} rowKey={(l) => l.id} empty="No labels recorded yet." />
         </Panel>
       </>}>
         <div ref={form}>
           <Panel icon={Tag} title="New sticker" sub={stage ? `${KIND_NAME[kind]} · ${stage.name}` : undefined} className="[&>footer]:sticky [&>footer]:bottom-0 [&>footer]:z-10"
             footer={<div className="flex items-center gap-3">
-              <div className="flex-1 min-w-0">{missing.length === 0 ? <span className="text-[var(--ok)] font-medium inline-flex items-center gap-1.5"><CheckCircle2 className="size-4" />Ready to print</span> : <span className={cn('block truncate', tried && 'text-[var(--bad)] font-medium')}>Still needed: {missing.join(', ')}</span>}</div>
-              <Button variant="primary" icon={Printer} onClick={doPrint} disabled={printing} hotkey="mod+enter" hotkeyLabel="Print the sticker">{printing ? 'Printing…' : `Print ${KIND_NAME[kind].toLowerCase()} sticker`}</Button>
+              <div className="flex-1 min-w-0">{missing.length === 0 ? <span className="text-[var(--text-2)] font-medium inline-flex items-center gap-1.5"><CheckCircle2 className="size-4" />Ready to record</span> : <span className={cn('block truncate', tried && 'text-[var(--bad)] font-medium')}>Still needed: {missing.join(', ')}</span>}</div>
+              <Button variant="primary" icon={Printer} onClick={doPrint} disabled={printing} hotkey="mod+enter" hotkeyLabel="Create the label record">{printing ? 'Preparing…' : `Create ${KIND_NAME[kind].toLowerCase()} label`}</Button>
             </div>}>
             <div className="t-label mb-0.5">1 · What is it</div>
             <FormRow label="Label kind" required>
@@ -144,7 +144,7 @@ export function PrintLabel() {
               <PersonPicker siteId={site.id} sector={sector} value={operatorId} onChange={(id) => setOperatorId(id)} />
             </FormRow>
           </Panel>
-          <Panel icon={Layers} title="Printed today by kind" sub={`${fmtNum(todays.length)} stickers · ${fmtKg(Math.round(todays.reduce((t, l) => t + l.qtyKg, 0)))}`} pad={false} className="mt-[var(--gap)]">
+          <Panel icon={Layers} title="Labels recorded today" sub={`${fmtNum(todays.length)} stickers · ${fmtKg(Math.round(todays.reduce((t, l) => t + l.qtyKg, 0)))}`} pad={false} className="mt-[var(--gap)]">
             <DataGrid bare dense rows={byKind} columns={kindCols} rowKey={(k) => k.code} onRowClick={(k) => setStageCode(k.code)} selectedKey={stageCode} />
           </Panel>
         </div>

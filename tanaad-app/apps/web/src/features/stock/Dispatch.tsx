@@ -1,16 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { ArrowRight, ClipboardList, ExternalLink, FileText, History, Lock, MapPin, Play, Route, Scale, ShoppingCart, Truck } from 'lucide-react';
+import { ClipboardList, ExternalLink, FileText, History, Lock, MapPin, Play, Route, Scale, ShoppingCart, Truck } from 'lucide-react';
 import type { Dispatch as DispatchRec, Order } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { useSite, useGo, useQueryParam, useRefList, useSiteSettings } from '@/app/hooks';
-import { Avatar, Badge, Button, ChipGroup, Combobox, DataGrid, Empty, FormRow, Input, Panel, SearchInput, Sheet, StackedBar, Tabs, Toolbar, cn, useHotkey, useIsTouch, useMedia, type Column } from '@/components/ui';
-import { CountUp } from '@/components/charts';
-import { SITE_COLOR } from '@/config/siteIdentity';
+import { Avatar, Badge, Button, ChipGroup, Combobox, DataGrid, Empty, FormRow, Input, PageHeader, Panel, SearchInput, Sheet, StackedBar, Tabs, Toolbar, cn, useHotkey, useIsTouch, useMedia, type Column } from '@/components/ui';
 import { fmtDateTime, fmtKg, fmtNum, fmtPct, fmtTime } from '@/data/format';
 import { CargoBuilder, ManifestTable, manifestLines, type CargoActions } from './CargoBuilder';
 import { SetupHint } from './kit';
-import { DeliveryNoteCard, FlowSteps, GATE_META, GateBadge, HeroStat, IconChip, ProductName, ShipmentStepper, StockStyles, VarianceBadge, gatePassNo, nextDeliveryNoteNo, type FlowStep } from './shared';
+import { DeliveryNoteCard, GATE_META, GateBadge, IconChip, ProductName, ShipmentStepper, StockStyles, VarianceBadge, gatePassNo, nextDeliveryNoteNo } from './shared';
 
 const WAITING: Partial<Record<Order['status'], string>> = { awaiting_cash: 'Awaiting cash', awaiting_approval: 'Waiting for CEO' };
 type GateFilter = 'all' | DispatchRec['gateStatus'];
@@ -56,24 +54,18 @@ export function Dispatch() {
   const loadNext = () => { setDispatchId(null); setOrderId(null); setDriver(''); setVehicle(null); setTab('build'); };
   useHotkey('h', () => setTab((t) => (t === 'history' ? 'build' : 'history')), { label: 'Switch between the cargo builder and history' });
 
-  /* ---- numbers for the hero */
+  /* ---- numbers for the header */
   const lines = order ? manifestLines(s, order, dispatch) : [];
   const ordered = lines.reduce((t, l) => t + l.ordered, 0); const scanned = dispatch?.scannedLabelIds.length ?? 0;
   const expectedKg = dispatch?.expectedKg ?? lines.reduce((t, l) => t + l.expectedKg, 0);
   const st = dispatch?.gateStatus; const weighed = !!dispatch && dispatch.gateKg !== undefined && st !== 'pending';
-  const complete = ordered > 0 && scanned === ordered; const released = st === 'pass' || st === 'overridden';
-  const inBand = dispatch?.variancePct !== undefined && Math.abs(dispatch.variancePct) <= tol;
-  const steps: FlowStep[] = [
-    { label: 'Load and scan', state: !order ? 'todo' : !dispatch ? 'current' : complete ? 'done' : weighed ? 'warn' : 'current', detail: !order ? 'Every bundle, by sticker' : !dispatch ? 'Not started' : complete ? `${ordered} bundles on the lorry` : `${scanned} of ${ordered} bundles${weighed ? ' · short load' : ''}` },
-    { label: 'Weigh at the gate', state: weighed ? 'done' : dispatch && complete ? 'current' : 'todo', detail: weighed ? `${fmtKg(dispatch!.gateKg!)} · ${fmtPct(dispatch!.variancePct ?? 0, true)}` : dispatch && complete ? 'Lorry onto the gate scale' : order ? `Expecting ${fmtKg(Math.round(expectedKg))} ±${tol}%` : `Scale within ±${tol}% of the manifest` },
-    { label: 'Gate pass', state: released ? 'done' : st === 'hold' ? 'bad' : 'todo', detail: st === 'pass' ? `${gatePassNo(dispatch!)} issued` : st === 'overridden' ? 'Released on override' : st === 'hold' ? 'Held · CEOs alerted' : 'No pass, no exit' },
-  ];
-  const pill = !order ? null
-    : st === 'hold' ? { text: 'Held at the gate', cls: 'bg-[rgb(239_122_105/.22)] text-[#ffb3a7]', icon: Lock }
-      : st === 'pass' ? { text: `Gate pass ${gatePassNo(dispatch!)}`, cls: 'bg-[rgb(76_192_136/.2)] text-[#8fe0b5]', icon: Truck }
-        : st === 'overridden' ? { text: 'Released on override', cls: 'bg-[rgb(240_160_75/.2)] text-[var(--color-amber-400)]', icon: Truck }
-          : dispatch ? { text: complete ? 'Ready for the gate' : `Loading · ${ordered - scanned} to go`, cls: 'bg-white/10 text-white/85', icon: null }
-            : { text: 'Ready to load', cls: 'bg-white/10 text-white/85', icon: null };
+  const complete = ordered > 0 && scanned === ordered;
+  const status = !order ? null
+    : st === 'hold' ? <Badge tone="bad" dot>Held at the gate</Badge>
+      : st === 'pass' ? <Badge tone="ok" dot>Gate pass {gatePassNo(dispatch!)}</Badge>
+        : st === 'overridden' ? <Badge tone="warn" dot>Released on override</Badge>
+          : dispatch ? <Badge tone="accent" dot>{complete ? 'Ready for the gate' : `Loading · ${ordered - scanned} to go`}</Badge>
+            : <Badge tone="neutral">Ready to load</Badge>;
 
   /* ---- order list keyboard: arrows move, Enter opens */
   const onListKey = (e: ReactKeyboardEvent, i: number) => {
@@ -116,41 +108,15 @@ export function Dispatch() {
     <div className="flex flex-col gap-[var(--gap)]">
       <StockStyles />
 
-      {/* ---------------- hero: the shipment, its three steps, its numbers */}
-      <section className="hero relative overflow-hidden px-5 py-4">
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
-          <div className="flex items-center gap-3.5 min-w-0 flex-1 basis-[340px]">
-            <span className="size-12 rounded-xl grid place-items-center shrink-0 shadow-[inset_0_1px_0_rgb(255_255_255/.25)]" style={{ background: SITE_COLOR[site.id] }}><Truck className="size-6" /></span>
-            <div className="min-w-0">
-              <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-white/55">Dispatch and gate · {site.name}</div>
-              {order ? <>
-                <h1 className="text-[22px] font-semibold tracking-[-0.02em] leading-tight truncate"><span className="code">{order.number}</span><ArrowRight className="inline size-4 mx-2 -mt-0.5 text-white/45" />{client?.name}</h1>
-                <div className="text-[12.5px] text-white/60 truncate">Delivery note <span className="code text-white/90 font-medium">{dispatch?.deliveryNoteNo ?? nextNo}</span>{dispatch ? <> · <span className="code">{dispatch.vehicle}</span>, {dispatch.driver} · to {client?.country}</> : <> (next in the series) · to {client?.country}{order.notes ? ` · ${order.notes.replace(/\.$/, '')}` : ''}</>}</div>
-              </> : <>
-                <h1 className="text-[22px] font-semibold tracking-[-0.02em] leading-tight">No order is waiting to load</h1>
-                <div className="text-[12.5px] text-white/60">Scan every bundle onto the lorry, weigh out, and the arithmetic issues the gate pass. No pass, no exit.</div>
-              </>}
-            </div>
-          </div>
-          {order && (
-            <div className="grid grid-cols-4 gap-x-4 sm:gap-x-7 gap-y-3 max-sm:w-full sm:shrink-0">
-              <HeroStat label="Scanned" value={<><CountUp value={scanned} duration={300} /><span className="text-white/45 font-medium"><span className="max-sm:hidden"> </span>/<span className="max-sm:hidden"> </span>{ordered}</span></>} sub="bundles" />
-              <HeroStat label="Expected" value={<>{fmtNum(Math.round(expectedKg))}<span className="text-[13px] text-white/50 font-medium"> kg</span></>} sub={`tolerance ±${tol}%`} />
-              <HeroStat label="Gate scale" value={weighed ? <>{fmtNum(dispatch!.gateKg!)}<span className="text-[13px] text-white/50 font-medium"> kg</span></> : <span className="text-white/35">—</span>} sub={weighed ? (dispatch!.gatePassedAt ? `passed ${fmtTime(dispatch!.gatePassedAt)}` : 'on the scale') : 'not weighed'} />
-              <HeroStat label="Variance" value={weighed && dispatch!.variancePct !== undefined ? <span style={{ color: inBand ? '#8fe0b5' : '#ffb3a7' }}>{fmtPct(dispatch!.variancePct, true)}</span> : <span className="text-white/35">—</span>} sub={weighed ? (inBand ? 'inside the band' : `outside ±${tol}%`) : 'scale vs expected'} />
-            </div>
-          )}
-        </div>
-        <div className="mt-3.5 pt-3.5 border-t border-white/10 flex flex-wrap items-center gap-x-6 gap-y-3">
-          <FlowSteps steps={steps} className="flex-1 basis-[600px]" />
-          <div className="flex flex-wrap items-center gap-2 ml-auto">
-            {pill && <span className={cn('items-center gap-1.5 h-8 px-3 rounded-lg text-[12.5px] font-medium whitespace-nowrap', tab === 'build' && (!dispatch || st === 'pending') ? 'hidden xl:inline-flex' : 'inline-flex', pill.cls)}>{pill.icon ? <pill.icon className="size-3.5" /> : <span className="size-1.5 rounded-full bg-[var(--color-amber-400)] anim-live" />}{pill.text}</span>}
-            {!order && <Button variant="inverse" icon={ShoppingCart} onClick={() => go.site('sales/orders')}>Open orders</Button>}
-            {order && !dispatch && tab === 'build' && <Button variant="accent" icon={Play} hotkey="mod+enter" hotkeyLabel="Start loading" onClick={start}>Start loading</Button>}
-            {dispatch && st === 'pending' && tab === 'build' && <Button variant="accent" icon={Scale} hotkey="w" hotkeyLabel="Weigh at the gate (read the scale)" onClick={() => actions.current.weigh?.()}>Weigh at the gate</Button>}
-          </div>
-        </div>
-      </section>
+      <PageHeader title="Load lorry" meta={status}
+        subtitle={order
+          ? <><span className="code">{order.number}</span> to {client?.name}, {client?.country} · delivery note <span className="code">{dispatch?.deliveryNoteNo ?? nextNo}</span>{dispatch ? <> · <span className="code">{dispatch.vehicle}</span>, {dispatch.driver}</> : ' (next in the series)'} · {scanned} of {ordered} bundles scanned · expected {fmtKg(Math.round(expectedKg))} ±{tol}%{weighed ? <> · gate {fmtKg(dispatch!.gateKg!)}{dispatch!.variancePct !== undefined ? ` (${fmtPct(dispatch!.variancePct, true)})` : ''}{dispatch!.gatePassedAt ? `, passed ${fmtTime(dispatch!.gatePassedAt)}` : ''}</> : ''}</>
+          : 'No order is waiting to load. Scan every bundle onto the lorry, weigh out, and the gate pass is issued.'}
+        actions={<>
+          {!order && <Button icon={ShoppingCart} onClick={() => go.site('sales/orders')}>Open orders</Button>}
+          {order && !dispatch && tab === 'build' && <Button variant="primary" icon={Play} hotkey="mod+enter" hotkeyLabel="Start loading" onClick={start}>Start loading</Button>}
+          {dispatch && st === 'pending' && tab === 'build' && <Button variant="primary" icon={Scale} hotkey="w" hotkeyLabel="Weigh at the gate (read the scale)" onClick={() => actions.current.weigh?.()}>Weigh at the gate</Button>}
+        </>} />
 
       <div className="border-b border-[var(--line)] flex items-end justify-between gap-4 -mt-1">
         <Tabs variant="underline" value={tab} onChange={setTab} tabs={[{ value: 'build', label: 'Cargo builder', count: orders.length }, { value: 'history', label: 'History', count: history.length }]} />

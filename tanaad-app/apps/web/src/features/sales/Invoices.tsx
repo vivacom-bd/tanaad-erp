@@ -8,7 +8,7 @@ import { addDays, clientBalance } from '@/data/selectors';
 import { fmtDateTime, fmtDayLong, fmtDayShort, fmtMoney, fmtNum } from '@/data/format';
 import { Avatar, Badge, Button, DataGrid, Empty, KpiStrip, Meter, Note, PageHeader, Panel, SearchInput, Sheet, Split, StackedBar, Stat, Tabs, Toolbar, useMedia, type Column } from '@/components/ui';
 import { ColumnChart, CountUp } from '@/components/charts';
-import { EfrisBadge, Fact, efrisText, orTbp, ClientCell, StackedMoney, WhatsAppSend, ageDays, alsoMoney, clientOf, clientsForSite, dispatchOf, downloadCsv, fxLine, lastWeeks, leadCur, matches, plural, shortMoney, sumByCur, toUsd, weekOf } from './shared';
+import { EfrisBadge, Fact, orTbp, ClientCell, StackedMoney, WhatsAppSend, ageDays, alsoMoney, clientOf, clientsForSite, dispatchOf, downloadCsv, fxLine, lastWeeks, leadCur, matches, plural, shortMoney, sumByCur, toUsd, weekOf } from './shared';
 import { CompanyDetailsHint, InvoiceDocument, PrintStyles, StatementDocument } from './documents';
 
 type TabKey = 'invoices' | 'statements' | 'payments';
@@ -35,9 +35,8 @@ function DocPreview({ mode, title, sub, share, onClose, children, extra, short }
 
 /** Invoices, client statements and payments for the site. Branded preview, print to PDF, share on WhatsApp. */
 export function Invoices() {
-  const s = useStore(); const site = useSite(); const go = useGo();
+  const s = useStore(); const site = useSite(); const go = useGo(); const co = useStore((x) => x.companyProfiles?.[site.id]);
   const beside = useMedia('(min-width: 1180px)'); const wide = useMedia('(min-width: 900px)'); const roomy = useMedia('(min-width: 640px)'); const short = beside || !roomy;
-  const co = useStore((x) => x.companyProfiles?.[site.id]); const efris = !!co?.efrisConnected;
   const q0 = useQueryParam('q'); const [q, setQ] = useState(q0 ?? '');
   const [tab, setTab] = useState<TabKey>('invoices'); const [filter, setFilter] = useState<InvFilter>('all'); const [method, setMethod] = useState('all');
   const [invId, setInvId] = useState<string | null>(null); const [clientId, setClientId] = useState<string | null>(null); const [sheet, setSheet] = useState(false);
@@ -95,9 +94,9 @@ export function Invoices() {
     { key: 'total', header: 'Total', align: 'right', mono: true, sort: (r) => toUsd(r.inv.total, r.inv.currency, r.order.fxReference), cell: (r) => <span className="font-medium">{fmtMoney(r.inv.total, r.inv.currency)}</span> },
     { key: 'issued', header: 'Issued', mono: true, sort: (r) => r.inv.issuedAt, cell: (r) => <span className="text-[var(--text-2)]">{fmtDayShort(r.inv.issuedAt.slice(0, 10))}</span> },
     { key: 'status', header: 'Status', sort: (r) => (r.paid ? -1 : r.age), cell: statusCell },
-    { key: 'efris', header: 'EFRIS', cell: () => <EfrisBadge connected={efris} /> },
+    { key: 'efris', header: 'EFRIS', cell: (r) => <EfrisBadge invoice={r.inv} /> },
   ] : [
-    { key: 'no', header: 'Invoice', wrap: true, cell: (r) => <div className="py-1 min-w-0"><div className="code font-medium">{r.inv.number}</div><div className="t-sm text-[var(--text-2)] truncate max-w-[42vw]">{r.client.name}</div><div className="t-xs text-[var(--text-3)]">EFRIS {efris ? 'awaiting URA' : 'pending'}</div></div> },
+    { key: 'no', header: 'Invoice', wrap: true, cell: (r) => <div className="py-1 min-w-0"><div className="code font-medium">{r.inv.number}</div><div className="t-sm text-[var(--text-2)] truncate max-w-[42vw]">{r.client.name}</div><div className="t-xs text-[var(--text-3)]">{r.inv.efrisFdn && r.inv.efrisVerificationCode ? 'Fiscal details recorded' : 'Not fiscalised'}</div></div> },
     { key: 'total', header: 'Total', align: 'right', wrap: true, cell: (r) => <div className="flex flex-col items-end gap-1 py-1"><span className="num font-medium whitespace-nowrap">{fmtMoney(r.inv.total, r.inv.currency)}</span>{statusCell(r)}</div> },
   ];
   const stCols: Column<St>[] = [
@@ -120,7 +119,7 @@ export function Invoices() {
   ];
 
   const exportCsv = () => {
-    if (tab === 'invoices') downloadCsv(`invoices-${site.id}-${s.today}.csv`, ['Invoice', 'Order', 'Client', 'Total', 'Currency', 'Issued', 'Status', 'Age days', 'Balance', 'EFRIS', 'Fiscal Document Number'], invRows.map((r) => [r.inv.number, r.order.number, r.client.name, r.inv.total, r.inv.currency, r.inv.issuedAt, r.paid ? 'Paid' : r.overdue ? 'Overdue' : 'Unpaid', r.age, r.balance, efris ? 'Awaiting URA' : 'Pending', '']));
+    if (tab === 'invoices') downloadCsv(`invoices-${site.id}-${s.today}.csv`, ['Invoice', 'Order', 'Client', 'Total', 'Currency', 'Issued', 'Status', 'Age days', 'Balance', 'EFRIS status', 'Fiscal Document Number'], invRows.map((r) => [r.inv.number, r.order.number, r.client.name, r.inv.total, r.inv.currency, r.inv.issuedAt, r.paid ? 'Paid' : r.overdue ? 'Overdue' : 'Unpaid', r.age, r.balance, r.inv.efrisFdn && r.inv.efrisVerificationCode ? 'Fiscal details recorded' : 'Not fiscalised', r.inv.efrisFdn ?? '']));
     else if (tab === 'statements') downloadCsv(`statements-${site.id}-${s.today}.csv`, ['Client', 'Currency', 'Invoiced', 'Paid', 'Balance', 'Oldest invoice days'], stRows.map((r) => [r.client.name, r.client.currencyPref, r.bal.invoiced, r.bal.paid, r.bal.balance, r.bal.openInvoices.length ? r.bal.ageDays : '']));
     else downloadCsv(`payments-${site.id}-${s.today}.csv`, ['Received', 'Client', 'Amount', 'Currency', 'Method', 'Reference', 'Invoice'], payRows.map((p) => [p.at, clientOf(s, p.clientId)?.name ?? '', p.amount, p.currency, p.method, p.reference, s.invoices.find((i) => i.id === p.invoiceId)?.number ?? '']));
   };
@@ -134,11 +133,11 @@ export function Invoices() {
       extra={<Button size={beside ? 'sm' : 'md'} variant="ghost" icon={ShoppingCart} onClick={() => go.site('sales/orders', undefined, selInv.order.number)}>{short ? 'Order' : `Order ${selInv.order.number}`}</Button>}>
       <InvoiceDocument s={s} site={site} invoice={selInv.inv} order={selInv.order} client={selInv.client} dispatch={dispatchOf(s, selInv.order.id)} />
       <div className="surface mt-3 overflow-hidden">
-        <div className="flex items-center justify-between gap-2 px-[var(--pad)] h-8 touch:h-10 border-b border-[var(--line)] bg-[var(--surface-2)]"><span className="t-label inline-flex items-center gap-1.5"><ShieldCheck className="size-3.5" />Fiscal status · URA EFRIS</span><EfrisBadge connected={efris} /></div>
-        <Fact label="Fiscal Document Number"><span className="text-[var(--text-2)]">{efris ? 'Awaiting URA' : 'Pending'}</span></Fact>
-        <Fact label="Verification code / QR"><span className="text-[var(--text-2)]">{efris ? 'Awaiting URA' : 'Pending'}</span></Fact>
+        <div className="flex items-center justify-between gap-2 px-[var(--pad)] h-8 touch:h-10 border-b border-[var(--line)] bg-[var(--surface-2)]"><span className="t-label inline-flex items-center gap-1.5"><ShieldCheck className="size-3.5" />Fiscal status · URA EFRIS</span><Badge tone="neutral" dot>Not connected</Badge></div>
+        <Fact label="Fiscal Document Number"><span className="text-[var(--text-2)]">Recorded on each invoice, if returned by URA</span></Fact>
+        <Fact label="Verification code / QR"><span className="text-[var(--text-2)]">Recorded on each invoice, if returned by URA</span></Fact>
         <Fact label="Seller TIN"><span className="text-[var(--text-2)]">{orTbp(co?.tin)}</span></Fact>
-        <div className="px-[var(--pad)] py-1.5 t-xs text-[var(--text-3)]">{efrisText(efris)}. Nothing is generated locally; the number and QR come from URA.</div>
+        <div className="px-[var(--pad)] py-1.5 t-xs text-[var(--text-3)]">This demo does not send invoices to URA. A company profile flag does not mean EFRIS is connected.</div>
       </div>
       <CompanyDetailsHint siteId={site.id} />
     </DocPreview>
@@ -161,7 +160,7 @@ export function Invoices() {
     <div>
       <PrintStyles />
       <PageHeader eyebrow={`Sales · ${site.name}`} title="Invoices and statements" meta={<Badge tone="neutral" className="num">{fxLine(s.fx)}</Badge>}
-        subtitle="Invoice PDF to WhatsApp in one step. Local invoices settle on cash, export invoices run on credit."
+        subtitle="Review invoices, statements and recorded payments. Sharing is a demo preview; nothing is sent to WhatsApp."
         actions={<Button icon={Download} onClick={exportCsv} hotkey={sheet && !beside ? undefined : 'e'} hotkeyLabel="Export this list to CSV">Export</Button>}
         tabs={<Tabs variant="underline" value={tab} onChange={(t) => { setTab(t); setSheet(false); }} tabs={[{ value: 'invoices', label: 'Invoices', count: invoices.length }, { value: 'statements', label: 'Statements', count: statements.length }, { value: 'payments', label: 'Payments', count: payments.length }]} />} />
 
@@ -172,7 +171,7 @@ export function Invoices() {
         <Stat label="Collected, 30 days" icon={HandCoins} accent="var(--series-3)" sparkColor="var(--series-3)" spark={weekly.map((w) => w.collectedUsd)} value={<CountUp value={collected30[cCol]} format={(n) => shortMoney(n, cCol)} />} sub={paid30.length ? `${plural(paid30.length, 'payment')} ${alsoMoney(collected30, cCol)}` : 'No payment in the last 30 days'} onClick={() => setTab('payments')} />
       </KpiStrip>
 
-      {tab === 'invoices' && <Note tone="info" icon={ShieldCheck} className="mb-[var(--gap)]"><span><b>Uganda EFRIS.</b> Each invoice is fiscalised automatically, with its Fiscal Document Number and verification QR from URA, once the URA integration is configured. {efris ? 'EFRIS is marked as connected; invoices show the number as soon as URA returns it.' : 'Until then every invoice shows EFRIS as pending.'}</span></Note>}
+      {tab === 'invoices' && <Note tone="warn" icon={ShieldCheck} className="mb-[var(--gap)]"><span><b>EFRIS is not connected in this demo.</b> No Fiscal Document Number or verification QR is generated. Invoice documents are not fiscal invoices; connect and verify a real URA integration before using them for tax reporting.</span></Note>}
       {tab === 'invoices' && layout(<>
         <div className="grid gap-[var(--gap)] md:grid-cols-2 mb-[var(--gap)]">
           <Panel icon={Hourglass} title="Unpaid by age" sub={cUnp}>

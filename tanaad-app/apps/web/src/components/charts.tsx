@@ -43,32 +43,19 @@ export function Legend({ items, className }: { items: { label: string; color: st
 
 /* ───────────────────────────── Delta chip ───────────────────────────── */
 /** Change against a reference. Green when the change is good, red when bad; say which direction is good. */
+/** A change against an earlier period, as plain text. Colour only when the change is bad, so it reads as a note rather than a badge. */
 export function Delta({ value, suffix = '%', goodWhen = 'up', label, className }: { value: number | null | undefined; suffix?: string; goodWhen?: 'up' | 'down' | 'none'; label?: string; className?: string }) {
   if (value === null || value === undefined || !isFinite(value)) return null;
   const flat = Math.abs(value) < 0.05;
-  const good = goodWhen === 'none' || flat ? null : (value > 0) === (goodWhen === 'up');
-  const Icon = flat ? Minus : value > 0 ? ArrowUpRight : ArrowDownRight;
-  const color = good === null ? 'var(--text-3)' : good ? 'var(--ok)' : 'var(--bad)';
-  const bg = good === null ? 'var(--surface-3)' : good ? 'var(--ok-bg)' : 'var(--bad-bg)';
-  return <span title={label} className={cn('inline-flex items-center gap-0.5 rounded-[5px] pl-1 pr-1.5 h-[20px] t-xs font-semibold num whitespace-nowrap', className)} style={{ color, background: bg }}><Icon className="size-3" strokeWidth={2.5} />{flat ? '0' : `${value > 0 ? '+' : ''}${Math.abs(value) >= 100 ? Math.round(value) : value.toFixed(1)}`}{suffix}</span>;
+  const bad = goodWhen !== 'none' && !flat && (value > 0) !== (goodWhen === 'up');
+  return <span title={label} className={cn('t-sm num whitespace-nowrap', className)} style={{ color: bad ? 'var(--bad)' : 'var(--text-3)' }}>{flat ? '±0' : `${value > 0 ? '+' : '−'}${Math.abs(value) >= 100 ? Math.round(Math.abs(value)) : Math.abs(value).toFixed(1)}`}{suffix}</span>;
 }
 export const pctChange = (now: number, before: number) => (before ? ((now - before) / Math.abs(before)) * 100 : null);
 
 /* ───────────────────────────── CountUp ───────────────────────────── */
-/** Numbers ease up to their value on mount and when they change, so live screens feel alive. */
-export function CountUp({ value, format = (n) => Math.round(n).toLocaleString('en-UG'), duration = 600 }: { value: number; format?: (n: number) => string; duration?: number }) {
-  const [shown, setShown] = useState(value);
-  const from = useRef(0); const first = useRef(true);
-  useEffect(() => {
-    const reduce = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const start = first.current ? 0 : from.current; first.current = false;
-    if (reduce || start === value) { setShown(value); from.current = value; return; }
-    let raf = 0; const t0 = performance.now();
-    const tick = (t: number) => { const k = Math.min(1, (t - t0) / duration); const e = 1 - Math.pow(1 - k, 3); setShown(start + (value - start) * e); if (k < 1) raf = requestAnimationFrame(tick); else from.current = value; };
-    raf = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(raf); from.current = value; };
-  }, [value, duration]);
-  return <>{format(shown)}</>;
+/** Formats a number. (It used to animate up to the value; figures on an operations screen should simply be there.) */
+export function CountUp({ value, format = (n) => Math.round(n).toLocaleString('en-UG') }: { value: number; format?: (n: number) => string; duration?: number }) {
+  return <>{format(value)}</>;
 }
 
 /* ───────────────────────────── Sparkline ───────────────────────────── */
@@ -199,20 +186,12 @@ export function ColumnChart({ data, series, height = 200, format = compactNum, t
 
 /* ───────────────────────────── Donut ───────────────────────────── */
 /** Part-to-whole at a glance. Six segments at most; fold the tail into "Other" before passing it in. */
-export function Donut({ segments, size = 132, thickness = 16, center, sub }: { segments: { label: string; value: number; color: string }[]; size?: number; thickness?: number; center?: ReactNode; sub?: ReactNode }) {
-  const [hover, setHover] = useState<number | null>(null);
-  const vis = segments.filter((s) => s.value > 0); const total = vis.reduce((t, s) => t + s.value, 0) || 1;
-  const r = (size - thickness) / 2; const c = 2 * Math.PI * r; const gap = vis.length > 1 ? 2.5 : 0;
-  let acc = 0;
+/** The total that sits beside a breakdown list. The ring was dropped: the list next to it already carries the shares. */
+export function Donut({ center, sub }: { segments?: { label: string; value: number; color: string }[]; size?: number; thickness?: number; center?: ReactNode; sub?: ReactNode }) {
   return (
-    <div className="relative shrink-0" style={{ width: size, height: size }} onMouseLeave={() => setHover(null)}>
-      <svg width={size} height={size} className="-rotate-90" role="img" aria-label={vis.map((s) => `${s.label} ${Math.round((s.value / total) * 100)}%`).join(', ')}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--surface-3)" strokeWidth={thickness} />
-        {vis.map((s, i) => { const len = (s.value / total) * c; const off = acc; acc += len; return <circle key={s.label} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={s.color} strokeWidth={hover === i ? thickness + 3 : thickness} strokeDasharray={`${Math.max(0, len - gap)} ${c - Math.max(0, len - gap)}`} strokeDashoffset={-off} onMouseEnter={() => setHover(i)} style={{ transition: 'stroke-width .12s' }} />; })}
-      </svg>
-      <div className="absolute inset-0 grid place-items-center text-center pointer-events-none px-3">
-        <div><div className="num font-semibold leading-none" style={{ fontSize: Math.max(13, size * 0.17) }}>{hover !== null ? `${Math.round((vis[hover].value / total) * 100)}%` : center}</div><div className="t-xs text-[var(--text-3)] mt-1 leading-tight">{hover !== null ? vis[hover].label : sub}</div></div>
-      </div>
+    <div className="shrink-0 min-w-[96px]">
+      <div className="num t-kpi leading-none">{center}</div>
+      {sub && <div className="t-sm text-[var(--text-3)] mt-1">{sub}</div>}
     </div>
   );
 }

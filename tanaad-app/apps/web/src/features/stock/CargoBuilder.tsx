@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent, MutableRefObject, ReactNode } from 'react';
-import { AlertTriangle, CheckCircle2, CircleDashed, ClipboardList, KeyRound, PackageCheck, Repeat, RotateCcw, ScanLine, Send, Share2, ShieldAlert, ShieldCheck, Siren, Undo2, Weight, XCircle, Zap } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleDashed, ClipboardList, KeyRound, PackageCheck, RotateCcw, ScanLine, Send, Share2, ShieldAlert, ShieldCheck, Siren, Undo2, XCircle } from 'lucide-react';
 import type { Dispatch, Order, Product } from '@tanaad/domain';
 import { gateDecision } from '@tanaad/domain';
 import { useStore, type AppState } from '@/data/store';
@@ -83,7 +83,7 @@ function OverrideForm({ dn, reason, setReason, onPin, error }: { dn: string; rea
   const toPin = () => pinBox.current?.querySelector<HTMLElement>('[tabindex]')?.focus();
   return (
     <div>
-      <Note tone="bad" className="mb-3">{dn} failed the gate arithmetic. An override is permanent, carries your name and is visible to both CEOs. Use it only when the reason is clear.</Note>
+      <Note tone="bad" className="mb-3">{dn} failed the simulated gate check. Record a reason for this demo override.</Note>
       <Field label="Reason" required hint={<span className="touch:hidden">Enter moves on to the PIN.</span>}>
         <Input ref={input} value={reason} onChange={(e) => setReason(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && reason.trim()) { e.preventDefault(); toPin(); } }} placeholder="What was checked, and why the lorry may leave" />
       </Field>
@@ -108,7 +108,6 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
   const [flash, setFlash] = useState<'ok' | 'bad' | null>(null); const flashT = useRef<number | undefined>(undefined);
   const [feed, setFeed] = useState<FeedItem[]>([]); const feedSeq = useRef(0);
   const [typed, setTyped] = useState(''); const [focused, setFocused] = useState(false);
-  const [missing10, setMissing10] = useState(false);
   const [recounting, setRecounting] = useState(false);
   const [scaleRun, setScaleRun] = useState(0);
   const [overrideOpen, setOverrideOpen] = useState(false); const [overrideReason, setOverrideReason] = useState(''); const [pinError, setPinError] = useState<string | null>(null);
@@ -120,12 +119,9 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
   const lines = manifestLines(s, order, dispatch);
   const ordered = lines.reduce((t, l) => t + l.ordered, 0); const scanned = scannedLabels.length;
   const scannedKg = scannedLabels.reduce((t, l) => t + l.qtyKg, 0);
-  const lightest = Math.min(...lines.map((l) => l.std));
   const complete = scanned === ordered && ordered > 0;
 
-  // Simulated lorry: the real weight of what is on it (±0.6 % scale noise), minus 10 bundles if the presenter toggles the fraud case.
-  const noise = useMemo(() => 1 + (Math.random() * 1.2 - 0.6) / 100, [scanned, missing10]); // eslint-disable-line react-hooks/exhaustive-deps
-  const targetKg = Math.max(0, Math.round((scannedKg - (missing10 ? 10 * lightest : 0)) * noise));
+  const targetKg = Math.round(scannedKg);
 
   /** The scan field owns the keyboard on a desk: a hardware scanner types into it and presses Enter. */
   const refocus = useCallback(() => { if (!touch) scanRef.current?.focus({ preventScroll: true }); }, [touch]);
@@ -149,40 +145,15 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
       const have = d.scannedLabelIds.filter((id) => st.labels.find((x) => x.id === id)?.productId === l.productId).length; if (have >= l.bundles) continue;
       const lab = st.labels.find((x) => x.siteId === site.id && x.productId === l.productId && x.status === 'in_stock' && !taken.has(x.id));
       if (lab) return lab.code;
-      const prod = st.products.find((p) => p.id === l.productId);
-      const minted = st.createLabel({
-        siteId: site.id,
-        kind: 'bundle',
-        productId: l.productId,
-        day: st.today,
-        stageCode: 'finishing',
-        parentIds: [],
-        zoneId: st.zones.find((z) => z.siteId === site.id)?.id,
-        qtyUnits: prod?.bundlePieces ?? 20,
-        qtyKg: prod?.stdBundleWeightKg ?? 18.5,
-      });
-      return minted.code;
+      return undefined;
     }
     return undefined;
   };
   const scanNext = (productId?: string) => { refocus(); const code = nextCode(productId); if (!code) { const d = useStore.getState().dispatches.find((x) => x.id === dispatch.id)!; toast({ kind: 'warn', title: d.scannedLabelIds.length >= ordered ? 'Manifest complete' : 'No more bundles in stock for this order' }); pulse('bad'); return false; } return doScan(code); };
-  const scanTen = () => { let i = 0; const tick = () => { if (i++ >= 10) return; if (scanNext()) window.setTimeout(tick, 70); }; tick(); };
-  const scanAllRemaining = () => {
-    let safety = 0;
-    while (safety++ < 400) {
-      const code = nextCode();
-      if (!code) break;
-      const r = scanBundle(dispatch.id, code);
-      if (!r.ok) break;
-    }
-    pulse('ok');
-    toast({ kind: 'ok', title: 'All ordered bundles scanned onto the lorry', detail: 'Ready to weigh at the gate scale below.' });
-  };
-  const scanSameAgain = () => { refocus(); const last = scannedLabels.at(-1); if (!last) { toast({ kind: 'warn', title: 'Nothing scanned yet' }); return; } doScan(last.code); };
   const undo = () => { refocus(); const last = scannedLabels.at(-1); if (!last) return; unscanLast(dispatch.id); push(last.code, 'undo', 'Removed from manifest'); toast({ kind: 'info', title: `${last.code} removed` }); };
   const submitTyped = () => { const c = typed.trim().toUpperCase(); if (!c) return; doScan(c); setTyped(''); };
 
-  const onReading = (kg: number) => { const r = recordGateWeight(dispatch.id, kg); setRecounting(false); setScaleRun(0); beep(r.decision === 'pass' ? 'ok' : 'bad'); toast(r.decision === 'pass' ? { kind: 'ok', title: `Gate pass issued · ${dispatch.deliveryNoteNo}`, detail: `${fmtKg(kg)} on the scale, ${fmtPct(r.variancePct, true)} vs expected` } : { kind: 'error', title: 'Gate held', detail: r.reasons[0] }); };
+  const onReading = (kg: number) => { const r = recordGateWeight(dispatch.id, kg); setRecounting(false); setScaleRun(0); beep(r.decision === 'pass' ? 'ok' : 'bad'); toast(r.decision === 'pass' ? { kind: 'ok', title: `Demo gate result · ${dispatch.deliveryNoteNo}`, detail: `${fmtKg(kg)} demo reading, ${fmtPct(r.variancePct, true)} vs expected. This is not a real gate pass.` } : { kind: 'error', title: 'Gate hold recorded', detail: r.reasons[0] }); };
   const verdict = !recounting && dispatch.gateStatus !== 'pending' && dispatch.gateKg !== undefined ? gateDecision({ expectedKg: dispatch.expectedKg, actualKg: dispatch.gateKg, tolerancePct: tol, scannedBundles: scanned, orderedBundles: ordered }) : null;
   const gateOpen = !verdict && !locked;
 
@@ -197,8 +168,7 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
   const hadVerdict = useRef(!!verdict);
   useEffect(() => { if (verdict && !hadVerdict.current) { scanRef.current?.blur(); verdictRef.current?.scrollIntoView({ block: 'nearest' }); } hadVerdict.current = !!verdict; }, [!!verdict]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const toggleMissing = () => setMissing10((v) => !v);
-  const recount = () => { setRecounting(true); setMissing10(false); setScaleRun(0); refocus(); };
+  const recount = () => { setRecounting(true); setScaleRun(0); refocus(); };
   const openOverride = () => { setOverrideOpen(true); setPinError(null); };
   const submitPin = useCallback((pin: string) => {
     if (!overrideReason.trim()) { setPinError('Write the reason first, then enter the PIN.'); beep('bad'); return; }
@@ -207,7 +177,7 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
     setPinError(null); setOverrideOpen(false); beep('ok'); toast({ kind: 'warn', title: `Override recorded for ${dispatch.deliveryNoteNo}`, detail: 'Logged in the audit feed with your name and reason.' });
   }, [overrideReason, overrideGate, dispatch.id, dispatch.deliveryNoteNo, beep, toast]);
   const waLines = [`Delivery note ${dispatch.deliveryNoteNo} for ${order.number}`, ...lines.map((l) => `• ${l.product.internalName}: ${l.scanned} bundles (${fmtNum(l.scanned * l.product.bundlePieces)} pcs)`), `Gate weight ${dispatch.gateKg !== undefined ? fmtKg(dispatch.gateKg) : '—'} · expected ${fmtKg(dispatch.expectedKg)}`, `Driver ${dispatch.driver} · ${dispatch.vehicle}`, dispatch.gatePassedAt ? `Left ${site.shortName} at ${fmtTime(dispatch.gatePassedAt)}` : ''].filter(Boolean);
-  const sendWa = async () => { await messaging.sendWhatsApp(client?.whatsapp ?? '', waLines.join('\n'), `${dispatch.deliveryNoteNo}.pdf`); setWaSent(true); toast({ kind: 'ok', title: `Delivery note sent to ${client?.name}` }); };
+  const sendWa = async () => { await messaging.sendWhatsApp(client?.whatsapp ?? '', waLines.join('\n'), `${dispatch.deliveryNoteNo}.pdf`); setWaSent(true); toast({ kind: 'ok', title: 'Ready to share', detail: `No message or PDF was sent to ${client?.name}.` }); };
 
   /** While the field is empty, single keys act as shortcuts. Label codes start with the site prefix, so a scanner never collides with them. */
   const onScanKey = (e: ReactKeyboardEvent<HTMLInputElement>) => {
@@ -215,7 +185,7 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
     if (e.key === 'Escape') { if (typed) setTyped(''); else e.currentTarget.blur(); return; }
     if (typed || e.ctrlKey || e.metaKey || e.altKey) return;
     const k = e.key.toLowerCase();
-    const run = k === 's' ? (e.shiftKey ? scanTen : () => { scanNext(); }) : k === 'd' ? scanSameAgain : k === 'z' ? undo : k === 'w' ? weigh : k === 'x' ? toggleMissing : k === '?' ? () => usePrefs.getState().setHelp(true) : null;
+    const run = k === 's' ? () => { scanNext(); } : k === 'z' ? undo : k === 'w' ? weigh : k === '?' ? () => usePrefs.getState().setHelp(true) : null;
     if (run) { e.preventDefault(); run(); }
   };
 
@@ -243,14 +213,11 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
                   placeholder="Scan a sticker, or type its code" autoCapitalize="characters" autoComplete="off" spellCheck={false}
                   className="w-full ctl-lg bg-transparent outline-none pl-9 touch:pl-10 pr-[124px] rounded-lg code t-lg uppercase placeholder:normal-case placeholder:font-sans placeholder:tracking-normal placeholder:text-[var(--text-4)]" />
                 <span className="absolute right-2.5 top-1/2 -translate-y-1/2 inline-flex items-center gap-1.5 t-xs text-[var(--text-3)] pointer-events-none">
-                  {typed ? 'Press Enter' : focused ? <><span className="size-1.5 rounded-full bg-[var(--ok)] anim-live" />Scanner ready</> : 'Select to scan'}
+                  {typed ? 'Press Enter' : focused ? 'Input focused' : 'Select to scan'}
                 </span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 mt-2">
-                <Button variant="primary" icon={ScanLine} hotkey="s" hotkeyLabel="Scan the next bundle" onClick={() => scanNext()} disabled={complete}>Scan next bundle</Button>
-                <Button icon={Zap} hotkey="shift+s" hotkeyLabel="Scan ten bundles" onClick={scanTen} disabled={complete}>Scan +10</Button>
-                <Button variant="accent" icon={PackageCheck} onClick={scanAllRemaining} disabled={complete}>Scan all ({ordered - scanned})</Button>
-                <Button icon={Repeat} hotkey="d" hotkeyLabel="Scan the last sticker again (duplicate test)" onClick={scanSameAgain} disabled={scanned === 0} title="Scans the last sticker again to show the duplicate rejection">Duplicate test</Button>
+                <Button variant="primary" icon={ScanLine} hotkey="s" hotkeyLabel="Simulate scanning the next available bundle" onClick={() => scanNext()} disabled={complete}>Scan next label</Button>
                 <Button icon={Undo2} hotkey="z" hotkeyLabel="Undo the last scan" onClick={undo} disabled={scanned === 0}>Undo last</Button>
               </div>
               <div className="mt-3">
@@ -283,15 +250,13 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
       {/* ---------------- gate */}
       {gateOpen && (
         <div ref={gateRef} className="grid gap-[var(--gap)] compact:lg:grid-cols-2 items-start scroll-mb-4">
-          <ScaleWidget key={scaleRun} autoStart={scaleRun > 0} targetKg={targetKg} onReading={onReading} disabled={scanned === 0} title="Step 3 · Weigh Lorry at Gate Scale" model={scanned === 0 ? 'Scan bundles first' : 'Read the scale and use the reading'} />
-          <Panel icon={ShieldCheck} title="Gate Verification Check" sub="both checks must pass to issue a gate pass"
-            footer={<div className="flex flex-wrap items-center justify-between gap-2"><span>Presenter drill</span><Button size="sm" variant={missing10 ? 'danger' : 'secondary'} icon={Weight} hotkey="x" hotkeyLabel="Simulate 10 bundles missing from the lorry" onClick={toggleMissing} aria-pressed={missing10} title="Presenter: the lorry really carries 10 bundles fewer than scanned">{missing10 ? 'Simulating 10 bundles missing' : 'Simulate 10 bundles missing'}</Button></div>}>
+          <ScaleWidget key={scaleRun} autoStart={scaleRun > 0} targetKg={targetKg} onReading={onReading} disabled={scanned === 0} title="Gate scale reading" model={scanned === 0 ? 'Scan bundles first' : 'Read the simulated scale'} />
+          <Panel icon={ShieldCheck} title="Gate checks" sub="complete the scan and read the scale">
             <CheckRow state={complete ? 'ok' : scanned ? 'warn' : 'wait'} title="Every ordered bundle is scanned" value={`${scanned} / ${ordered}`} />
             <CheckRow state="wait" title={<>Scale within ±{tol}% of <span className="num">{fmtKg(Math.round(dispatch.expectedKg))}</span></>} value="not weighed" />
             <div className="mt-3"><Gauge variancePct={undefined} tolerancePct={tol} width={520} /></div>
-            <div className="t-xs text-[var(--text-3)] mt-2.5">Click <b>Read scale</b> on the left, then click <b>Use reading</b> to verify the lorry weight against the scanned manifest.</div>
+            <div className="t-xs text-[var(--text-3)] mt-2.5">Compare the gate weight with the scanned manifest.</div>
             {!complete && scanned > 0 && <Note tone="warn" className="mt-3">Short load: {scanned} of {ordered} bundles scanned. The gate will hold this lorry until the manifest is complete or the Site Manager overrides.</Note>}
-            {missing10 && <Note tone="bad" className="mt-3">Presenter mode: every sticker was scanned, but ten bundles never made it onto the lorry. Only the scale can catch this.</Note>}
           </Panel>
         </div>
       )}
@@ -302,8 +267,8 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
           <header className="flex flex-wrap items-center gap-x-3 gap-y-2 px-[var(--pad)] py-3 border-b border-[var(--line)]" style={{ background: `linear-gradient(90deg, color-mix(in srgb, ${tone} 14%, var(--surface)), var(--surface) 80%)` }}>
             <IconChip size="lg" solid icon={hold ? Siren : pass ? ShieldCheck : ShieldAlert} color={tone} className={hold ? 'anim-alarm' : undefined} />
             <div className="min-w-0 flex-1 basis-[240px]">
-              <div className="flex items-center gap-2 flex-wrap"><h3 className="t-title">{hold ? 'Held at the gate' : pass ? 'Gate pass issued' : 'Released on override'}</h3><Badge tone={hold ? 'bad' : pass ? 'ok' : 'warn'} dot>{hold ? 'Hold' : pass ? 'Pass' : 'Override'}</Badge></div>
-              <div className="t-sm text-[var(--text-2)]">{hold ? `The lorry stays inside. The gate is locked for ${dispatch.deliveryNoteNo}.` : pass ? `${dispatch.vehicle} may leave with ${dispatch.deliveryNoteNo}${dispatch.gatePassedAt ? ` · passed at ${fmtTime(dispatch.gatePassedAt)}` : ''}.` : `Site Manager override for ${dispatch.deliveryNoteNo}: “${dispatch.overrideReason}”`}</div>
+              <div className="flex items-center gap-2 flex-wrap"><h3 className="t-title">{hold ? 'Gate check held' : pass ? 'Gate check passed' : 'Override recorded'}</h3><Badge tone={hold ? 'bad' : pass ? 'ok' : 'warn'} dot>{hold ? 'Hold' : pass ? 'Pass' : 'Override'}</Badge></div>
+              <div className="t-sm text-[var(--text-2)]">{hold ? `The demo gate check is held for ${dispatch.deliveryNoteNo}.` : pass ? `${dispatch.vehicle} passed the simulated check for ${dispatch.deliveryNoteNo}${dispatch.gatePassedAt ? ` · checked at ${fmtTime(dispatch.gatePassedAt)}` : ''}.` : `Demo override for ${dispatch.deliveryNoteNo}: “${dispatch.overrideReason}”`}</div>
             </div>
             {hold ? <Badge tone="bad" dot>CEOs alerted · {ceos.join(' & ')}</Badge>
               : <div className="text-right shrink-0"><div className="t-label">Gate pass no.</div><div className="code t-lg font-semibold">{gatePassNo(dispatch)}</div></div>}
@@ -322,12 +287,12 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
               {hold ? <>
                 <div className="t-label mb-1.5">Why the gate is locked</div>
                 <ul className="flex flex-col gap-1.5">{verdict.reasons.map((r) => <li key={r} className="flex items-start gap-2 t-base font-medium"><XCircle className="size-4 shrink-0 mt-0.5 text-[var(--bad)]" />{r}</li>)}</ul>
-                <Note tone="bad" className="mt-3">{ceos.join(' and ')} got an alert, and an exception is open on the dashboard. Recount and weigh again, or the Site Manager releases the lorry with a PIN and a reason.</Note>
+                <Note tone="bad" className="mt-3">Recount and weigh again, or record a Site Manager override with a PIN and reason in this demo.</Note>
               </> : <>
                 <div className="t-label mb-1.5">Captured at the gate</div>
                 <div className="flex flex-col gap-1.5"><CaptureTile kind="signature" done={dispatch.hasDriverSignature} label={`Driver signature · ${dispatch.driver}`} /><CaptureTile kind="photo" done={dispatch.hasLorryPhoto} label={`Lorry photo · ${dispatch.vehicle}`} /></div>
                 {!pass && <Note tone="warn" className="mt-3">Recorded in the audit feed with the Site Manager's name and reason. Both CEOs can see it.</Note>}
-                <p className="t-sm text-[var(--text-3)] mt-2.5">{waSent ? `Delivery note sent to ${client?.name} on WhatsApp.` : `Share the delivery note with ${client?.name}: the client, the driver and the CEOs receive the same PDF.`}</p>
+                <p className="t-sm text-[var(--text-3)] mt-2.5">{waSent ? 'Preview prepared.' : 'Prepare a demo share preview. This build does not send messages or PDFs.'}</p>
               </>}
             </div>
           </div>
@@ -336,7 +301,7 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
               <Button icon={RotateCcw} hotkey="r" hotkeyLabel="Recount and weigh again" onClick={recount}>Recount</Button>
               <Button variant="danger" icon={KeyRound} hotkey="o" hotkeyLabel="Site Manager override" onClick={openOverride}>Site Manager override</Button>
             </> : <>
-              <Button icon={Share2} hotkey="m" hotkeyLabel="Share the delivery note on WhatsApp" onClick={() => setWaOpen(true)}>Share delivery note on WhatsApp</Button>
+              <Button icon={Share2} hotkey="m" hotkeyLabel="Prepare a delivery note share preview" onClick={() => setWaOpen(true)}>Prepare share preview</Button>
               <Button variant="primary" icon={PackageCheck} hotkey="n" hotkeyLabel="Load the next order" onClick={onLoadNext}>Load next order</Button>
             </>}
           </footer>
@@ -366,9 +331,9 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
       </Dialog>
 
       {/* ---------------- whatsapp */}
-      <Sheet open={waOpen} onClose={() => setWaOpen(false)} title="Share delivery note" sub={`${dispatch.deliveryNoteNo} · ${client?.name}`} footer={<Button variant="primary" icon={Send} hotkey="mod+enter" onClick={sendWa} disabled={waSent}>{waSent ? 'Sent' : `Send to ${client?.whatsapp}`}</Button>}>
+      <Sheet open={waOpen} onClose={() => setWaOpen(false)} title="Delivery note share preview" sub={`${dispatch.deliveryNoteNo} · ${client?.name}`} footer={<Button variant="secondary" icon={Send} hotkey="mod+enter" onClick={sendWa} disabled={waSent}>{waSent ? 'Preview ready · not sent' : 'Prepare preview'}</Button>}>
         <WhatsAppPreview to={client?.name ?? ''} lines={waLines} attachment={`${dispatch.deliveryNoteNo}.pdf`} sent={waSent} className="mx-auto" />
-        <p className="t-sm text-[var(--text-3)] mt-3 text-center">The client, the driver and the CEOs receive the same PDF.</p>
+        <p className="t-sm text-[var(--text-3)] mt-3 text-center">Preview of the message and delivery note.</p>
       </Sheet>
     </div>
   );

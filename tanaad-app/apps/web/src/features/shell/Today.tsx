@@ -1,500 +1,154 @@
-import { useMemo, useState } from 'react';
-import { Factory, Users, Wallet, Truck, AlertTriangle, CheckCircle2, Clock, ArrowRight, ShieldCheck, Scale, FileText, Check, Plus, Printer, X } from 'lucide-react';
-import type { Role, ShiftKind, Site } from '@tanaad/domain';
-import { useStore, type AppState } from '@/data/store';
-import { useSite, useGo } from '@/app/hooks';
-import { headcount, machineWall, cashDayFor, cashSummary, openExceptions, stockByProduct, intakeToday, lastWorkingDays, dailySeries } from '@/data/selectors';
-import { fmtNum, fmtUGX, fmtKg } from '@/data/format';
-import { Button, KpiStrip, Stat, Badge, cn } from '@/components/ui';
+import { useMemo } from 'react';
+import { AlertTriangle, ArrowRight, Boxes, ClipboardCheck, Factory, FileClock, Gauge, PackagePlus, ScanLine, Truck, Users, Wallet, Wrench, type LucideIcon } from 'lucide-react';
+import type { Role } from '@tanaad/domain';
+import { useStore } from '@/data/store';
+import { useGo, useSite } from '@/app/hooks';
+import { attendanceFor, currentShiftKind, machineWall, openExceptions, shiftId } from '@/data/selectors';
+import { fmtDayLong, fmtNum } from '@/data/format';
+import { roleLabel } from '@/config/roles';
+import { Badge, Button, Empty, PageHeader, Panel } from '@/components/ui';
 
+interface TaskLink {
+  title: string;
+  detail: string;
+  path: string;
+  icon: LucideIcon;
+  count?: number;
+}
+
+/** A role-specific starting point built from current site records and existing tasks. */
 export function Today() {
   const s = useStore();
   const site = useSite();
   const go = useGo();
   const role: Role = s.session?.role ?? 'supervisor';
-  const user = s.users.find((u) => u.id === s.session?.userId);
+  const kind = currentShiftKind();
+  const shift = site.shifts.find((x) => x.kind === kind);
+  const wall = useMemo(() => machineWall(s, site.id, s.today, kind), [s, site.id, kind]);
+  const allExceptions = useMemo(() => openExceptions(s, site.id), [s, site.id]);
+  const exceptions = role === 'site_manager' || role === 'ceo' || role === 'group_admin'
+    ? allExceptions
+    : allExceptions.filter((x) => x.ownerRole === role);
+  const attendanceMarks = attendanceFor(s, shiftId(site.id, s.today, kind)).length;
+  const noEntry = wall.filter((x) => x.state === 'not_logged').length;
+  const down = wall.filter((x) => x.state === 'down').length;
+  const breakdowns = s.breakdowns.filter((x) => x.siteId === site.id && !x.resolvedAt).length;
+  const ordersWaiting = s.orders.filter((x) => x.siteId === site.id && ['awaiting_approval', 'approved', 'picking'].includes(x.status)).length;
 
-  const [quickLoomModal, setQuickLoomModal] = useState(false);
-  const [selectedLoomCode, setSelectedLoomCode] = useState('LOOM-01');
-  const [quickMeters, setQuickMeters] = useState('50');
-  const [handoverModal, setHandoverModal] = useState(false);
-  const [handoverDone, setHandoverDone] = useState(false);
-  const [incomingSupervisor, setIncomingSupervisor] = useState('David Mukasa (Night Shift)');
-  const [countersChecked, setCountersChecked] = useState(true);
-  const [safeChecked, setSafeChecked] = useState(true);
-  const [generatorChecked, setGeneratorChecked] = useState(true);
+  const tasks = useMemo<TaskLink[]>(() => {
+    const items: TaskLink[] = [];
+    const productionTask: TaskLink = {
+      title: 'Production entries',
+      detail: noEntry
+        ? `${noEntry} machine${noEntry === 1 ? ' has' : 's have'} no entry for this shift${down ? ` · ${down} down` : ''}.`
+        : `Machine entries recorded for this shift${down ? ` · ${down} down` : ''}.`,
+      path: 'production/wall',
+      icon: Factory,
+      count: noEntry,
+    };
+    const attendanceTask: TaskLink = {
+      title: 'Attendance',
+      detail: `${attendanceMarks} attendance mark${attendanceMarks === 1 ? '' : 's'} recorded for this shift.`,
+      path: 'people/attendance',
+      icon: Users,
+    };
 
-  const shiftKind: ShiftKind = 'day';
-  const hc = headcount(s, site.id, s.today, shiftKind);
-  const wall = machineWall(s, site.id, s.today, shiftKind);
-  const activeLooms = wall.filter((t) => t.state !== 'arriving' && t.state !== 'down');
-  const loggedLooms = activeLooms.filter((t) => t.state !== 'not_logged').length;
-  const downLooms = wall.filter((t) => t.state === 'down').length;
+    if (role === 'supervisor') {
+      items.push(productionTask, attendanceTask);
+      if (site.id === 'recycling') items.push({ title: 'Collector intake', detail: 'Record a delivery at the scale and issue its voucher.', path: 'production/intake', icon: PackagePlus });
+      items.push({ title: 'Shift handover log', detail: 'Review or add a note to the shift record.', path: 'production/sheet', icon: FileClock });
+    } else if (role === 'site_manager') {
+      items.push(
+        { title: 'Site overview', detail: `${exceptions.length} open exception${exceptions.length === 1 ? '' : 's'} across this site.`, path: 'dashboard', icon: Gauge, count: exceptions.length },
+        productionTask,
+        attendanceTask,
+        { title: 'Cash day', detail: 'Review the cash record and closing status.', path: 'cash', icon: Wallet },
+      );
+    } else if (role === 'cashier') {
+      items.push(
+        { title: 'Cash day', detail: 'Review entries, expected balance and close status.', path: 'cash', icon: Wallet },
+        { title: 'Record an expense', detail: 'Add an expense to the site cash record.', path: 'cash/expense', icon: Wallet },
+      );
+      if (site.id === 'recycling') items.push({ title: 'Collector ledger', detail: 'Review deliveries and outstanding payments.', path: 'production/collectors', icon: ClipboardCheck });
+    } else if (role === 'storekeeper') {
+      items.push(
+        { title: 'Stock overview', detail: 'Review recorded stock by product.', path: 'stock', icon: Boxes },
+        { title: 'Receive goods', detail: 'Record an incoming delivery at the gate.', path: 'stock/receive', icon: PackagePlus },
+        { title: 'Dispatch', detail: `${ordersWaiting} order${ordersWaiting === 1 ? '' : 's'} in the loading or approval queue.`, path: 'stock/dispatch', icon: Truck, count: ordersWaiting },
+      );
+    } else if (role === 'gate') {
+      items.push(
+        { title: 'Receive at gate', detail: 'Record an incoming vehicle and measured weight.', path: 'stock/receive', icon: PackagePlus },
+        { title: 'Dispatch and gate pass', detail: 'Review loads and record gate weights.', path: 'stock/dispatch', icon: Truck },
+        { title: 'Label lookup', detail: 'Find a record by scanning or entering its label code.', path: 'production/scan', icon: ScanLine },
+      );
+    } else if (role === 'mechanic') {
+      items.push(
+        { title: 'Breakdowns', detail: `${breakdowns} unresolved machine breakdown${breakdowns === 1 ? '' : 's'}.`, path: 'stock/maintenance', icon: Wrench, count: breakdowns },
+        { title: 'Spares store', detail: 'Review parts and record an issue or receipt.', path: 'stock/spares', icon: Boxes },
+        { title: site.machineWallTitle, detail: 'Check machine entries and reported downtime.', path: 'production/wall', icon: Factory },
+      );
+    } else if (role === 'sales') {
+      items.push(
+        { title: 'Customer orders', detail: `${ordersWaiting} order${ordersWaiting === 1 ? '' : 's'} awaiting a decision or fulfilment.`, path: 'sales/orders', icon: ClipboardCheck, count: ordersWaiting },
+        { title: 'Clients and credit', detail: 'Review client records and account balances.', path: 'sales/clients', icon: Users },
+        { title: 'Invoices', detail: 'Review issued invoices and payment records.', path: 'sales/invoices', icon: Wallet },
+      );
+    } else if (role === 'driver') {
+      items.push({ title: 'Deliveries', detail: 'Review assigned deliveries and record proof of delivery.', path: 'stock/deliveries', icon: Truck });
+    } else {
+      items.push(productionTask, attendanceTask);
+    }
 
-  const cd = cashDayFor(s, site.id, s.today);
-  const cash = cd ? cashSummary(s, cd.id) : undefined;
-  const safeBalance = cash ? cash.expectedClosing : 22990000;
-
-  const ex = openExceptions(s, site.id);
-  const heldLorries = s.dispatches.filter((d) => d.siteId === site.id && d.gateStatus === 'hold').length;
-  const clearedLorries = s.dispatches.filter((d) => d.siteId === site.id && (d.gateStatus === 'pass' || d.gateStatus === 'overridden')).length;
-
-  const handleQuickLog = () => {
-    const targetLoom = wall.find((w) => w.machine.code === selectedLoomCode);
-    if (!targetLoom) return;
-
-    const meters = parseInt(quickMeters, 10) || 50;
-    const currentUnits = targetLoom.entry?.goodUnits ?? 0;
-
-    s.recordProduction({
-      siteId: site.id,
-      stageCode: targetLoom.machine.stageCode || 'weaving',
-      machineId: targetLoom.machine.id,
-      shiftId: `${site.id}-${s.today}-${shiftKind}`,
-      day: s.today,
-      productId: targetLoom.product?.id ?? s.products.filter((p) => p.siteId === site.id)[0]?.id,
-      operatorId: targetLoom.operator?.id ?? s.people.filter((p) => p.homeSiteId === site.id)[0]?.id,
-      goodUnits: currentUnits + meters,
-      rejectUnits: targetLoom.entry?.rejectUnits ?? 0,
-      inputKg: (targetLoom.entry?.inputKg ?? 0) + (meters * 0.26),
-      outputKg: (targetLoom.entry?.outputKg ?? 0) + (meters * 0.25),
-      downtimeMin: targetLoom.entry?.downtimeMin ?? 0,
-    });
-
-    s.toast({
-      kind: 'ok',
-      title: `${selectedLoomCode} output updated`,
-      detail: `Added +${meters} meters to shift tally.`,
-    });
-
-    setQuickLoomModal(false);
-  };
+    return items;
+  }, [role, site.id, site.machineWallTitle, noEntry, down, attendanceMarks, exceptions.length, ordersWaiting, breakdowns]);
 
   return (
-    <div className="flex flex-col gap-6">
-      {/* Official Factory Shift Operations Header */}
-      <div className="bg-[var(--surface)] border border-[var(--line)] rounded-xl p-5 shadow-xs">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2 text-xs font-mono font-semibold tracking-wider text-[var(--text-3)] uppercase">
-              <span className="size-2 rounded-full bg-[var(--ok)]" />
-              TANAAD INDUSTRIAL OPERATIONS · {site.legalName}
-            </div>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-[var(--text)] mt-1">
-              Shift Operational Dispatch Console
-            </h1>
-            <div className="flex flex-wrap items-center gap-3 text-xs sm:text-sm text-[var(--text-3)] mt-1 font-medium">
-              <span>Shift: <strong className="text-[var(--text)]">Day (07:00–19:00 EAT)</strong></span>
-              <span>•</span>
-              <span>Supervisor: <strong className="text-[var(--text)]">{user?.name ?? 'Opio Ronald'}</strong></span>
-              <span>•</span>
-              <span>Plant Uptime: <strong className="text-[var(--ok)] font-mono">14 / 15 Looms Active (93.3%)</strong></span>
-            </div>
-          </div>
+    <div className="flex flex-col gap-[var(--gap)]">
+      <PageHeader
+        eyebrow={`${site.name} · ${roleLabel(role)}`}
+        title="Today"
+        subtitle={`${kind === 'day' ? 'Day' : 'Night'} shift${shift ? ` · ${shift.starts}–${shift.ends}` : ''} · ${fmtDayLong(s.today)}`}
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" variant="secondary" icon={Plus} onClick={() => setQuickLoomModal(true)}>
-              Quick Loom Log
-            </Button>
-            <Button size="sm" variant="primary" icon={Factory} onClick={() => go.site('reports/production')}>
-              Production Report
-            </Button>
-          </div>
-        </div>
-      </div>
+      />
 
-      {/* Industrial Operational KPI Strip */}
-      <KpiStrip className="grid-cols-2 md:grid-cols-4">
-        <Stat
-          label="On-Shift Labor Headcount"
-          icon={Users}
-          tone="ok"
-          value={<>{hc.total} <span className="text-xs font-normal text-[var(--text-3)] font-sans">present</span></>}
-          sub={`${hc.present} full shift · ${hc.half} half shift`}
-          onClick={() => go.site('reports/attendance')}
-        />
-        <Stat
-          label="Loom Output Status"
-          icon={Factory}
-          tone={downLooms > 0 ? 'warn' : 'ok'}
-          value={<>{loggedLooms} / {activeLooms.length} <span className="text-xs font-normal text-[var(--text-3)] font-sans">logged</span></>}
-          sub={downLooms > 0 ? `${downLooms} loom down for maintenance` : 'All 15 looms operating'}
-          onClick={() => go.site('reports/production')}
-        />
-        <Stat
-          label="Cash In Safe (Expected)"
-          icon={Wallet}
-          tone="brand"
-          value={<>{fmtUGX(safeBalance)}</>}
-          sub="Reconciled shift petty cash balance"
-          onClick={() => go.site('reports/cash')}
-        />
-        <Stat
-          label="Weighbridge Gate Status"
-          icon={Truck}
-          tone={heldLorries > 0 ? 'bad' : 'ok'}
-          value={<>{clearedLorries} <span className="text-xs font-normal text-[var(--text-3)] font-sans">cleared</span></>}
-          sub={heldLorries > 0 ? `${heldLorries} lorry held on weight discrepancy` : 'All lorries cleared without issue'}
-          onClick={() => go.site('reports/dispatch')}
-        />
-      </KpiStrip>
-
-      {/* Shift Timeline & Operational Handover Checklist */}
-      <div className="grid lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-[var(--surface)] border border-[var(--line)] rounded-xl p-5 shadow-2xs">
-          <div className="flex items-center justify-between pb-3 border-b border-[var(--line)] mb-4">
-            <div>
-              <h2 className="text-base font-bold text-[var(--text)]">Shift Execution & Handover Protocol</h2>
-              <p className="text-xs text-[var(--text-3)]">Chronological shift duties required before end-of-day sign-off</p>
-            </div>
-            <span className="text-xs font-mono font-bold text-[var(--ok)] bg-[var(--ok-bg)] border border-[var(--ok)]/20 px-2.5 py-1 rounded-md">
-              {handoverDone ? '5 of 5 Certified Complete' : '4 of 5 Certified Complete'}
-            </span>
-          </div>
-
-          <div className="space-y-3">
-            {[
-              {
-                step: '07:00 – 07:30',
-                title: 'Morning Roll-Call & Casual Worker Roster',
-                desc: 'Verify physical presence, check safety boots & log 31 on-shift personnel.',
-                status: 'done',
-                actionLabel: 'View Roster',
-                onClick: () => go.site('reports/attendance'),
-              },
-              {
-                step: '07:30 – 12:00',
-                title: 'Extruder Polymer Feed & Mid-Shift Loom Counters',
-                desc: 'Inspect virgin PP feed, verify reed speeds and log mid-shift meter counts.',
-                status: 'done',
-                actionLabel: 'Loom Matrix',
-                onClick: () => go.site('reports/production'),
-              },
-              {
-                step: '12:00 – 14:00',
-                title: 'Casual Lunch Allowance & Petty Cash Disbursement',
-                desc: 'Disburse casual worker allowances and fuel receipts with voucher numbers.',
-                status: 'done',
-                actionLabel: 'Cash Book',
-                onClick: () => go.site('reports/cash'),
-              },
-              {
-                step: '14:00 – 17:30',
-                title: 'Outbound Weighbridge Scale & Gate Pass Clearance',
-                desc: 'Weigh export lorries for Rwanda & South Sudan; verify <1% weight tolerance.',
-                status: 'done',
-                actionLabel: 'Gate Clearance',
-                onClick: () => go.site('reports/dispatch'),
-              },
-              {
-                step: '18:00 – 19:00',
-                title: 'Final Loom Reading & Dual-Supervisor Handover Sign-Off',
-                desc: 'Count final mat meters, weigh scrap cutoffs, count safe cash and certify shift transition.',
-                status: handoverDone ? 'done' : 'pending',
-                actionLabel: handoverDone ? 'View Handover' : 'Certify Handover',
-                onClick: () => setHandoverModal(true),
-              },
-            ].map((st, idx) => (
-              <div
-                key={idx}
-                className="flex flex-col sm:flex-row sm:items-center justify-between p-3.5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] hover:bg-[var(--hover)] transition-colors gap-3"
-              >
-                <div className="flex items-start gap-3">
-                  <span
-                    className={cn(
-                      'size-6 rounded-full flex items-center justify-center shrink-0 mt-0.5 text-xs font-bold',
-                      st.status === 'done'
-                        ? 'bg-[var(--ok)] text-white'
-                        : 'bg-[var(--warn-bg)] text-[var(--warn)] border border-[var(--warn)]/30'
-                    )}
-                  >
-                    {st.status === 'done' ? <Check className="size-3.5 stroke-[3]" /> : idx + 1}
-                  </span>
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-[var(--text-3)]">{st.step}</span>
-                      <span className="text-xs font-bold text-[var(--text)]">{st.title}</span>
-                    </div>
-                    <p className="text-xs text-[var(--text-3)] mt-0.5">{st.desc}</p>
-                  </div>
+      <Panel title="Your tasks" sub={`${tasks.length} links`}>
+        <div className="divide-y divide-[var(--line)]">
+          {tasks.map((task) => (
+            <div key={task.path} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+              <span className="size-8 rounded-md bg-[var(--surface-3)] text-[var(--text-2)] grid place-items-center shrink-0">
+                <task.icon className="size-4" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2">
+                  <h2 className="t-base font-medium">{task.title}</h2>
+                  {task.count !== undefined && <Badge tone={task.count ? 'warn' : 'neutral'}>{fmtNum(task.count)}</Badge>}
                 </div>
+                <p className="t-sm text-[var(--text-3)]">{task.detail}</p>
+              </div>
+              <Button size="sm" variant="secondary" icon={ArrowRight} onClick={() => go.site(task.path)}>
+                Open
+              </Button>
+            </div>
+          ))}
+        </div>
+      </Panel>
 
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={st.onClick}
-                  className="shrink-0 text-xs font-semibold"
-                >
-                  {st.actionLabel}
-                  <ArrowRight className="size-3 ml-1" />
-                </Button>
+      <Panel title="Open exceptions" sub={`${exceptions.length} assigned`} icon={AlertTriangle}>
+        {exceptions.length === 0 ? <Empty title="No open exceptions assigned to this role" /> : (
+          <div className="divide-y divide-[var(--line)]">
+            {exceptions.slice(0, 6).map((exception) => (
+              <div key={exception.id} className="py-2.5 first:pt-0 last:pb-0 flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="t-base font-medium">{exception.title}</div>
+                  <p className="t-sm text-[var(--text-3)]">{exception.detail.trim()} · {roleLabel(exception.ownerRole)}</p>
+                </div>
+                <Badge tone={exception.severity === 'critical' ? 'bad' : exception.severity === 'warning' ? 'warn' : 'neutral'}>{exception.severity}</Badge>
               </div>
             ))}
           </div>
-        </div>
-
-        {/* Floor Notifications & Alerts */}
-        <div className="space-y-4">
-          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-xl p-5 shadow-2xs">
-            <h2 className="text-base font-bold text-[var(--text)] mb-1">Active Machine Alerts</h2>
-            <p className="text-xs text-[var(--text-3)] mb-3">Live floor anomalies detected by sensors & supervisors</p>
-
-            <div className="space-y-2.5">
-              <div className="p-3 rounded-lg border border-[var(--warn)]/30 bg-[var(--warn-bg)] text-xs">
-                <div className="flex items-center gap-1.5 font-bold text-[var(--warn)]">
-                  <AlertTriangle className="size-3.5 shrink-0" />
-                  LOOM-12 · Umeme Grid Blackout
-                </div>
-                <p className="text-[var(--text-2)] mt-1">
-                  Switched to Perkins 250kVA diesel generator. Output pace delayed by 35 mins.
-                </p>
-              </div>
-
-              <div className="p-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] text-xs">
-                <div className="flex items-center gap-1.5 font-bold text-[var(--text)]">
-                  <ShieldCheck className="size-3.5 text-[var(--ok)] shrink-0" />
-                  Weighbridge Scale Calibrated
-                </div>
-                <p className="text-[var(--text-2)] mt-1">
-                  Avery Weigh-Tronix scale verified with 1,000kg test weights. Zero zero-drift.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-xl p-5 shadow-2xs">
-            <h2 className="text-base font-bold text-[var(--text)] mb-1">Direct Operational Reports</h2>
-            <p className="text-xs text-[var(--text-3)] mb-3">One-tap jump to official factory modules</p>
-
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button
-                onClick={() => go.site('reports/production')}
-                className="p-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] hover:bg-[var(--hover)] text-left font-semibold text-[var(--text)] transition-colors"
-              >
-                <Factory className="size-4 text-[var(--text-2)] mb-1" />
-                Loom Production
-              </button>
-              <button
-                onClick={() => go.site('reports/attendance')}
-                className="p-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] hover:bg-[var(--hover)] text-left font-semibold text-[var(--text)] transition-colors"
-              >
-                <Users className="size-4 text-[var(--text-2)] mb-1" />
-                Labor & Wages
-              </button>
-              <button
-                onClick={() => go.site('reports/cash')}
-                className="p-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] hover:bg-[var(--hover)] text-left font-semibold text-[var(--text)] transition-colors"
-              >
-                <Wallet className="size-4 text-[var(--text-2)] mb-1" />
-                Cash & Expenses
-              </button>
-              <button
-                onClick={() => go.site('reports/dispatch')}
-                className="p-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] hover:bg-[var(--hover)] text-left font-semibold text-[var(--text)] transition-colors"
-              >
-                <Truck className="size-4 text-[var(--text-2)] mb-1" />
-                Dispatch & Gate
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Quick Loom Modal */}
-      {quickLoomModal && (
-        <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-xl shadow-2xl max-w-sm w-full p-5 text-[var(--text)]">
-            <h3 className="text-base font-bold text-[var(--text)]">Quick Floor Loom Output</h3>
-            <p className="text-xs text-[var(--text-3)] mt-0.5">Increment machine meter reading directly from tablet</p>
-
-            <div className="space-y-3 mt-4 text-xs">
-              <div>
-                <label className="block font-semibold text-[var(--text-2)] mb-1">Select Machine</label>
-                <select
-                  value={selectedLoomCode}
-                  onChange={(e) => setSelectedLoomCode(e.target.value)}
-                  className="w-full px-2.5 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] text-[var(--text)] text-xs font-mono font-semibold"
-                >
-                  {wall.map((m) => (
-                    <option key={m.machine.code} value={m.machine.code}>
-                      {m.machine.code} — {m.operator?.fullName ?? 'Unassigned'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div>
-                <label className="block font-semibold text-[var(--text-2)] mb-1">Add Output Meters</label>
-                <input
-                  type="number"
-                  value={quickMeters}
-                  onChange={(e) => setQuickMeters(e.target.value)}
-                  className="w-full px-3 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] text-[var(--text)] font-mono text-sm font-bold"
-                />
-              </div>
-            </div>
-
-            <div className="mt-5 flex justify-end gap-2">
-              <Button size="sm" variant="secondary" onClick={() => setQuickLoomModal(false)}>
-                Cancel
-              </Button>
-              <Button size="sm" variant="primary" onClick={handleQuickLog}>
-                Save Output
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Official Shift Handover Protocol & Dual-Supervisor Sign-Off Modal */}
-      {handoverModal && (
-        <div className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4 overflow-y-auto">
-          <div className="bg-[var(--surface)] border border-[var(--line)] rounded-xl shadow-2xl max-w-xl w-full p-6 text-[var(--text)] my-6">
-            <div className="flex items-start justify-between pb-3 border-b border-[var(--line)]">
-              <div>
-                <div className="flex items-center gap-2 text-[10px] font-mono font-bold tracking-widest text-[var(--text-3)] uppercase">
-                  <span className="size-1.5 rounded-full bg-[var(--ok)]" />
-                  OFFICIAL FACTORY TRANSITION · {site.legalName}
-                </div>
-                <h3 className="text-lg font-bold text-[var(--text)] mt-0.5">Shift Handover Certificate</h3>
-                <div className="text-xs text-[var(--text-3)] mt-0.5">
-                  Day Shift (07:00–19:00 EAT) ➔ Night Shift (19:00–07:00 EAT)
-                </div>
-              </div>
-              <button onClick={() => setHandoverModal(false)} className="text-[var(--text-4)] hover:text-[var(--text)] p-1">
-                <X className="size-4" />
-              </button>
-            </div>
-
-            <div className="mt-4 space-y-4 text-xs">
-              {/* Verified Telemetry Digest */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
-                <div className="p-2.5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)]">
-                  <div className="text-[10px] text-[var(--text-3)] uppercase font-semibold">Active Looms</div>
-                  <div className="text-base font-mono font-bold text-[var(--text)] mt-0.5">14 / 15</div>
-                  <div className="text-[10px] text-[var(--ok)]">1 Loom down for PM</div>
-                </div>
-                <div className="p-2.5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)]">
-                  <div className="text-[10px] text-[var(--text-3)] uppercase font-semibold">Shift Labor</div>
-                  <div className="text-base font-mono font-bold text-[var(--text)] mt-0.5">{hc.total} Present</div>
-                  <div className="text-[10px] text-[var(--text-3)]">{hc.present} full · {hc.half} half</div>
-                </div>
-                <div className="p-2.5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)]">
-                  <div className="text-[10px] text-[var(--text-3)] uppercase font-semibold">Petty Safe Cash</div>
-                  <div className="text-base font-mono font-bold text-[var(--text)] mt-0.5">{fmtUGX(safeBalance)}</div>
-                  <div className="text-[10px] text-[var(--ok)]">Count Reconciled</div>
-                </div>
-                <div className="p-2.5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)]">
-                  <div className="text-[10px] text-[var(--text-3)] uppercase font-semibold">Gate Dispatches</div>
-                  <div className="text-base font-mono font-bold text-[var(--text)] mt-0.5">{clearedLorries} Lorries</div>
-                  <div className="text-[10px] text-[var(--text-3)]">0 Lorries on hold</div>
-                </div>
-              </div>
-
-              {/* Physical Floor Checklist */}
-              <div className="p-3.5 rounded-lg border border-[var(--line)] bg-[var(--surface-2)] space-y-2">
-                <div className="text-[11px] font-bold text-[var(--text)] uppercase tracking-wider mb-1">
-                  Physical Verification Checklist
-                </div>
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={countersChecked}
-                    onChange={(e) => setCountersChecked(e.target.checked)}
-                    className="mt-0.5 size-4 rounded border-[var(--line-2)] text-[var(--brand)] focus:ring-0"
-                  />
-                  <div>
-                    <span className="font-semibold text-[var(--text)]">Loom meter counters physically reconciled</span>
-                    <p className="text-[11px] text-[var(--text-3)]">Verified mechanical counter meters on all 14 running Starlinger/Hengli looms against shift log.</p>
-                  </div>
-                </label>
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={safeChecked}
-                    onChange={(e) => setSafeChecked(e.target.checked)}
-                    className="mt-0.5 size-4 rounded border-[var(--line-2)] text-[var(--brand)] focus:ring-0"
-                  />
-                  <div>
-                    <span className="font-semibold text-[var(--text)]">Physical cash safe balance & denomination count</span>
-                    <p className="text-[11px] text-[var(--text-3)]">Physical note count verified with cashier Joseph Okello; cash office keys physically handed over.</p>
-                  </div>
-                </label>
-                <label className="flex items-start gap-2.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={generatorChecked}
-                    onChange={(e) => setGeneratorChecked(e.target.checked)}
-                    className="mt-0.5 size-4 rounded border-[var(--line-2)] text-[var(--brand)] focus:ring-0"
-                  />
-                  <div>
-                    <span className="font-semibold text-[var(--text)]">Perkins 250kVA standby generator & compound security</span>
-                    <p className="text-[11px] text-[var(--text-3)]">Diesel fuel tank at 78% capacity; security gate guard log cross-checked with Avery weighbridge.</p>
-                  </div>
-                </label>
-              </div>
-
-              {/* Dual-Supervisor Digital Signatures */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                <div className="p-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)]">
-                  <div className="text-[10px] text-[var(--text-3)] uppercase font-semibold">Outgoing Supervisor (Day Shift)</div>
-                  <div className="font-bold text-sm text-[var(--text)] mt-1">{user?.name ?? 'Ronald Opio'}</div>
-                  <div className="text-[11px] text-[var(--ok)] font-medium mt-0.5">✓ Certified & Digitally Signed</div>
-                  <div className="text-[10px] text-[var(--text-4)] font-mono mt-1">EAT 18:55 · ID: CM8401924</div>
-                </div>
-
-                <div className="p-3 rounded-lg border border-[var(--line)] bg-[var(--surface-2)]">
-                  <div className="text-[10px] text-[var(--text-3)] uppercase font-semibold">Incoming Supervisor (Night Shift)</div>
-                  <select
-                    value={incomingSupervisor}
-                    onChange={(e) => setIncomingSupervisor(e.target.value)}
-                    className="w-full mt-1 px-2 py-1 rounded border border-[var(--line)] bg-[var(--surface)] text-[var(--text)] text-xs font-semibold"
-                  >
-                    <option value="David Mukasa (Night Shift)">David Mukasa (Night Shift)</option>
-                    <option value="Amina Nakato (Night Shift)">Amina Nakato (Night Shift)</option>
-                    <option value="Muzamir Ssentongo (Night Shift)">Muzamir Ssentongo (Night Shift)</option>
-                  </select>
-                  <div className="text-[11px] text-[var(--text-3)] mt-1">Ready to assume floor authority</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[var(--line)]">
-              <Button
-                size="sm"
-                variant="secondary"
-                icon={Printer}
-                onClick={() => window.print()}
-                className="no-print"
-              >
-                Print Manifest
-              </Button>
-              <div className="flex items-center gap-2">
-                <Button size="sm" variant="secondary" onClick={() => setHandoverModal(false)}>
-                  Close
-                </Button>
-                <Button
-                  size="sm"
-                  variant="primary"
-                  icon={ShieldCheck}
-                  disabled={!countersChecked || !safeChecked || !generatorChecked}
-                  onClick={() => {
-                    setHandoverDone(true);
-                    setHandoverModal(false);
-                    s.toast({
-                      kind: 'ok',
-                      title: 'Shift Handover Certified',
-                      detail: `Day Shift signed off. Night Shift commenced under ${incomingSupervisor}.`,
-                    });
-                  }}
-                >
-                  {handoverDone ? 'Update Certification' : 'Certify & Complete Handover'}
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+        )}
+      </Panel>
     </div>
   );
 }

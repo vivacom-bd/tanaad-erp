@@ -155,7 +155,7 @@ function NewClientSheet({ defaultChannel, onClose, onSave }: { defaultChannel: C
           <StepTitle n={1}>Business</StepTitle>
           <FormRow label="Business name" required><Input autoFocus={!touch} data-autofocus="" value={name} onChange={(e) => setName(e.target.value)} placeholder="Registered or trading name" /></FormRow>
           <FormRow label="Contact person" hint="Who answers the WhatsApp"><Input value={contact} onChange={(e) => setContact(e.target.value)} placeholder="Name" /></FormRow>
-          <FormRow label="WhatsApp number" required hint="Invoices and statements are sent here"><Input inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="Country code and number" className="num" /></FormRow>
+          <FormRow label="WhatsApp number" required hint="Contact number for sharing"><Input inputMode="tel" value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)} placeholder="Country code and number" className="num" /></FormRow>
         </section>
         <section>
           <StepTitle n={2}>Terms</StepTitle>

@@ -1,21 +1,18 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Archive, CalendarCheck, CalendarClock, CheckCircle2, Clock, Download, EyeOff, ListChecks, Lock, Phone, RotateCcw, ShieldAlert, TrendingUp, UserX, Users } from 'lucide-react';
+import { Archive, CalendarClock, CheckCircle2, Clock, Download, EyeOff, ListChecks, Lock, Phone, RotateCcw, ShieldAlert, TrendingUp, UserX, Users } from 'lucide-react';
 import type { Attendance as AttendanceRec, AttendanceStatus, Engagement, Person, ShiftKind } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { useGo, useSite } from '@/app/hooks';
-import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Dialog, Empty, Kbd, Meter, Note, NumberPad, Panel, SearchInput, Select, Tabs, cn, useHotkey, useIsTouch, type Column } from '@/components/ui';
-import { CountUp, Donut, LineChart } from '@/components/charts';
+import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Dialog, Empty, Kbd, Meter, Note, NumberPad, PageHeader, Panel, SearchInput, Select, Tabs, cn, useHotkey, useIsTouch, type Column } from '@/components/ui';
+import { LineChart } from '@/components/charts';
 import { currentShiftKind, dailySeries, lastWorkingDays, rosterFor, shiftId } from '@/data/selectors';
 import { fmtDay, fmtDayLong, fmtDayShort } from '@/data/format';
 import { SITES } from '@/config/sites';
-import { SITE_COLOR } from '@/config/siteIdentity';
 import { ContractNote, EngTag, IconChip, MARK, MARKS, MarkDot, MasterEmpty, RenewDialog, STANDARD_DAY_HOURS, contractStateFor, dayValue, downloadCsv, useContractTerms, usePeopleRules } from './kit';
 
 type RosterRow = ReturnType<typeof rosterFor>[number];
 const CYCLE: Record<AttendanceStatus, AttendanceStatus> = { present: 'half', half: 'absent', absent: 'present' };
-/** Status tints that read on the dark hero band. */
-const ON_DARK = { present: '#4cc088', half: '#e9b04e', absent: '#ee7b6a', unmarked: 'rgb(255 255 255 / .24)' };
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
 const say = (t: { kind: 'ok' | 'warn' | 'error' | 'info'; title: string; detail?: string }) => useStore.getState().toast(t);
 
@@ -126,7 +123,6 @@ export function Attendance() {
   const renewRow = all.find((r) => r.person.id === renewId);
   const otRow = all.find((r) => r.person.id === otId);
   const shift = site.shifts.find((x) => x.kind === kind);
-  const pct = roster.length ? Math.round((marked / roster.length) * 100) : 0;
   // Overtime cannot exceed what is left of the day after the shift itself (shift hours come from the site's shift table).
   const shiftHours = shift ? (((parseInt(shift.ends, 10) - parseInt(shift.starts, 10)) + 24) % 24 || 24) : 0;
   const maxOt = Math.max(1, 24 - shiftHours);
@@ -144,49 +140,20 @@ export function Attendance() {
   let lastSector = '';
   return (
     <div className="flex flex-col gap-[var(--gap)]">
-      {/* Shift, date, live counts, primary actions */}
-      <section className="hero @container relative overflow-hidden px-5 py-4 flex flex-wrap items-center gap-x-7 gap-y-4">
-        <div className="flex items-center gap-3.5 min-w-0">
-          <span className="size-12 rounded-xl grid place-items-center shrink-0 shadow-[inset_0_1px_0_rgb(255_255_255/.25)]" style={{ background: SITE_COLOR[site.id] }}><CalendarCheck className="size-6" /></span>
-          <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-white/55">{site.name}</div>
-            <h1 className="text-[24px] font-semibold tracking-[-0.02em] leading-tight">Attendance</h1>
-            <div className="text-[12.5px] text-white/60 truncate">{fmtDayLong(s.today)}</div>
-          </div>
-        </div>
-        <div className="min-w-[200px] max-sm:w-full">
-          <div className="flex items-center gap-2.5" style={{ ['--surface-3' as string]: 'rgb(255 255 255 / .1)', ['--surface' as string]: 'rgb(255 255 255 / .2)', ['--text' as string]: '#fff', ['--text-2' as string]: 'rgb(255 255 255 / .68)', ['--text-3' as string]: 'rgb(255 255 255 / .6)', ['--line' as string]: 'transparent' }}>
-            <Tabs value={kind} onChange={setKind} tabs={site.shifts.map((sh) => ({ value: sh.kind, label: <>{sh.kind === 'day' ? 'Day' : 'Night'}<span className="num font-normal opacity-70 @min-[900px]:@max-[1056px]:hidden">{sh.starts}–{sh.ends}</span></> }))} />
-          </div>
-          <div className="mt-2.5 flex items-center gap-2.5 text-[12px] text-white/60">
-            <div className="h-1.5 flex-1 rounded-full bg-white/15 overflow-hidden"><div className="h-full rounded-full bg-[var(--color-amber-400)] transition-[width] duration-300" style={{ width: `${pct}%` }} /></div>
-            <span className="num whitespace-nowrap"><span className="text-white font-medium">{marked}</span> of {roster.length} marked{sector !== 'all' ? ` · ${sector}` : ''}</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="[&_circle:first-child]:stroke-white/10"><Donut size={58} thickness={7} center={<span className="text-white text-[13px]">{pct}%</span>} segments={[{ label: 'Present', value: counts.present, color: ON_DARK.present }, { label: 'Half day', value: counts.half, color: ON_DARK.half }, { label: 'Absent', value: counts.absent, color: ON_DARK.absent }, { label: 'Not marked', value: counts.unmarked, color: ON_DARK.unmarked }]} /></div>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3.5 gap-y-2.5">
-            {([['Present', counts.present, ON_DARK.present], ['Half day', counts.half, ON_DARK.half], ['Absent', counts.absent, ON_DARK.absent], ['Not marked', counts.unmarked, ON_DARK.unmarked]] as const).map(([label, value, color]) => (
-              <div key={label} className="min-w-0">
-                <div className="num text-[22px] font-semibold leading-none"><CountUp value={value} /></div>
-                <div className="mt-1.5 flex items-center gap-1.5 text-[11.5px] text-white/60 whitespace-nowrap"><span className="size-2 rounded-[2px] shrink-0" style={{ background: color }} />{label}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 ml-auto">
+      <PageHeader title="Attendance"
+        subtitle={<>{site.name} · {fmtDayLong(s.today)}{shift ? ` · ${shift.kind === 'day' ? 'Day' : 'Night'} shift ${shift.starts}–${shift.ends}` : ''}<br /><span className="num">{marked} of {roster.length} marked{sector !== 'all' ? ` in ${sector}` : ''} · {counts.present} present · {counts.half} half day · {counts.absent} absent</span></>}
+        actions={<>
+          <Tabs value={kind} onChange={setKind} tabs={site.shifts.map((sh) => ({ value: sh.kind, label: sh.kind === 'day' ? 'Day' : 'Night' }))} />
           {unmarked.length > 0 && (
-            <Button variant="inverse" icon={CheckCircle2} onClick={() => {
+            <Button icon={CheckCircle2} onClick={() => {
               unmarked.forEach((r) => mark(r, 'present', false));
               say({ kind: 'ok', title: `Marked ${unmarked.length} workers Present`, detail: `${kind} shift · ${fmtDayShort(s.today)}` });
             }}>
               Mark {unmarked.length} unmarked Present
             </Button>
           )}
-          <Button variant="inverse" icon={Users} onClick={() => go.site('people/signup')}>+ Register casual</Button>
-          <Button variant="accent" icon={ListChecks} hotkey="r" hotkeyLabel="Start roll call" onClick={() => { setTab('sheet'); setRoll(true); }} disabled={roster.length === 0 || roll}>Guided Roll Call</Button>
-        </div>
-      </section>
+          <Button variant="primary" icon={ListChecks} hotkey="r" hotkeyLabel="Start roll call" onClick={() => { setTab('sheet'); setRoll(true); }} disabled={roster.length === 0 || roll}>Guided Roll Call</Button>
+        </>} />
 
       <div className="flex items-end justify-between gap-3 border-b border-[var(--line)] -mb-1">
         <Tabs variant="underline" value={tab} onChange={setTab} tabs={[{ value: 'sheet', label: 'Attendance Sheet', count: roster.length }, { value: 'archived', label: 'Archived Workers', count: archivedTotal }]} />

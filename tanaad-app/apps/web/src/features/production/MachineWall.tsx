@@ -1,16 +1,15 @@
 import { useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { AlertTriangle, BarChart3, CheckCircle2, Clock, Eye, Factory, Flame, GanttChart, ListChecks, PackageCheck, Plus, Recycle, Scale, ScrollText, Timer, Trophy, Wrench, type LucideIcon } from 'lucide-react';
+import { AlertTriangle, BarChart3, CheckCircle2, Clock, Factory, GanttChart, ListChecks, PackageCheck, Plus, Recycle, Scale, Timer, Trophy, Wrench } from 'lucide-react';
 import type { ShiftKind } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { useRefList, useSite, useSession, useGo } from '@/app/hooks';
-import { Avatar, Badge, Bar, Button, DataGrid, Empty, Kbd, KpiStrip, Meter, Note, Panel, Stat, Status, Tabs, cn, useHotkey, type Column } from '@/components/ui';
-import { ColumnChart, CountUp, Delta, Legend, LineChart, Sparkline, TimeTrack } from '@/components/charts';
-import { currentShiftKind, lastWorkingDays, machineWall, massBalanceDay, shiftId, type MachineTile, type ProductionEntry } from '@/data/selectors';
+import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Empty, Kbd, KpiStrip, Meter, Note, PageHeader, Panel, Stat, Status, Tabs, cn, useHotkey, type Column } from '@/components/ui';
+import { ColumnChart, CountUp, Delta, Legend, LineChart, Sparkline } from '@/components/charts';
+import { currentShiftKind, lastWorkingDays, machineWall, shiftId, type MachineTile, type ProductionEntry } from '@/data/selectors';
 import { fmtDayLong, fmtDayShort, fmtKg, fmtNum, fmtTime } from '@/data/format';
-import { SITE_COLOR } from '@/config/siteIdentity';
 import { ShiftEntrySheet } from './ShiftEntrySheet';
 import { NOW_LABEL, REASON_AFTER_MIN, perUnit, byProduct, cap, codeKey, downtimeByReason, hourOf, shiftHistory, shiftWindow, wallConfig, wallTotals, type WallConfig } from './shared';
-import { IconChip, MassBadge, MassBalance, Quiet, STATE, Swatch } from './parts';
+import { IconChip, Quiet, STATE, Swatch } from './parts';
 
 type Filter = 'all' | 'logged' | 'not_logged' | 'below' | 'down';
 const LOGGED: MachineTile['state'][] = ['ok', 'logged', 'below'];
@@ -163,7 +162,7 @@ export function MachineWall() {
   const running = wall.filter((t) => t.state !== 'arriving'); const arriving = wall.filter((t) => t.state === 'arriving');
   const count = (st: MachineTile['state'][]) => wall.filter((t) => st.includes(t.state)).length;
   const logged = count(LOGGED); const notLogged = count(['not_logged']); const below = count(['below']); const down = count(['down']);
-  const tot = wallTotals(running); const mb = massBalanceDay(s, site.id, day);
+  const tot = wallTotals(running);
   const win = shiftWindow(site, s.today, day, kind); const kgIO = cfg.kgMode === 'in_out';
   const sack = perUnit(useRefList('material'), 'sack')[0]; const yieldFloor = 100 - site.thresholds.massGapPct;
   const hist = useMemo(() => shiftHistory(s, site.id, cfg.stage, kind, lastWorkingDays(site.id, s.today, 7)), [s, site.id, cfg.stage, kind]);
@@ -210,14 +209,6 @@ export function MachineWall() {
     e.preventDefault(); if (to) { to.focus(); to.scrollIntoView({ block: 'nearest' }); }
   };
 
-  const unitWord = kgIO ? 'kg' : cfg.unit; const outNow = kgIO ? Math.round(tot.outKg) : tot.good;
-  const pills: { key: Filter | 'arriving'; label: string; value: number; dot: string }[] = [
-    { key: 'logged', label: 'Logged', value: logged, dot: '#4cc088' },
-    { key: 'not_logged', label: 'Not logged', value: notLogged, dot: 'var(--color-amber-400)' },
-    { key: 'below', label: 'Below target', value: below, dot: '#ee7b6a' },
-    { key: 'down', label: 'Down', value: down, dot: '#ee7b6a' },
-    { key: 'arriving', label: 'Arriving', value: arriving.length, dot: 'rgb(255 255 255 / .45)' },
-  ];
 
   const columns: Column<MachineTile>[] = [
     { key: 'm', header: 'Machine', sort: (t) => codeKey(t.machine.code), cell: (t) => <span className="font-medium" title={STATE[t.state].label}><Status tone={STATE[t.state].tone}>{t.machine.code}</Status></span> },
@@ -234,50 +225,21 @@ export function MachineWall() {
     { key: 'at', header: 'Logged', align: 'right', mono: true, sort: (t) => t.entry?.at ?? '', cell: (t) => (t.entry ? fmtTime(t.entry.at) : dash) },
   ];
 
-  const kpiIcon: LucideIcon = site.id === 'recycling' ? Recycle : Flame;
   const chartDay = (d: (typeof hist)[number]) => fmtDayShort(d.day);
   const tabbableId = focusId && shown.some((t) => t.machine.id === focusId) ? focusId : shown[0]?.machine.id;
 
   return (
     <div className="flex flex-col gap-[var(--gap)]">
-      {/* Identity, shift clock, the state of the wall in one line, and the actions */}
-      <section className="hero relative overflow-hidden px-5 py-4">
-        <div className="flex flex-wrap items-center gap-x-8 gap-y-4">
-          <div className="flex items-center gap-3.5 min-w-0">
-            <span className="size-12 rounded-xl grid place-items-center shrink-0 shadow-[inset_0_1px_0_rgb(255_255_255/.25)]" style={{ background: SITE_COLOR[site.id] }}><Factory className="size-6" /></span>
-            <div className="min-w-0">
-              <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-white/55 truncate">{site.legalName} · {fmtDayLong(day)}</div>
-              <h1 className="text-[24px] font-semibold tracking-[-0.02em] leading-tight">{site.machineWallTitle}</h1>
-              <div className="text-[12.5px] text-white/60 sm:truncate"><span className="num text-white/85">{logged}</span> of {running.length} logged · <span className="num text-white/85">{fmtNum(outNow)}</span> {unitWord} so far{tot.due ? <> · <span className="num text-white/85">{Math.round((tot.good / tot.due) * 100)}%</span> of due</> : null}</div>
-            </div>
-          </div>
-          <div className="flex-1 min-w-[250px] max-w-[440px]">
-            <div className="flex items-center justify-between mb-2 text-[12.5px]">
-              <span className="inline-flex items-center gap-1.5 font-medium">{win.phase === 'running' && <span className="size-1.5 rounded-full bg-[var(--color-amber-400)] anim-live" />}{cap(kind)} shift {win.phase === 'running' ? 'in progress' : win.phase === 'upcoming' ? 'not started' : 'ended'}</span>
-              <span className="text-white/60 num">{win.phase === 'running' ? `${Math.floor(win.nowH)} h in · ${win.span - Math.floor(win.nowH)} h left` : win.phase === 'upcoming' ? `starts ${win.starts}` : `ended ${win.ends}`}</span>
-            </div>
-            <TimeTrack progress={win.phase === 'running' ? Math.max(0.04, Math.floor(win.nowH) / win.span) : win.phase === 'ended' ? 1 : 0} startLabel={win.starts} endLabel={win.ends} nowLabel={win.phase === 'running' ? `${NOW_LABEL} now` : undefined} onDark />
-          </div>
-          <div className="flex flex-wrap items-center gap-2 ml-auto">
-            <Button variant="inverse" icon={ScrollText} onClick={() => go.site('production/sheet')} hotkey={open ? undefined : 's'} hotkeyLabel="Open the shift sheet">Shift sheet</Button>
-            {readOnly
-              ? <span className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12.5px] font-medium bg-white/10 text-white/85 whitespace-nowrap"><Eye className="size-3.5" />Read-only · entries are made by the shift supervisor</span>
-              : <Button variant="accent" icon={Plus} onClick={logNext} disabled={!notLogged} hotkey={open ? undefined : 'n'} hotkeyLabel="Log the next unlogged machine">{notLogged ? 'Log next unlogged' : 'All logged'}</Button>}
-          </div>
-        </div>
-        <div className="mt-3.5 pt-3 border-t border-white/10 flex flex-wrap items-center gap-1.5">
-          {pills.map((p) => {
-            const on = p.key !== 'arriving' && filter === p.key; const body = <><span className="size-1.5 rounded-full shrink-0" style={{ background: p.dot }} /><span className="num font-semibold text-white">{p.value}</span><span className="text-white/70">{p.label}</span></>;
-            const cls = cn('inline-flex items-center gap-1.5 h-7 px-2.5 rounded-md text-[12.5px] border whitespace-nowrap', on ? 'bg-white/20 border-white/45' : 'bg-white/[.07] border-white/10', !p.value && 'opacity-55');
-            return p.key === 'arriving' ? <span key={p.key} className={cls}>{body}</span>
-              : <button key={p.key} type="button" aria-pressed={on} title={on ? 'Show every machine' : `Show only ${p.label.toLowerCase()}`} onClick={() => setFilter(on ? 'all' : (p.key as Filter))} className={cn(cls, 'hover:bg-white/[.14]')}>{body}</button>;
-          })}
-          <Tabs className="ml-auto bg-white/10! [&>button]:text-white/65 [&>button:hover]:text-white [&>button[aria-selected=true]]:bg-white/20 [&>button[aria-selected=true]]:text-white [&>button[aria-selected=true]]:shadow-none" value={kind} onChange={setKind} tabs={[{ value: 'day', label: 'Day shift' }, { value: 'night', label: 'Night shift' }]} />
-        </div>
-      </section>
+      <PageHeader title={site.machineWallTitle}
+        meta={readOnly ? <Badge tone="neutral">Read-only</Badge> : undefined}
+        subtitle={<>{fmtDayLong(day)} · {cap(kind)} shift {win.starts}–{win.ends}{win.phase === 'running' ? ` · ${NOW_LABEL}` : ''}<br /><span className="num">{logged} logged · {notLogged} not logged · {below} below target · {down} down{arriving.length ? ` · ${arriving.length} arriving` : ''}</span></>}
+        actions={<>
+          <Tabs value={kind} onChange={setKind} tabs={[{ value: 'day', label: 'Day shift' }, { value: 'night', label: 'Night shift' }]} />
+          {!readOnly && <Button variant="primary" icon={Plus} onClick={logNext} disabled={!notLogged} hotkey={open ? undefined : 'n'} hotkeyLabel="Log the next unlogged machine">{notLogged ? 'Log next unlogged' : 'All logged'}</Button>}
+        </>} />
       {site.toBeConfirmed && <Note tone="warn">{site.toBeConfirmed}</Note>}
 
-      <KpiStrip className="md:grid-cols-4">
+      <KpiStrip className="md:grid-cols-3">
         {kgIO
           ? <Stat label="Pellets out" icon={PackageCheck} accent="var(--series-3)" value={<><CountUp value={Math.round(tot.outKg)} /><span className="t-base text-[var(--text-3)] font-medium"> kg</span></>} spark={past.map((d) => d.outKg)} sub={`${fmtNum(tot.good)} sacks${sack ? ` of ${sack.value} kg` : ''} · ${tot.logged} line${tot.logged === 1 ? '' : 's'} logged`} />
           : <Stat label={`${cap(cfg.unit)} this shift`} icon={PackageCheck} accent="var(--series-3)" value={<CountUp value={tot.good} />} delta={tot.due ? <Delta value={(tot.good / tot.due) * 100 - 100} label="against what is due by now" /> : undefined} spark={past.map((d) => d.units)} sub={tot.due ? `${fmtNum(tot.due)} due by now · ${fmtNum(tot.target)} for the shift` : `${tot.logged} of ${running.length} machines logged`} />}
@@ -287,13 +249,12 @@ export function MachineWall() {
             ? <Stat label="Film extruded" icon={Scale} accent="var(--series-1)" value={<><CountUp value={Math.round(tot.outKg)} /><span className="t-base text-[var(--text-3)] font-medium"> kg</span></>} spark={past.map((d) => d.outKg)} sub={tot.good ? `${fmtKg(Math.round(tot.outKg / tot.good))} per roll on average` : 'No rolls logged yet'} />
             : <Stat label="Rejects" icon={AlertTriangle} accent="var(--series-8)" value={<CountUp value={tot.rejects} />} spark={past.map((d) => d.rejects)} sparkColor="var(--series-8)" sub={tot.good + tot.rejects ? `${((tot.rejects / (tot.good + tot.rejects)) * 100).toFixed(1)}% of ${fmtNum(tot.good + tot.rejects)} pieces made` : 'Nothing made yet'} />}
         <Stat label="Downtime" icon={Timer} accent="var(--series-7)" tone={reasons.some((r) => r.missing) ? 'warn' : 'neutral'} value={<><CountUp value={tot.down} /><span className="t-base text-[var(--text-3)] font-medium"> min</span></>} spark={past.map((d) => d.downtime)} sparkColor="var(--series-7)" sub={longest ? `Longest ${longest.machine.code} · ${longest.entry!.downtimeMin} min${longest.entry!.downtimeReason ? ` · ${longest.entry!.downtimeReason}` : ''}` : 'No machine has stood still'} />
-        <Stat label={kgIO ? 'Scrap fed to the lines' : cfg.kgMode === 'entered' ? 'Resin used' : 'String used'} icon={kpiIcon} accent="var(--series-4)" value={<><CountUp value={Math.round(tot.inKg)} /><span className="t-base text-[var(--text-3)] font-medium"> kg</span></>} spark={past.map((d) => d.inKg)} sparkColor="var(--series-4)" sub={cfg.kgMode === 'estimate' ? `Estimated · ${fmtKg(Math.round(tot.outKg))} woven` : `${fmtKg(Math.round(tot.outKg))} out · ${tot.inKg ? (((tot.inKg - tot.outKg) / tot.inKg) * 100).toFixed(1) : '0.0'}% process loss`} />
       </KpiStrip>
 
       <div className="grid gap-[var(--gap)] xl:grid-cols-[minmax(0,1fr)_348px] items-start">
         <div ref={board} className="flex flex-col gap-[var(--gap)] min-w-0">
           <Panel icon={Factory} title={site.machineWallTitle} sub={`${filter === 'all' ? running.length : `${shown.length} of ${running.length}`} machines · ${kind} shift`} pad={false}
-            actions={<Tabs value={view} onChange={setView} tabs={[{ value: 'wall', label: 'Machine Wall' }, { value: 'table', label: 'Table View' }]} />}
+            actions={<><ChipGroup size="sm" ariaLabel="Filter machines" value={filter} onChange={setFilter} options={[{ value: 'all', label: 'All' }, { value: 'logged', label: 'Logged' }, { value: 'not_logged', label: 'Not logged' }, { value: 'below', label: 'Below target' }, { value: 'down', label: 'Down' }]} /><Tabs value={view} onChange={setView} tabs={[{ value: 'wall', label: 'Machine Wall' }, { value: 'table', label: 'Table View' }]} /></>}
             footer={<div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-1">
               <Legend items={[{ label: 'On target or logged', color: 'var(--ok)' }, { label: `Below ${site.thresholds.benchmarkPct}% with no reason, or down`, color: 'var(--bad)' }, { label: 'Not logged', color: 'var(--warn)' }]} />
               {!readOnly && <span className="t-xs text-[var(--text-3)]">Click any machine card above to record or update its shift output.</span>}
@@ -351,9 +312,6 @@ export function MachineWall() {
             ))}
           </Panel>
 
-          <Panel icon={Scale} title="Mass balance" sub="today, both shifts" actions={<MassBadge mb={mb} />} footer={mb.kgIn > 0 ? <>Allowed loss {site.thresholds.massGapPct}% is <span className="num">{fmtKg(Math.round(mb.allowedLossKg * 10) / 10)}</span></> : undefined}>
-            <MassBalance mb={mb} />
-          </Panel>
 
           <Panel icon={PackageCheck} title={kgIO ? 'Output by grade' : 'Output by product'} sub={kgIO ? 'kg this shift' : tot.due ? 'this shift vs due by now' : 'this shift'}>
             {products.length === 0 ? <Empty title="No output logged yet" /> : products.slice(0, 6).map((p) => (

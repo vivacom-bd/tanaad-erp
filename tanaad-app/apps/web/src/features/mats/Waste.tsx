@@ -85,11 +85,7 @@ export function Waste() {
   useHotkey('c', () => work('pellet'), { label: 'Work on crusher output' });
   useHotkey('mod+enter', () => { pressScale((active === 'trim' ? trimScale : pelletScale).current); }, { label: 'Read the scale, then use the reading', allowInInput: true });
 
-  const hint = (f: Flow) => (
-    <span className="touch:hidden inline-flex items-center gap-1.5">{active === f
-      ? <><Kbd keys="mod+enter" />reads the scale; press again to use the reading</>
-      : <><Kbd keys={f === 'trim' ? 't' : 'c'} />to work on this side</>}</span>
-  );
+  const hint = (_f: Flow) => null;
   const flowHead = (f: Flow, n: number) => <>{active === f && <Badge tone="accent" dot className="touch:hidden">Keyboard here</Badge>}<Badge tone="neutral">{n} today</Badge></>;
 
   const sackCols: Column<Label>[] = [

@@ -20,7 +20,7 @@ export const ZONE_COLORS = ['var(--series-1)', 'var(--series-3)', 'var(--series-
 export const zoneColor = (index: number) => ZONE_COLORS[index % ZONE_COLORS.length];
 
 export function Swatch({ colour, className }: { colour?: string; className?: string }) {
-  return <span aria-hidden className={cn('size-2.5 rounded-[3px] shrink-0 border border-[rgb(0_0_0/.12)]', className)} style={{ background: colour ?? 'var(--text-4)' }} />;
+  void colour; void className; return null; // product colour dots dropped: the name is enough
 }
 /** Swatch, internal name and (muted) commercial name on one line. */
 export function ProductName({ product, className, strong = true }: { product?: Product; className?: string; strong?: boolean }) {

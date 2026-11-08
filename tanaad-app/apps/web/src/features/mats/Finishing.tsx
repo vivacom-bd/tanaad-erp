@@ -12,7 +12,7 @@ import { Sticker } from '@/components/Sticker';
 import { fmtKg, fmtNum, fmtPct } from '@/data/format';
 import { sectorForStage } from '../production/shared';
 import { SetupHint } from '../production/parts';
-import { addProduction, draftLabel, Figure, FlowStrip, focusFirstField, FormSection, onModEnter, PrintRun, ScaleFrame, StickerStage, TabThrough, useShift, Workbench } from './kit';
+import { addProduction, draftLabel, Figure, focusFirstField, FormSection, onModEnter, PrintRun, ScaleFrame, StickerStage, TabThrough, useShift, Workbench } from './kit';
 
 interface Sample { n: number; productId: string; kg: number; at: string }
 interface LogRow { key: string; loom: string; product?: Product; finisher?: string; seed?: string; bundles: number; pieces: number; kg: number; zone: string }
@@ -102,7 +102,6 @@ export function Finishing() {
         <PageHeader eyebrow={`${site.name} · Finishing`} title="Finishing and bundling" meta={<><Badge tone="neutral">{kindLabel} shift</Badge><Badge tone="neutral" dot>{todaysBundles.length} bundles today</Badge></>}
           subtitle="Count the sewn pieces. The system makes the bundles and prints one sticker per bundle." />
       </div>
-      <FlowStrip current="finish" />
 
       <Workbench aside={<>
         <Panel icon={Tag} title="Bundle sticker" sub="live preview" actions={<Badge tone="neutral">{split.bundles > 1 ? `1 of ${split.bundles}` : 'Preview'}</Badge>}>

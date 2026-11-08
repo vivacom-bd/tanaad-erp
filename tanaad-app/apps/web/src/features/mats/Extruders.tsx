@@ -3,16 +3,15 @@ import { Activity, BarChart3, Check, Factory, FlaskConical, Layers, Plus, Printe
 import type { Label, Machine, Person, ProductionEntry } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { lastWorkingDays, machinesOf } from '@/data/selectors';
-import { NOW_LABEL, REASON_AFTER_MIN, codeKey, sectorForStage, shiftWindow } from '../production/shared';
+import { REASON_AFTER_MIN, codeKey, sectorForStage, shiftWindow } from '../production/shared';
 import { SetupHint } from '../production/parts';
-import { Avatar, Badge, Bar, Button, ChipGroup, Combobox, DataGrid, Empty, KpiStrip, NumberPad, Panel, Sheet, StackedBar, Stat, Status, Tabs, cn, useIsTouch, type Column, type Tone } from '@/components/ui';
-import { ColumnChart, CountUp, Legend, TimeTrack } from '@/components/charts';
+import { Avatar, Badge, Bar, Button, ChipGroup, Combobox, DataGrid, Empty, KpiStrip, NumberPad, PageHeader, Panel, Sheet, StackedBar, Stat, Status, Tabs, cn, useIsTouch, type Column, type Tone } from '@/components/ui';
+import { ColumnChart, CountUp, Legend } from '@/components/charts';
 import { PersonPicker } from '@/components/PersonPicker';
 import { Sticker } from '@/components/Sticker';
-import { SITE_COLOR } from '@/config/siteIdentity';
 import { printer } from '@/devices';
 import { fmtDayShort, fmtKg, fmtNum } from '@/data/format';
-import { addProduction, useColours, ColourDot, colourChip, FieldBlock, Figure, FlowStrip, onModEnter, StickerStage, TabThrough, useRovingGrid, useShift } from './kit';
+import { addProduction, useColours, ColourDot, colourChip, FieldBlock, Figure, onModEnter, StickerStage, TabThrough, useRovingGrid, useShift } from './kit';
 
 type State = 'logged' | 'not_logged' | 'down';
 interface Tile { machine: Machine; entry?: ProductionEntry; operator?: Person; state: State }
@@ -66,7 +65,7 @@ export function Extruders() {
   const pastRackKg = pastDays.map((d) => s.labels.filter((l) => l.siteId === site.id && l.kind === 'rack' && l.day === d).reduce((t, l) => t + l.qtyKg, 0));
   const pastBatches = pastDays.map((d) => s.labels.filter((l) => l.siteId === site.id && l.kind === 'batch' && l.day === d).length);
   const stringByDay = days.map((d) => Math.round(s.production.filter((p) => p.siteId === site.id && p.stageCode === 'extrude' && p.day === d).reduce((t, p) => t + p.outputKg, 0)));
-  const win = shiftWindow(site, today, today, kind); const hoursIn = Math.floor(win.nowH); const progress = Math.max(0.05, Math.min(1, hoursIn / win.span));
+  const win = shiftWindow(site, today, today, kind); const hoursIn = Math.floor(win.nowH);
   const stageNo = (code: string) => [...site.stages].sort((a, b) => a.sequence - b.sequence).findIndex((st) => st.code === code) + 1;
 
   const consumeRack = (colour: string) => {
@@ -103,25 +102,10 @@ export function Extruders() {
 
   return (
     <div className="flex flex-col gap-[var(--gap)]">
-      <section className="hero relative overflow-hidden px-5 py-4 flex flex-wrap items-center gap-x-8 gap-y-4">
-        <div className="flex items-center gap-3.5 min-w-0">
-          <span className="size-12 rounded-xl grid place-items-center shrink-0 shadow-[inset_0_1px_0_rgb(255_255_255/.25)]" style={{ background: SITE_COLOR[site.id] }}><Factory className="size-6" /></span>
-          <div className="min-w-0">
-            <div className="text-[11px] uppercase tracking-[0.12em] font-semibold text-white/55">{site.name} · stages {stageNo('extrude')} and {stageNo('dry')}</div>
-            <h1 className="text-[24px] font-semibold tracking-[-0.02em] leading-tight">Extruders and drying racks</h1>
-            <div className="text-[12.5px] text-white/60">{logged} of {extruders.length} logged · {fmtKg(Math.round(totalKg))} of string out · {racks.length} racks drying</div>
-          </div>
-        </div>
-        <div className="flex-1 min-w-[240px] max-w-[460px]">
-          <div className="flex items-center justify-between mb-2 text-[12.5px]"><span className="inline-flex items-center gap-1.5 font-medium"><span className="size-1.5 rounded-full bg-[var(--color-amber-400)] anim-live" />{kindLabel} shift in progress</span><span className="text-white/60 num">{hoursIn} h in · {win.span - hoursIn} h left</span></div>
-          <TimeTrack progress={progress} startLabel={win.starts} endLabel={win.ends} nowLabel={`${NOW_LABEL} now`} onDark />
-        </div>
-        <div className="flex flex-wrap items-center gap-2 ml-auto">
-          <span className={cn('inline-flex items-center gap-1.5 h-8 px-3 rounded-lg text-[12.5px] font-medium whitespace-nowrap', notLogged || down ? 'bg-[rgb(240_160_75/.2)] text-[var(--color-amber-400)]' : 'bg-white/10 text-white/80')}><Activity className="size-3.5" />{notLogged || down ? `${notLogged} not logged${down ? ` · ${down} down` : ''}` : 'Every extruder logged'}</span>
-          <Button variant="accent" icon={Plus} onClick={logNext} disabled={extruders.length === 0} hotkey={openId ? undefined : 'n'} hotkeyLabel="Log string output">Log string output</Button>
-        </div>
-      </section>
-      <FlowStrip current={['extrude', 'dry']} />
+      <PageHeader title="Extruders"
+        meta={notLogged || down ? <Badge tone="warn" dot>{notLogged} not logged{down ? ` · ${down} down` : ''}</Badge> : <Badge tone="ok" dot>Every extruder logged</Badge>}
+        subtitle={`${site.name} · stages ${stageNo('extrude')} and ${stageNo('dry')} · ${kindLabel.toLowerCase()} shift, ${hoursIn} h in, ${win.span - hoursIn} h left · ${logged} of ${extruders.length} logged · ${fmtKg(Math.round(totalKg))} of string out · ${racks.length} racks drying`}
+        actions={<Button variant="primary" icon={Plus} onClick={logNext} disabled={extruders.length === 0} hotkey={openId ? undefined : 'n'} hotkeyLabel="Log string output">Log string output</Button>} />
 
       <KpiStrip className="md:max-xl:grid-cols-2!">
         <Stat label="String out this shift" icon={Spool} accent="var(--series-1)" value={<><CountUp value={Math.round(totalKg)} /><span className="t-base text-[var(--text-3)] font-medium"> kg</span></>} spark={stringByDay.slice(0, -1)} sub={`${fmtKg(stringByDay[stringByDay.length - 1])} today across ${extruders.length} extruders`} />

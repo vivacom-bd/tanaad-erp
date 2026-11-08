@@ -5,7 +5,7 @@ export const mats: Site = {
   name: 'Mats Factory',
   legalName: 'Tanaad · Mats factory',
   shortName: 'Mats',
-  tagline: 'Woven mats · est. 2024 · largest site',
+  tagline: 'Woven mats',
   currencyPrimary: 'UGX',
   shifts: [
     { kind: 'day', starts: '07:00', ends: '19:00' },

@@ -1,19 +1,18 @@
 import { useMemo, useState } from 'react';
-import { ArrowRight, Bell, CheckCheck, Clock, CreditCard, Flame, Lock, MessageSquareText, Send, Settings2, Table2, Users, Wallet, type LucideIcon } from 'lucide-react';
+import { ArrowRight, Bell, Clock, Copy, CreditCard, Flame, Lock, MessageSquareText, Table2, Users, Wallet, type LucideIcon } from 'lucide-react';
 import type { SiteSettings } from '@tanaad/domain';
 import { useGo } from '@/app/hooks';
 import { SITE_COLOR } from '@/config/siteIdentity';
 import { roleLabel } from '@/config/roles';
 import { useStore } from '@/data/store';
-import { Avatar, Badge, Bar, Button, DataGrid, Kbd, PageHeader, Panel, Split, Tabs, cn, useHotkey, type Column } from '@/components/ui';
+import { Avatar, Badge, Bar, Button, DataGrid, PageHeader, Panel, Split, Tabs, cn, type Column } from '@/components/ui';
 import { WhatsAppPreview } from '@/components/WhatsAppPreview';
-import { messaging } from '@/devices';
 import { SITE_LIST } from '@/config/sites';
 import { cashDayFor, cashInSafe, cashSummary, headcount, massBalanceDay, openExceptions, outputToday } from '@/data/selectors';
-import { compact, fmtDayLong, fmtNum, fmtTime, fmtUGX } from '@/data/format';
-import { IconChip, KV, SiteBadge, SiteMark, Switch, plural, unitName } from './shared';
+import { compact, fmtDayLong, fmtNum, fmtUGX } from '@/data/format';
+import { IconChip, KV, SiteBadge, SiteMark, plural, unitName } from './shared';
 
-/** The four alert kinds the system raises. Their limits are the site rules kept in Settings; nothing is written here. */
+/** Alert kinds the sites already raise. Limits come from Settings — this page only shows them. */
 interface Rule { id: string; icon: LucideIcon; title: string; detail: string; limit?: (st: SiteSettings) => string }
 const RULES: Rule[] = [
   { id: 'gate', icon: Lock, title: 'Gate lock', detail: 'Scale weight outside the gate tolerance, or a bundle count mismatch.', limit: (st) => `±${st.gateTolerancePct}%` },
@@ -22,33 +21,26 @@ const RULES: Rule[] = [
   { id: 'credit', icon: CreditCard, title: 'Credit over limit', detail: 'An export order would take a client past the credit limit on its client record.' },
 ];
 
-/** One alert rule with its switch. Digits 1–4 flip the rules from the keyboard. */
-function RuleRow({ rule, index, on, onToggle }: { rule: Rule; index: number; on: boolean; onToggle: () => void }) {
+function RuleRow({ rule }: { rule: Rule }) {
   const settings = useStore((x) => x.siteSettings);
-  useHotkey(String(index + 1), onToggle, { label: `Turn the "${rule.title}" alert on or off` });
   return (
     <div className="px-[var(--pad)] py-2.5 border-b border-[var(--line)] last:border-b-0">
       <div className="flex items-start gap-2.5">
-        <IconChip icon={rule.icon} color={on ? 'var(--accent)' : 'var(--text-4)'} />
-        <div className="min-w-0 flex-1"><div className={cn('t-base font-medium', !on && 'text-[var(--text-3)]')}>{rule.title}</div><div className="t-sm text-[var(--text-3)]">{rule.detail}</div></div>
-        <div className="flex items-center gap-2 mt-0.5"><Kbd keys={String(index + 1)} /><Switch checked={on} onChange={onToggle} label={rule.title} /></div>
+        <IconChip icon={rule.icon} color="var(--accent)" />
+        <div className="min-w-0 flex-1"><div className="t-base font-medium">{rule.title}</div><div className="t-sm text-[var(--text-3)]">{rule.detail}</div></div>
       </div>
       {rule.limit && <div className="flex flex-wrap gap-1.5 mt-2">{SITE_LIST.map((x) => <span key={x.id} className="inline-flex items-center gap-1.5 h-[20px] touch:h-[24px] pl-1.5 pr-1.5 rounded-[5px] bg-[var(--surface-2)] border border-[var(--line)] t-xs"><span className="size-1.5 rounded-[2px]" style={{ background: SITE_COLOR[x.id] }} /><span className="text-[var(--text-2)]">{x.shortName}</span><span className="num font-semibold">{rule.limit!(settings[x.id])}</span></span>)}</div>}
     </div>
   );
 }
 
-/** The WhatsApp brief, rendered from live data, one message per CEO. */
+/** Compose today’s brief from live records. Copy the text; WhatsApp send is outside this demo. */
 export function Brief() {
   const s = useStore(); const toast = useStore((x) => x.toast); const go = useGo();
-  const [on, setOn] = useState<Record<string, boolean>>({ gate: true, cash: true, mass: true, credit: true });
-  const [sending, setSending] = useState(false); const [sentAt, setSentAt] = useState<string | null>(null); const [sentIds, setSentIds] = useState<string[]>([]);
   const ceos = s.users.filter((u) => u.roles.some((r) => r.role === 'ceo'));
   const managers = s.users.filter((u) => u.roles.some((r) => r.role === 'site_manager'));
   const [who, setWho] = useState(ceos[0]?.id ?? '');
-  const toggle = (id: string) => setOn((o) => ({ ...o, [id]: !o[id] }));
 
-  /* The five numbers per site, once: the message and the table below both read from this. */
   const sites = useMemo(() => SITE_LIST.map((site) => {
     const hc = headcount(s, site.id, s.today); const o = outputToday(s, site.id, s.today); const units = o.reduce((t, x) => t + x.units, 0); const target = o.reduce((t, x) => t + x.target, 0);
     const cd = cashDayFor(s, site.id, s.today); const cash = cd ? cashSummary(s, cd.id).expectedClosing : cashInSafe(s, site.id);
@@ -68,13 +60,13 @@ export function Brief() {
     return out;
   }, [s.today, sites, needs]);
 
-  const sendNow = async () => {
-    if (sending) return;
-    setSending(true);
-    const ids: string[] = [];
-    for (const c of ceos) { const r = await messaging.sendWhatsApp(c.name, lines.join('\n')); ids.push(r.id); }
-    setSending(false); setSentAt(new Date().toISOString()); setSentIds(ids);
-    toast({ kind: 'ok', title: `Brief sent to ${ceos.map((c) => c.name.split(' ')[0]).join(' and ')}`, detail: ids.join(' · ') });
+  const copyMessage = async () => {
+    try {
+      await navigator.clipboard.writeText(lines.join('\n'));
+      toast({ kind: 'ok', title: 'Brief copied', detail: 'Paste into WhatsApp when you are ready to send.' });
+    } catch {
+      toast({ kind: 'warn', title: 'Could not copy', detail: 'Select the preview text and copy it by hand.' });
+    }
   };
 
   const cols: Column<SiteLine>[] = [
@@ -86,36 +78,31 @@ export function Brief() {
     { key: 'dsp', header: 'Dispatches', align: 'right', mono: true, cell: (x) => fmtNum(x.dsp) },
     { key: 'ex', header: 'Exceptions', align: 'right', cell: (x) => (x.critical ? <Badge tone="bad" dot>{x.ex} · {x.critical} critical</Badge> : x.ex ? <Badge tone="warn">{x.ex} open</Badge> : <Badge tone="ok">clear</Badge>) },
   ];
-  const active = Object.values(on).filter(Boolean).length;
 
   return (
     <div>
       <PageHeader eyebrow="Group HQ" title="Morning brief"
-        meta={sentAt ? <Badge tone="ok" dot>Sent {fmtTime(sentAt)} (simulated)</Badge> : <Badge tone="neutral" dot>Not sent today</Badge>}
-        subtitle="Five numbers per site on WhatsApp, and what needs you. Rendered now from live data so you can see exactly what will go out."
-        actions={<Button variant="primary" icon={Send} disabled={sending} onClick={sendNow} hotkey="mod+enter" hotkeyLabel="Send the brief now">{sending ? 'Sending…' : 'Send now'}</Button>} />
+        meta={<Badge tone="neutral" dot>Preview</Badge>}
+        subtitle="Five numbers per site, composed now from the same records the site screens show. Copy the text when you are ready to send it yourself."
+        actions={<Button variant="primary" icon={Copy} onClick={copyMessage} hotkey="mod+enter" hotkeyLabel="Copy the brief">Copy message</Button>} />
 
       <Split aside={<>
-        <Panel icon={Clock} title="Schedule" sub={sentAt ? 'sent by hand today' : 'sent by hand'}
-          footer={<div className="flex items-center justify-between gap-3"><span>The daily send time is not a stored setting yet.</span><Button size="sm" variant="ghost" icon={Settings2} onClick={() => go.group('settings')}>Settings</Button></div>}>
-          <KV k="Daily send time" v={<Badge tone="warn" dot>To be set</Badge>} />
-          <KV k="Sent by hand today" v={sentAt ? <span className="inline-flex items-center gap-1 text-[var(--ok)]"><CheckCheck className="size-3.5" />{fmtTime(sentAt)} · {plural(sentIds.length, 'message')}</span> : 'not yet'} />
+        <Panel icon={Clock} title="How it goes out" sub="manual for now"
+          footer={<div className="flex items-center justify-between gap-3"><span>Daily auto-send is not wired yet. Copy here, paste in WhatsApp.</span><Button size="sm" variant="ghost" onClick={() => go.group('settings')}>Site rules</Button></div>}>
           <KV k="Recipients" v={plural(ceos.length, 'person', 'people')} />
           <KV k="Message" v={`${plural(lines.filter((l) => l.startsWith('•')).length, 'number')} · ${plural(needs.length, 'item')} for you`} />
-          <KV k="Alert rules on" v={`${active} of ${RULES.length}`} />
-          {sentIds.length > 0 && <div className="mt-2 flex flex-wrap gap-1">{sentIds.map((id) => <span key={id} className="code t-xs px-1.5 py-0.5 rounded-[4px] bg-[var(--surface-3)] text-[var(--text-2)]">{id}</span>)}</div>}
+          <KV k="Delivery" v={<Badge tone="neutral" dot>You send it</Badge>} />
         </Panel>
 
         <Panel icon={Users} title="Recipients" sub={`${ceos.length} get the brief`} pad={false}>
-          <div className="px-[var(--pad)] h-7 touch:h-8 flex items-center bg-[var(--surface-2)] border-b border-[var(--line)] t-label">Brief and alerts</div>
+          <div className="px-[var(--pad)] h-7 touch:h-8 flex items-center bg-[var(--surface-2)] border-b border-[var(--line)] t-label">Brief goes to</div>
           {ceos.map((c) => (
             <div key={c.id} className="flex items-center gap-2.5 px-[var(--pad)] py-2 border-b border-[var(--line)]">
               <Avatar name={c.name} seed={c.avatarSeed} size={28} />
               <div className="min-w-0 flex-1"><div className="t-base font-medium truncate">{c.name}</div><div className="t-sm text-[var(--text-3)]">{roleLabel('ceo')}</div></div>
-              <Badge tone={sentAt ? 'ok' : 'neutral'} dot>{sentAt ? 'Delivered' : 'Not sent'}</Badge>
             </div>
           ))}
-          {managers.length > 0 && <div className="px-[var(--pad)] h-7 touch:h-8 flex items-center bg-[var(--surface-2)] border-b border-[var(--line)] t-label">Alerts for their site</div>}
+          {managers.length > 0 && <div className="px-[var(--pad)] h-7 touch:h-8 flex items-center bg-[var(--surface-2)] border-b border-[var(--line)] t-label">Site managers</div>}
           {managers.map((m) => (
             <div key={m.id} className="flex items-center gap-2.5 px-[var(--pad)] py-1.5 border-b border-[var(--line)] last:border-b-0">
               <Avatar name={m.name} seed={m.avatarSeed} size={24} />
@@ -125,19 +112,19 @@ export function Brief() {
           ))}
         </Panel>
 
-        <Panel icon={Bell} title="Instant alerts" sub={`${active} of ${RULES.length} on`} pad={false}
-          footer={<>Limits are each site's rules in Settings. The switches apply to this session; they are not a stored setting yet.</>}>
-          {RULES.map((r, i) => <RuleRow key={r.id} rule={r} index={i} on={on[r.id]} onToggle={() => toggle(r.id)} />)}
+        <Panel icon={Bell} title="Alert limits" sub="from each site’s rules" pad={false}
+          footer={<>These limits are stored in Settings. Changing them there changes what the sites raise — not from this page.</>}>
+          {RULES.map((r) => <RuleRow key={r.id} rule={r} />)}
         </Panel>
       </>}>
         <div className="flex flex-col gap-[var(--gap)]">
           <Panel icon={MessageSquareText} title="Preview" sub={`${plural(ceos.length, 'message')}, composed now`} actions={<Tabs className="md:hidden" value={who} onChange={setWho} tabs={ceos.map((c) => ({ value: c.id, label: c.name.split(' ')[0] }))} />}
-            footer={<span>{plural(lines.filter((l) => l.startsWith('•')).length, 'number')} and {plural(needs.length, 'item')} that need you. The text is rebuilt from the records every time this page opens, so it cannot drift from the screens.</span>}>
+            footer={<span>{plural(lines.filter((l) => l.startsWith('•')).length, 'number')} and {plural(needs.length, 'item')} that need you. Rebuilt from the records every time this page opens.</span>}>
             <div className="grid gap-[var(--gap)] md:grid-cols-2">
               {ceos.map((c) => (
                 <div key={c.id} className={cn('min-w-0', c.id !== who && 'max-md:hidden')}>
-                  <div className="flex items-center gap-2 mb-2"><Avatar name={c.name} seed={c.avatarSeed} size={24} /><span className="t-base font-medium truncate">{c.name}</span><span className="t-sm text-[var(--text-3)]">{roleLabel('ceo')}</span><Badge className="ml-auto" tone={sentAt ? 'ok' : 'neutral'} dot>{sentAt ? 'Delivered' : 'Preview'}</Badge></div>
-                  <WhatsAppPreview className="w-full" to={c.name} lines={lines} sent={!!sentAt} />
+                  <div className="flex items-center gap-2 mb-2"><Avatar name={c.name} seed={c.avatarSeed} size={24} /><span className="t-base font-medium truncate">{c.name}</span><span className="t-sm text-[var(--text-3)]">{roleLabel('ceo')}</span><Badge className="ml-auto" tone="neutral" dot>Preview</Badge></div>
+                  <WhatsAppPreview className="w-full" to={c.name} lines={lines} sent={false} />
                 </div>
               ))}
             </div>

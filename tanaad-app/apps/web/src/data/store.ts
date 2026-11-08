@@ -31,7 +31,7 @@ export interface AppState extends SeedData {
   alerts: { id: string; title: string; detail: string; at: string; siteId?: SiteCode; read: boolean }[];
 }
 
-const SEED_VERSION = 19;
+const SEED_VERSION = 20;
 
 type Mut = (s: AppState) => void;
 

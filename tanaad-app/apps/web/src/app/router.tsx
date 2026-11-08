@@ -38,7 +38,6 @@ const groupRoutes = [
   g('audit', () => import('@/features/group/AuditFeed'), 'AuditFeed'),
   g('people', () => import('@/features/group/GroupPeople'), 'GroupPeople'),
   g('pnl', () => import('@/features/group/Pnl'), 'Pnl'),
-  g('ask', () => import('@/features/group/Ask'), 'Ask'),
   g('settings', () => import('@/features/settings/Settings'), 'Settings'),
 ];
 
@@ -82,10 +81,9 @@ const siteRoutes = [
   s('sales/orders', () => import('@/features/sales/Orders'), 'Orders'),
   s('sales/invoices', () => import('@/features/sales/Invoices'), 'Invoices'),
   s('reports', () => import('@/features/reports/Reports'), 'Reports'),
-  s('reports/production', () => import('@/features/reports/ProductionReport'), 'ProductionReport'),
-  s('reports/attendance', () => import('@/features/reports/AttendanceReport'), 'AttendanceReport'),
-  s('reports/cash', () => import('@/features/reports/CashReport'), 'CashReport'),
-  s('reports/dispatch', () => import('@/features/reports/DispatchReport'), 'DispatchReport'),
+  // The separate production, attendance, cash and dispatch report screens were folded into Reports and the working pages; keep old links working.
+  ...([['reports/production', 'production/wall'], ['reports/attendance', 'people/attendance'], ['reports/cash', 'cash'], ['reports/dispatch', 'stock/deliveries']] as const).map(([from, to]) =>
+    createRoute({ getParentRoute: () => site, path: from, beforeLoad: ({ params }) => { throw redirect({ to: `/s/$site/${to}` as never, params: params as never }); } })),
   s('settings', () => import('@/features/settings/Settings'), 'Settings'),
   s('purchases', () => import('@/features/purchases/Purchases'), 'Purchases'),
 ];

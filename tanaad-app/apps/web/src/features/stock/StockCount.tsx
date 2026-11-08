@@ -13,7 +13,7 @@ import { Bench, KV, ProductName, Step, Swatch, Variance, plural, signed, unitWor
 interface Line { product: Product; system: number; extra?: boolean }
 interface Result { zone: string; rows: { product: Product; counted: number; system: number }[] }
 
-/** Stock count by zone: a count sheet typed like a spreadsheet. Counted against system, variance kept forever as an event with an owner. */
+/** Stock count by zone against the current demo balance. */
 export function StockCount() {
   const s = useStore(); const site = useSite(); const go = useGo(); const touch = useIsTouch();
   const recordStockCount = useStore((x) => x.recordStockCount); const toast = useStore((x) => x.toast);
@@ -99,15 +99,15 @@ export function StockCount() {
 
   return (
     <div>
-      <PageHeader eyebrow={`${site.name} · Stock`} title="Stock count" meta={<><Badge tone="neutral"><Lock className="size-3" />Variance kept forever</Badge><Badge tone="neutral">{fmtDay(s.today)}</Badge></>}
-        subtitle="Pick a zone, count what is there, type the number. The system keeps the difference, permanently."
+      <PageHeader eyebrow={`${site.name} · Stock`} title="Stock count" meta={<><Badge tone="neutral"><Lock className="size-3" />Count records</Badge><Badge tone="neutral">{fmtDay(s.today)}</Badge></>}
+        subtitle="Choose a zone, enter the physical count, and review the difference from the recorded stock."
         actions={<Button icon={Boxes} onClick={() => go.site('stock')}>Stock wall</Button>} />
 
       <Bench asideWidth={440} aside={<>
         {result && (
           <Panel icon={ClipboardCheck} title="Just recorded" sub={result.zone} actions={<Badge tone={result.rows.some((r) => r.counted !== r.system) ? 'bad' : 'ok'} dot>{result.rows.some((r) => r.counted !== r.system) ? `${result.rows.filter((r) => r.counted !== r.system).length} with a difference` : 'Everything matches'}</Badge>}
             footer="Nothing was silently changed: the system figure stays, the counted figure stays, and the difference is in the audit feed with your name.">
-            <div className="t-sm font-medium mb-1">Variance recorded permanently · {plural(result.rows.length, 'product')}</div>
+            <div className="t-sm font-medium mb-1">Count saved in this demo · {plural(result.rows.length, 'product')}</div>
             {result.rows.map((r) => <div key={r.product.id} className="flex items-center gap-2 min-h-7 touch:min-h-10 border-b border-[var(--line)] last:border-b-0 t-sm"><ProductName product={r.product} className="flex-1" strong={false} /><span className="num text-[var(--text-3)]">{fmtNum(r.counted)} / {fmtNum(r.system)}</span><Variance v={r.counted - r.system} /></div>)}
           </Panel>
         )}
@@ -123,7 +123,7 @@ export function StockCount() {
           </div>
           <Note tone="neutral" className="mt-3">Counting {unit}, not kilos. The gate scale checks kilos.</Note>
         </Panel>
-        <Panel icon={History} title="Past counts" pad={false} actions={<Badge tone="neutral"><Lock className="size-3" />Kept forever · never deletable</Badge>}
+        <Panel icon={History} title="Past counts" pad={false} actions={<Badge tone="neutral">Records</Badge>}
           footer="Every count is an event with an owner. There is no delete here, by design: a wrong count is corrected by counting again.">
           <div className="flex items-center justify-between gap-2 px-[var(--pad)] py-2 border-b border-[var(--line)]">
             <Tabs value={scope} onChange={setScope} tabs={[{ value: 'all', label: 'All zones', count: history.length }, { value: 'zone', label: 'This zone', count: history.filter((c) => c.zoneId === zoneId).length }]} />

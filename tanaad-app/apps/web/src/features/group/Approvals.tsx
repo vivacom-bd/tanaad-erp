@@ -208,7 +208,7 @@ export function Approvals() {
           <Button variant="primary" icon={CircleCheck} hotkey="r" hotkeyLabel="Resolve the selected exception" onClick={() => arm('resolved')}>Resolve</Button>
         </>}
       </div>
-      <div className="t-xs text-[var(--text-3)] mt-1.5">{armed ? <>Press <Kbd keys="enter" /> to confirm or <Kbd keys="escape" /> to go back. </> : null}The decision and its reason are kept in the audit feed with your name and device.</div>
+      <div className="t-xs text-[var(--text-3)] mt-1.5">{armed ? <>Press <Kbd keys="enter" /> to confirm or <Kbd keys="escape" /> to go back. </> : null}Closes this exception on the record. Gate unlocks, stock, and cash still happen on the site screens. Credit orders are decided on the Credit desk.</div>
     </div>
   );
 
@@ -263,7 +263,7 @@ export function Approvals() {
     <div>
       <PageHeader eyebrow="Group HQ" title="Approvals"
         meta={<><Badge tone={allOpen.length ? 'warn' : 'ok'} dot>{allOpen.length} open</Badge>{critical > 0 && <Badge tone="bad" dot>{critical} critical</Badge>}</>}
-        subtitle="Every open exception across the three sites, one decision each. Decisions are written to the audit feed with your name and device."
+        subtitle="Every open exception across the three sites, one decision each. Your name and reason go on the audit feed."
         tabs={<Tabs variant="underline" value={tab} onChange={(v) => { setTab(v); setArmed(null); }} tabs={[{ value: 'open', label: 'Open', count: allOpen.length }, { value: 'decided', label: 'Decided today', count: decidedAll.length }]} />} />
 
       <Toolbar>

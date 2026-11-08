@@ -18,7 +18,7 @@ export const STATE: Record<MachineTile['state'], { label: string; tone: Tone; co
 
 /** Product colour swatch. */
 export function Swatch({ colour, className }: { colour?: string; className?: string }) {
-  return <span className={cn('size-2 rounded-[2px] shrink-0 inline-block', className)} style={{ background: colour ?? 'var(--text-4)' }} />;
+  void colour; void className; return null; // product colour dots dropped: the name is enough
 }
 
 /** Icon in a tinted square: the house way to add colour to a row. */
