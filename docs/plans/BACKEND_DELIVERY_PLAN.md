@@ -36,7 +36,7 @@ Goal: an empty but complete skeleton that proves the ledger end to end with one 
 
 **Gate:** sign in as a seeded user, fetch site config, post one `config.ref_list_changed` through `/events` and see it in the snapshot delta. `make rebuild` reproduces the projection.
 
-**Status (9 Nov 2026):** done on branch `backend/phase-0`, gate passed against the dev database. P0-01 to P0-10 and P0-12 complete; P0-11 reduced to a minimal unmaintained workflow because CI is deferred by decision (local `make check` is the gate). Additions beyond the plan: a `Sync` module owns `/events` and `/snapshots` so `Shared` stays free of module imports; config is seeded through `config.*` events so snapshot pulls from `since=0` return the seed; duplicates return the assigned number. Open item: Config tests re-seed ~400 events each, being trimmed.
+**Status (9 Nov 2026):** done on branch `backend/phase-0`, gate passed against the dev database. P0-01 to P0-10 and P0-12 complete; P0-11 reduced to a minimal unmaintained workflow because CI is deferred by decision (local `make check` is the gate). Additions beyond the plan: a `Sync` module owns `/events` and `/snapshots` so `Shared` stays free of module imports; config is seeded through `config.*` events so snapshot pulls from `since=0` return the seed; duplicates return the assigned number. The suite runs in about 20 seconds.
 
 ## Phase 1 — People and cash (Weeks 2–3: 17–28 Nov)
 
