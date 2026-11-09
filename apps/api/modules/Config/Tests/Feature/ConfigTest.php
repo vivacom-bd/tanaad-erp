@@ -5,13 +5,15 @@ declare(strict_types=1);
 use Illuminate\Support\Facades\DB;
 use Tanaad\Config\Database\Seeders\ConfigSeeder;
 use Tanaad\Config\Database\Seeders\SitesSeeder;
+use Tanaad\Config\Models\Product;
 use Tanaad\Config\Models\RefItem;
+use Tanaad\Config\Models\Site;
 use Tanaad\Identity\Database\Seeders\DemoUsersSeeder;
 use Tanaad\Identity\Models\User;
 use Tanaad\Shared\Ledger\Replay;
 
 beforeEach(function (): void {
-    $this->seed([SitesSeeder::class, ConfigSeeder::class, DemoUsersSeeder::class]);
+    $this->seed([SitesSeeder::class, DemoUsersSeeder::class, ConfigSeeder::class]);
     $token = fn (string $code): string => User::query()->where('code', $code)->firstOrFail()->createToken('office', ['user'])->plainTextToken;
     $this->admin = $token('u_admin');
     $this->bagsManager = $token('u_sm_bags');
@@ -34,7 +36,7 @@ it('returns the whole site configuration in the prototype shape', function (): v
         ->and($r->json('fx'))->toEqual(3700)
         ->and($r->json('companyProfile.tin'))->toBe('')
         ->and(collect($r->json('numberSeries'))->firstWhere('kind', 'delivery_note'))->toMatchArray(['prefix' => 'DN', 'next' => 4817])
-        ->and($r->json('snapshot_seq'))->toBe(0);
+        ->and($r->json('snapshot_seq'))->toBeGreaterThan(0);
 
     $mats = $this->withToken($this->matsManager)->getJson('/api/v1/sites/mats/config')->assertOk();
     expect($mats->json('benchmarks'))->toHaveCount(21 * 5);
@@ -54,11 +56,12 @@ function addVehicle(Tests\TestCase $t, string $token): array
 }
 
 it('lets a site manager add a ref item and records the event', function (): void {
+    $seededSeq = (int) DB::table('events')->max('seq');
     $r = addVehicle($this, $this->matsManager);
     expect($r['ref']['label'])->toBe('UAZ 100A')->and($r['event_id'])->toBeString();
     $refs = $this->withToken($this->matsManager)->getJson('/api/v1/sites/mats/config')->json('refs');
     expect(collect($refs)->firstWhere('id', $r['ref']['id']))->not->toBeNull()
-        ->and(DB::table('events')->where('type', 'config.ref_list_changed')->count())->toBe(1);
+        ->and(DB::table('events')->where('type', 'config.ref_list_changed')->where('seq', '>', $seededSeq)->count())->toBe(1);
 
     $this->withToken($this->matsManager)->postJson('/api/v1/sites/mats/refs', ['list' => 'nonsense', 'label' => 'x'])->assertStatus(422);
     $this->withToken($this->matsManager)->postJson('/api/v1/sites/mats/refs', ['list' => 'market', 'label' => 'Kenya', 'siteId' => null])->assertForbidden();
@@ -101,10 +104,30 @@ it('saves products, machines and benchmarks through the ledger', function (): vo
         ->assertCreated()->assertJsonPath('companyProfile.vatRatePct', 18);
 });
 
-it('rebuilds to the same ref rows, keeping seeded rows', function (): void {
+it('rebuilds every seeded and posted row from the ledger', function (): void {
     $added = addVehicle($this, $this->matsManager);
-    $before = RefItem::query()->orderBy('id')->get(['id', 'label', 'seq'])->toArray();
+    $refs = RefItem::query()->count();
+    $products = Product::query()->count();
     app(Replay::class)->rebuild();
-    expect(RefItem::query()->orderBy('id')->get(['id', 'label', 'seq'])->toArray())->toBe($before)
+    expect(RefItem::query()->count())->toBe($refs)
+        ->and(Product::query()->count())->toBe($products)
         ->and(RefItem::query()->find($added['ref']['id']))->not->toBeNull();
+});
+
+it('returns seeded rows in the snapshot delta since 0', function (): void {
+    $mats = (string) Site::query()->where('code', 'mats')->value('id');
+    $rows = [];
+    $since = 0;
+    do {
+        $r = $this->withToken($this->matsManager)->getJson("/api/v1/sites/mats/snapshots/ref_items?since={$since}")->assertOk();
+        $rows = [...$rows, ...$r->json('data')];
+        $since = (int) $r->json('snapshot_seq');
+    } while ($r->json('has_more') === true);
+    $expected = RefItem::query()->where(fn ($q) => $q->where('site_id', $mats)->orWhereNull('site_id'))->count();
+    expect($rows)->toHaveCount($expected)
+        ->and(collect($rows)->every(fn (array $x): bool => $x['seq'] > 0))->toBeTrue();
+
+    $products = $this->withToken($this->matsManager)->getJson('/api/v1/sites/mats/snapshots/products?since=0&limit=500')->assertOk()->json('data');
+    expect(collect($products)->pluck('code')->sort()->values()->all())
+        ->toBe(Product::query()->where('site_id', $mats)->orderBy('code')->pluck('code')->all());
 });

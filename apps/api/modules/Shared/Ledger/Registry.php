@@ -102,6 +102,18 @@ final class Registry
         return $this->container->make($class);
     }
 
+    /** @return list<class-string<Command>> */
+    public function registeredCommands(): array
+    {
+        return array_keys($this->handlers);
+    }
+
+    /** @param class-string<Command> $commandClass */
+    public function hasAuthorizer(string $commandClass): bool
+    {
+        return isset($this->authorizers[$commandClass]);
+    }
+
     public function authorizerFor(Command $command): ?Authorizer
     {
         $class = $this->authorizers[$command::class] ?? null;

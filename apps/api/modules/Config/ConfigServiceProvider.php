@@ -26,6 +26,7 @@ final class ConfigServiceProvider extends ServiceProvider
             'config.fx_rate_set' => [Commands\SetFxRate::class, Handlers\SetFxRateHandler::class, Factories\SetFxRateFactory::class],
             'config.company_profile_changed' => [Commands\UpdateCompanyProfile::class, Handlers\UpdateCompanyProfileHandler::class, Factories\UpdateCompanyProfileFactory::class],
             'config.price_set' => [Commands\SetPrice::class, Handlers\SetPriceHandler::class, Factories\SetPriceFactory::class],
+            'config.stage_saved' => [Commands\SaveStage::class, Handlers\SaveStageHandler::class, Factories\SaveStageFactory::class],
             'config.number_series_defined' => [Commands\DefineNumberSeries::class, Handlers\DefineNumberSeriesHandler::class, Factories\DefineNumberSeriesFactory::class],
         ];
         foreach ($map as $type => [$command, $handler, $factory]) {

@@ -13,6 +13,6 @@ final class DatabaseSeeder extends Seeder
 {
     public function run(): void
     {
-        $this->call([SitesSeeder::class, ConfigSeeder::class, DemoUsersSeeder::class]);
+        $this->call([SitesSeeder::class, DemoUsersSeeder::class, ConfigSeeder::class]);
     }
 }

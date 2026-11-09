@@ -10,10 +10,10 @@ use Tanaad\Shared\Ledger\NumberSeries;
 use Tanaad\Shared\Ledger\Projector;
 use Tanaad\Shared\Ledger\StoredEvent;
 
-/** The only writer of the Config read tables (seeders aside). */
+/** The only writer of the Config read tables. */
 final class ConfigProjector implements Projector
 {
-    private const array TABLES = ['site_settings', 'ref_items', 'stages', 'products', 'prices', 'machines', 'benchmarks', 'zones', 'fx_rates', 'company_profiles'];
+    private const array TABLES = ['benchmarks', 'prices', 'machines', 'products', 'stages', 'zones', 'ref_items', 'fx_rates', 'company_profiles', 'site_settings'];
 
     public function __construct(private readonly ConnectionInterface $db, private readonly NumberSeries $series) {}
 
@@ -22,7 +22,7 @@ final class ConfigProjector implements Projector
         return [
             'config.ref_list_changed', 'config.site_settings_changed', 'config.product_saved', 'config.machine_saved',
             'config.benchmark_set', 'config.zone_saved', 'config.fx_rate_set', 'config.company_profile_changed',
-            'config.price_set', 'config.number_series_defined',
+            'config.price_set', 'config.number_series_defined', 'config.stage_saved',
         ];
     }
 
@@ -51,6 +51,10 @@ final class ConfigProjector implements Projector
                 'id' => $p['benchmark_id'], 'site_id' => $site, 'machine_id' => $p['machine_id'], 'product_id' => $p['product_id'],
                 'units_per_shift' => $p['units_per_shift'], ...$meta,
             ]),
+            'config.stage_saved' => $this->upsert('stages', ['site_id', 'code'], [
+                'id' => $p['stage_id'], 'site_id' => $site, 'code' => $p['code'], 'name' => $p['name'], 'sequence' => $p['sequence'],
+                'input_unit' => $p['input_unit'], 'output_unit' => $p['output_unit'], 'produces_label' => $p['produces_label'], ...$meta,
+            ]),
             'config.zone_saved' => $this->upsert('zones', ['id'], ['id' => $p['zone_id'], 'site_id' => $site, 'name' => $p['name'], ...$meta]),
             'config.fx_rate_set' => $this->upsert('fx_rates', ['day', 'base', 'quote'], [
                 'id' => $p['fx_id'], 'site_id' => null, 'day' => $p['day'], 'base' => $p['base'], 'quote' => $p['quote'], 'rate' => $p['rate'], ...$meta,
@@ -61,11 +65,10 @@ final class ConfigProjector implements Projector
         };
     }
 
-    /** Seeded rows (seq 0) are not events, so a replay keeps them and drops only what events wrote. */
     public function reset(): void
     {
         foreach (self::TABLES as $table) {
-            $this->db->table($table)->where('seq', '>', 0)->delete();
+            $this->db->table($table)->delete();
         }
     }
 

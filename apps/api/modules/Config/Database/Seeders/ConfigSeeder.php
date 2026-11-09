@@ -5,23 +5,37 @@ declare(strict_types=1);
 namespace Tanaad\Config\Database\Seeders;
 
 use Carbon\CarbonImmutable;
+use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Str;
+use Tanaad\Config\Commands\ChangeRefList;
+use Tanaad\Config\Commands\DefineNumberSeries;
+use Tanaad\Config\Commands\SaveMachine;
+use Tanaad\Config\Commands\SaveProduct;
+use Tanaad\Config\Commands\SaveStage;
+use Tanaad\Config\Commands\SetBenchmark;
+use Tanaad\Config\Commands\SetFxRate;
+use Tanaad\Config\Commands\UpdateCompanyProfile;
+use Tanaad\Config\Commands\UpdateSiteSettings;
 use Tanaad\Config\Models\Benchmark;
 use Tanaad\Config\Models\CompanyProfile;
 use Tanaad\Config\Models\FxRate;
 use Tanaad\Config\Models\Machine;
-use Tanaad\Config\Models\Price;
 use Tanaad\Config\Models\Product;
 use Tanaad\Config\Models\RefItem;
 use Tanaad\Config\Models\Site;
 use Tanaad\Config\Models\SiteSetting;
 use Tanaad\Config\Models\Stage;
-use Tanaad\Shared\Ledger\NumberSeries;
+use Tanaad\Identity\Models\User;
+use Tanaad\Shared\Ledger\Command;
+use Tanaad\Shared\Ledger\CommandBus;
+use Tanaad\Shared\Ledger\CommandContext;
 
 /**
  * Starting master data, mirroring apps/web/src/data/seed/masterData.ts, build.ts and
- * config/sites/*.ts. Writes projection rows directly with seq 0 (seeds are not ledger
- * events) and is idempotent on codes and unique keys. Run after SitesSeeder.
+ * config/sites/*.ts. Every row is a config.* event dispatched as u_admin, so a replay
+ * rebuilds it and snapshot deltas include it. Idempotent: a command is skipped when
+ * its row already exists. Run after SitesSeeder and DemoUsersSeeder.
  */
 final class ConfigSeeder extends Seeder
 {
@@ -33,21 +47,42 @@ final class ConfigSeeder extends Seeder
     /** @var array<string, int> "list|site" => next order */
     private array $order = [];
 
-    public function run(NumberSeries $series): void
+    private CommandBus $bus;
+
+    private string $adminId;
+
+    public function run(CommandBus $bus, ConnectionInterface $db): void
     {
+        $this->bus = $bus;
+        $this->adminId = (string) User::query()->where('code', 'u_admin')->valueOrFail('id');
         $this->sites = Site::query()->pluck('id', 'code')->map(fn ($id): string => (string) $id)->all();
         $this->stages();
         $this->refs();
         $this->settingsAndProfiles();
         $products = $this->products();
         $this->machinesAndBenchmarks($products);
-        FxRate::query()->updateOrCreate(['day' => CarbonImmutable::now()->toDateString(), 'base' => 'USD', 'quote' => 'UGX'], ['rate' => 3700, 'site_id' => null]);
-        foreach (['mats' => 1, 'bags' => 4817, 'recycling' => 1] as $code => $dnStart) {
-            $series->define($this->sites[$code], 'delivery_note', 'DN', 5, $dnStart);
-            $series->define($this->sites[$code], 'invoice', 'INV', 5, 1);
-            $series->define($this->sites[$code], 'voucher', 'PV', 5, 1);
-            $series->define($this->sites[$code], 'receipt', 'RC', 5, 1);
+        $day = CarbonImmutable::now()->toDateString();
+        if (! FxRate::query()->where(['day' => $day, 'base' => 'USD', 'quote' => 'UGX'])->exists()) {
+            $this->send(new SetFxRate($this->ctx(null), ['day' => $day, 'base' => 'USD', 'quote' => 'UGX', 'rate' => 3700]));
         }
+        foreach (['mats' => 1, 'bags' => 4817, 'recycling' => 1] as $code => $dnStart) {
+            foreach ([['delivery_note', 'DN', $dnStart], ['invoice', 'INV', 1], ['voucher', 'PV', 1], ['receipt', 'RC', 1]] as [$kind, $prefix, $next]) {
+                if ($db->table('number_series')->where(['site_id' => $this->sites[$code], 'kind' => $kind])->exists()) {
+                    continue;
+                }
+                $this->send(new DefineNumberSeries($this->ctx($code), ['kind' => $kind, 'prefix' => $prefix, 'pad' => 5, 'next' => $next]));
+            }
+        }
+    }
+
+    private function ctx(?string $site): CommandContext
+    {
+        return new CommandContext($site === null ? null : $this->sites[$site], $this->adminId, null, CarbonImmutable::parse('2026-11-01 08:00:00', 'Africa/Kampala'));
+    }
+
+    private function send(Command $command): void
+    {
+        $this->bus->dispatch($command);
     }
 
     private function stages(): void
@@ -59,7 +94,10 @@ final class ConfigSeeder extends Seeder
         ];
         foreach ($stages as $site => $list) {
             foreach ($list as $i => [$code, $name, $in, $out, $label]) {
-                Stage::query()->updateOrCreate(['site_id' => $this->sites[$site], 'code' => $code], ['name' => $name, 'sequence' => $i + 1, 'input_unit' => $in, 'output_unit' => $out, 'produces_label' => $label]);
+                if (Stage::query()->where(['site_id' => $this->sites[$site], 'code' => $code])->exists()) {
+                    continue;
+                }
+                $this->send(new SaveStage($this->ctx($site), ['code' => $code, 'name' => $name, 'sequence' => $i + 1, 'input_unit' => $in, 'output_unit' => $out, 'produces_label' => $label]));
             }
         }
     }
@@ -68,16 +106,19 @@ final class ConfigSeeder extends Seeder
     private function add(string $list, string $label, array $o = []): void
     {
         $site = $o['site'] ?? null;
-        $siteId = is_string($site) ? $this->sites[$site] : null;
+        $site = is_string($site) ? $site : null;
         $key = $list.'|'.($site ?? '');
         $order = $this->order[$key] ?? 0;
         $this->order[$key] = $order + 1;
         $code = is_string($o['id'] ?? null) ? $o['id'] : 'ref_'.$list.'_'.base_convert((string) $this->n++, 10, 36);
-        RefItem::query()->updateOrCreate(['code' => $code], [
-            'list' => $list, 'site_id' => $siteId, 'label' => $label, 'value' => $o['value'] ?? null, 'unit' => $o['unit'] ?? null,
-            'color' => $o['color'] ?? null, 'parent_id' => $o['parent'] ?? null, 'active' => true, 'sort_order' => $order,
-            'system' => (bool) ($o['system'] ?? false), 'example' => (bool) ($o['example'] ?? false),
-        ]);
+        if (RefItem::query()->where('code', $code)->exists()) {
+            return;
+        }
+        $this->send(new ChangeRefList($this->ctx($site), [
+            'item_id' => (string) Str::uuid7(), 'list' => $list, 'site_id' => $site === null ? null : $this->sites[$site], 'label' => $label,
+            'value' => $o['value'] ?? null, 'unit' => $o['unit'] ?? null, 'color' => $o['color'] ?? null, 'parent_id' => $o['parent'] ?? null,
+            'active' => true, 'sort_order' => $order, 'system' => (bool) ($o['system'] ?? false), 'example' => (bool) ($o['example'] ?? false), 'code' => $code,
+        ]));
     }
 
     private function refs(): void
@@ -186,15 +227,19 @@ final class ConfigSeeder extends Seeder
     private function settingsAndProfiles(): void
     {
         foreach (['mats' => [2, 3900], 'bags' => [2, 5200], 'recycling' => [12, 950]] as $code => [$massGap, $materialCost]) {
-            SiteSetting::query()->updateOrCreate(['site_id' => $this->sites[$code]], [
-                'gate_tolerance_pct' => 2, 'mass_gap_pct' => $massGap, 'cash_variance' => 20000, 'benchmark_pct' => 80,
-                'expense_approval_limit' => 500000, 'archive_after_absent_days' => 5, 'contract_warning_days' => 3,
-                'standard_day_hours' => 8, 'month_working_days' => 26, 'downtime_reason_after_min' => 60, 'material_cost_per_kg' => $materialCost,
-            ]);
+            if (! SiteSetting::query()->where('site_id', $this->sites[$code])->exists()) {
+                $this->send(new UpdateSiteSettings($this->ctx($code), [
+                    'gate_tolerance_pct' => 2, 'mass_gap_pct' => $massGap, 'cash_variance' => 20000, 'benchmark_pct' => 80,
+                    'expense_approval_limit' => 500000, 'archive_after_absent_days' => 5, 'contract_warning_days' => 3,
+                    'standard_day_hours' => 8, 'month_working_days' => 26, 'downtime_reason_after_min' => 60, 'material_cost_per_kg' => $materialCost,
+                ]));
+            }
             // Blank until the client provides it; never invented.
-            CompanyProfile::query()->firstOrCreate(['site_id' => $this->sites[$code]], [
-                'address' => '', 'phone' => '', 'email' => '', 'tin' => '', 'bank_details' => '', 'mobile_money' => '', 'vat_rate_pct' => 0, 'efris_connected' => false,
-            ]);
+            if (! CompanyProfile::query()->where('site_id', $this->sites[$code])->exists()) {
+                $this->send(new UpdateCompanyProfile($this->ctx($code), [
+                    'address' => '', 'phone' => '', 'email' => '', 'tin' => '', 'bank_details' => '', 'mobile_money' => '', 'vat_rate_pct' => 0, 'efris_connected' => false,
+                ]));
+            }
         }
     }
 
@@ -225,15 +270,16 @@ final class ConfigSeeder extends Seeder
 
         $ids = [];
         foreach ($rows as [$code, $site, $name, $unit, $kind, $pieces, $weight, $tol, $status, $colour, $prices]) {
-            $product = Product::query()->updateOrCreate(['code' => $code], [
-                'site_id' => $this->sites[$site], 'internal_name' => $name, 'unit' => $unit, 'kind' => $kind, 'bundle_pieces' => $pieces,
-                'std_bundle_weight_kg' => $weight, 'weight_tolerance_pct' => $tol, 'weight_status' => $status, 'colour' => $colour, 'active' => true,
-            ]);
-            Price::query()->where('product_id', $product->id)->delete();
-            foreach ($prices as [$channel, $currency, $amount]) {
-                Price::query()->create(['site_id' => $this->sites[$site], 'product_id' => $product->id, 'channel' => $channel, 'currency' => $currency, 'amount' => $amount, 'effective_from' => '2026-01-01']);
+            $id = Product::query()->where('code', $code)->value('id');
+            if (! is_string($id)) {
+                $id = (string) Str::uuid7();
+                $this->send(new SaveProduct($this->ctx($site), [
+                    'product_id' => $id, 'code' => $code, 'internal_name' => $name, 'unit' => $unit, 'kind' => $kind, 'bundle_pieces' => $pieces,
+                    'std_bundle_weight_kg' => $weight, 'weight_tolerance_pct' => $tol, 'weight_status' => $status, 'colour' => $colour, 'active' => true,
+                    'prices' => array_map(fn (array $x): array => ['channel' => $x[0], 'currency' => $x[1], 'amount' => $x[2], 'effective_from' => '2026-01-01'], $prices),
+                ]));
             }
-            $ids[$code] = $product->id;
+            $ids[$code] = $id;
         }
 
         return $ids;
@@ -263,15 +309,22 @@ final class ConfigSeeder extends Seeder
 
         $perShift = ['p_rihlaat' => 76, 'p_sajaada_l' => 48, 'p_sajaada_h' => 40, 'p_domona' => 36, 'p_27m' => 16];
         foreach ($m as [$key, $site, $code, $kind, $stage, $status, $make, $model, $capacity]) {
-            $machine = Machine::query()->updateOrCreate(['code_key' => $key], [
-                'site_id' => $this->sites[$site], 'code' => $code, 'kind' => $kind, 'stage_code' => $stage, 'status' => $status,
-                'make' => $make, 'model' => $model, 'capacity_kg_per_day' => $capacity,
-            ]);
+            $machineId = Machine::query()->where('code_key', $key)->value('id');
+            if (! is_string($machineId)) {
+                $machineId = (string) Str::uuid7();
+                $this->send(new SaveMachine($this->ctx($site), [
+                    'machine_id' => $machineId, 'code_key' => $key, 'code' => $code, 'kind' => $kind, 'stage_code' => $stage, 'status' => $status,
+                    'make' => $make, 'model' => $model, 'capacity_kg_per_day' => $capacity,
+                ]));
+            }
             if ($kind !== 'loom') {
                 continue;
             }
             foreach ($perShift as $productCode => $units) {
-                Benchmark::query()->updateOrCreate(['machine_id' => $machine->id, 'product_id' => $products[$productCode]], ['site_id' => $this->sites[$site], 'units_per_shift' => $units]);
+                if (Benchmark::query()->where(['machine_id' => $machineId, 'product_id' => $products[$productCode]])->exists()) {
+                    continue;
+                }
+                $this->send(new SetBenchmark($this->ctx($site), ['machine_id' => $machineId, 'product_id' => $products[$productCode], 'units_per_shift' => $units]));
             }
         }
     }
