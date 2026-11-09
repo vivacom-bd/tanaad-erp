@@ -36,7 +36,7 @@ final class CommandBus
         if ($eventId !== null) {
             $existing = $this->store->find($eventId);
             if ($existing !== null) {
-                return CommandResult::duplicate($existing);
+                return CommandResult::duplicate($existing, $command->context()->provisionalRef);
             }
         }
 

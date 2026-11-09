@@ -10,3 +10,5 @@ Route::prefix('v1')->group(function (): void {
 });
 
 require __DIR__.'/../modules/Identity/Http/routes.php';
+require __DIR__.'/../modules/Config/Http/routes.php';
+require __DIR__.'/../modules/Sync/Http/routes.php';

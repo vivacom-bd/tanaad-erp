@@ -222,7 +222,7 @@ Response `200`:
 {
   "results": [
     { "id": "0192f0a1-…", "status": "accepted", "seq": 48213, "assigned": { "delivery_note_no": "DN-00031" } },
-    { "id": "0192f0a2-…", "status": "duplicate" },
+    { "id": "0192f0a2-…", "status": "duplicate", "seq": 48201, "assigned": {} },
     { "id": "0192f0a3-…", "status": "rejected", "code": "day_locked", "reason": "Cash day 2026-11-08 was closed at 18:40 by Joseph Okello." }
   ],
   "snapshot_seq": 48213
@@ -232,7 +232,7 @@ Response `200`:
 Rules:
 - The actor is taken from the authenticated session, never from the envelope.
 - Events are processed in the order sent, each in its own transaction, so one rejection does not fail the batch. A rejected event is never stored; the client marks it, shows the reason and keeps the record locally for the user to redo or discard.
-- `duplicate` means the id is already stored; the response is identical to the original acceptance.
+- `duplicate` means the id is already stored; the response carries the original `seq` and, when the client sent a `provisional_ref`, the number that was assigned the first time, so a lost response is recoverable.
 - Numbers from a series (delivery notes, invoices, vouchers) are assigned at ingestion and returned under `assigned`; the client replaces its provisional reference.
 - Rejection codes are a closed list: `unknown_type`, `invalid_payload`, `forbidden`, `day_locked`, `not_found`, `state_conflict`, `duplicate_fact`, `stale_config`.
 

@@ -8,4 +8,5 @@ return [
     Tanaad\Shared\SharedServiceProvider::class,
     Tanaad\Config\ConfigServiceProvider::class,
     Tanaad\Identity\IdentityServiceProvider::class,
+    Tanaad\Sync\SyncServiceProvider::class,
 ];

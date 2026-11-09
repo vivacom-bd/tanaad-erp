@@ -20,9 +20,16 @@ final readonly class CommandResult
         public array $assigned = [],
     ) {}
 
-    public static function duplicate(StoredEvent $existing): self
+    /**
+     * A retry of an id the ledger already holds. The assigned number is read back from the
+     * stored payload so a client that lost the first response still gets it (ADR-004).
+     */
+    public static function duplicate(StoredEvent $existing, ?string $provisionalRef = null): self
     {
-        return new self('duplicate', [$existing]);
+        $number = $existing->payload()['number'] ?? null;
+        $assigned = $provisionalRef !== null && is_string($number) ? [$provisionalRef => $number] : [];
+
+        return new self('duplicate', [$existing], $assigned);
     }
 
     public function primary(): ?StoredEvent
