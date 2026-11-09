@@ -24,7 +24,7 @@ lint:
 analyse:
 	cd apps/api && ./vendor/bin/phpstan analyse --memory-limit=1G
 check: lint analyse test
-openapi:       ## export contracts/openapi.yaml
-	cd apps/api && php artisan scramble:export --path=../../contracts/openapi.yaml
+openapi:       ## export docs/api/openapi.json (offline, via Scramble)
+	cd apps/api && php artisan scramble:export --path=../../docs/api/openapi.json
 web:
 	NODE_DISABLE_COMPILE_CACHE=1 pnpm --filter @tanaad/web dev
