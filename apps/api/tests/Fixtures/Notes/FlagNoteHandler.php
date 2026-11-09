@@ -12,7 +12,9 @@ final class FlagNoteHandler implements Handler
 {
     public function handle(Command $command): array
     {
-        assert($command instanceof FlagNote);
+        if (! $command instanceof FlagNote) {
+            throw new \LogicException('Wrong command for '.self::class);
+        }
 
         return [Event::from($command->context(), 'notes.note_flagged', ['note_id' => $command->noteId], primary: false)];
     }

@@ -396,7 +396,7 @@ modules/Cash/
   Http/
     Controllers/  Requests/  Resources/  routes.php
   Queries/                    CashSummaryQuery.php (dashboard aggregates)
-  Database/migrations/  Database/factories/  Database/seeders/
+  Database/migrations/  Database/factories/  Database/Seeders/
   Tests/                      Feature (HTTP → events → projection), Unit (handler invariants), Replay
 ```
 

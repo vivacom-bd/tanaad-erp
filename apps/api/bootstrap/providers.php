@@ -6,4 +6,6 @@ return [
     App\Providers\AppServiceProvider::class,
     App\Providers\HorizonServiceProvider::class,
     Tanaad\Shared\SharedServiceProvider::class,
+    Tanaad\Config\ConfigServiceProvider::class,
+    Tanaad\Identity\IdentityServiceProvider::class,
 ];

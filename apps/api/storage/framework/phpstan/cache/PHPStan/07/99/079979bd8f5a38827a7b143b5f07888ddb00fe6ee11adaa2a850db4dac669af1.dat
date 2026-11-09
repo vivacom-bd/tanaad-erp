@@ -1,0 +1,1 @@
+O:23:"PHPStan\Cache\CacheItem":2:{s:11:"variableKey";s:71:"v2-eac257c7fec1571f47f46ebbad50db5d6818f0a5391a1b2cabce5f5a19a140ad-8.5";s:4:"data";a:3:{s:7:"classes";a:1:{s:56:"illuminate\foundation\testing\concerns\makeshttprequests";b:1;}s:9:"functions";a:0:{}s:9:"constants";a:0:{}}}

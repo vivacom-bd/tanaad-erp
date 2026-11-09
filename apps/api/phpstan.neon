@@ -7,4 +7,6 @@ parameters:
         - app
         - modules
         - routes
+    excludePaths:
+        - modules/*/Tests/*
     tmpDir: storage/framework/phpstan

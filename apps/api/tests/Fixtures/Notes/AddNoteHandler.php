@@ -17,7 +17,9 @@ final class AddNoteHandler implements Handler
 
     public function handle(Command $command): array
     {
-        assert($command instanceof AddNote);
+        if (! $command instanceof AddNote) {
+            throw new \LogicException('Wrong command for '.self::class);
+        }
         $ctx = $command->context();
         if ($ctx->siteId === null) {
             throw Rejection::invalidPayload(['site' => 'required']);
