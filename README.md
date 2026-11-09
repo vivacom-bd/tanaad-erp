@@ -1,6 +1,6 @@
 # Tanaad Management System — application repository
 
-One product for the Tanaad group's three operations (Mats factory, Tanaad Packages Ltd bags factory, HDPE Recycling plant) plus a group layer for the two CEOs. This repository holds the React frontend (demo today, product tomorrow), the shared domain package, and the contracts folder. The Laravel API (`apps/api`) is added in the foundation phase per `docs/adr/ADR-001-technology-stack.md`.
+One product for the Tanaad group's three operations (Mats factory, Tanaad Packages Ltd bags factory, HDPE Recycling plant) plus a group layer for the two CEOs. This repository holds the React frontend (demo today, product tomorrow), the shared domain package, and the contracts folder. The Laravel API (`apps/api`) is added in the foundation phase per `docs/adr/ADR-002-backend-runtime-and-module-layout.md`.
 
 ## Run it
 
@@ -61,6 +61,6 @@ apps/web/src
   demo/           presenter panel
 packages/domain   types + business arithmetic (shared with the server via fixtures)
 contracts/        fixtures/arithmetic.json (openapi.yaml arrives with the API)
-docs/             DESIGN_SPEC.md (read before touching UI), ARCHITECTURE.md, KNOWN_GAPS.md, ADRs, screenshots
+docs/             adr/, architecture/ (BACKEND_ARCHITECTURE.md, frontend/DESIGN_SPEC.md, screenshots), plans/
 tools/shot.mjs    headless screenshots, including keyboard-driven states
 ```

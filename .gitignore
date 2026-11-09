@@ -5,8 +5,26 @@ dev-dist
 .vite
 coverage
 *.log
+*.tsbuildinfo
 .DS_Store
 
-# Documentation stays on this machine.
-docs/
-**/docs/
+# Client material in docs/ stays on this machine; engineering docs are tracked.
+docs/*
+!docs/adr/
+!docs/architecture/
+!docs/plans/
+!docs/README.md
+
+# Laravel
+apps/api/vendor
+apps/api/.env
+apps/api/storage/*.key
+apps/api/storage/logs
+apps/api/storage/framework/cache/data
+apps/api/storage/framework/sessions
+apps/api/storage/framework/views
+apps/api/.phpunit.result.cache
+apps/api/.phpunit.cache
+
+# Regenerate with `pnpm shots`
+docs/architecture/frontend/screenshots/

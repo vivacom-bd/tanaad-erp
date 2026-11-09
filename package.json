@@ -1,5 +1,5 @@
 {
-  "name": "tanaad-app",
+  "name": "tanaad",
   "private": true,
   "scripts": {
     "dev": "pnpm --filter @tanaad/web dev",

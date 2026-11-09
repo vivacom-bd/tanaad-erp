@@ -1,15 +1,8 @@
 ---
-description: Docs stay out of Git, and agents may still read or use files the user attaches from there
+description: Client material under docs/ stays out of Git; engineering docs are tracked
 alwaysApply: true
 ---
 
-# Local documentation
+# Documentation
 
-`docs/` and any nested `docs/` directory are gitignored so briefs, proposals, and decks are not published.
-
-Git ignore does not hide those files from this workspace.
-
-- Read files under `docs/` when the task needs them, including `tanaad-app/docs/`.
-- When the user attaches a file from `docs/`, treat that attachment as a normal source.
-- Do not skip a docs file because it is gitignored.
-- Do not stage or commit anything under `docs/`.
+`docs/adr/`, `docs/architecture/` and `docs/plans/` are tracked. Everything else under `docs/` (briefs, PDD, decks, proposals) is gitignored and must not be staged, but may be read when a task needs it.
