@@ -19,13 +19,14 @@ return new class extends Migration
             $table->string('tagline')->default('');
             $table->char('currency_primary', 3)->default('UGX');
             $table->string('timezone', 64)->default('Africa/Kampala');
-            $table->jsonb('shifts');            // [{kind, starts, ends}]
-            $table->jsonb('closed_days');       // [0] = Sunday
+            $table->json('shifts');            // [{kind, starts, ends}]
+            $table->json('closed_days');       // [0] = Sunday
             $table->string('machine_wall_title')->default('Machine wall');
             $table->text('to_be_confirmed')->nullable();
             $table->unsignedBigInteger('seq')->default(0)->index();
-            $table->timestampTz('deleted_at')->nullable();
-            $table->timestampsTz();
+            $table->dateTime('deleted_at', 6)->nullable();
+            $table->dateTime('created_at', 6)->nullable();
+            $table->dateTime('updated_at', 6)->nullable();
         });
     }
 

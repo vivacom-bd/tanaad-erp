@@ -1,7 +1,7 @@
 # Tanaad Management System — Backend Architecture
 
 **Status:** Proposed for build, 9 November 2026
-**Stack:** Laravel 13 · PHP 8.5 · PostgreSQL 18 · Redis 7 · Horizon · Sanctum · Pest
+**Stack:** Laravel 13 · PHP 8.5 · MySQL 8.4 · Redis 7 · Horizon · Sanctum · Pest
 **Reads with:** `docs/adr/ADR-002` … `ADR-011`, `docs/plans/BACKEND_DELIVERY_PLAN.md`
 **Inputs:** Project Definition Document (§10–§14, §18, Appendix B), ADR-001, `packages/domain/src/types.ts`, the 55 write actions in `apps/web/src/data/store.ts`
 
@@ -44,14 +44,14 @@ flowchart TB
     SCH[Scheduler<br/>archiving · expiry · briefs]
   end
   subgraph Data
-    PG[(PostgreSQL 18<br/>events · projections · config)]
+    DB[(MySQL 8.4<br/>events · projections · config)]
     RD[(Redis<br/>queues · cache · locks)]
     OBJ[(Object storage<br/>photos · PDFs)]
   end
   EXT[WhatsApp · SMS<br/>log driver now, Cloud API later]
   WEB -- "REST /api/v1 · POST /events · snapshot delta" --> API
-  API --> PG & RD & OBJ
-  HZ --> PG & RD & OBJ & EXT
+  API --> DB & RD & OBJ
+  HZ --> DB & RD & OBJ & EXT
   SCH --> RD
 ```
 
@@ -358,7 +358,7 @@ tanaad/
     events/         JSON Schema per event type and version
     fixtures/       arithmetic fixtures shared by Pest and Vitest
   infra/
-    docker-compose.yml, php/Dockerfile, nginx/, postgres/init.sql
+    docker-compose.yml, php/Dockerfile, nginx/, mysql/init.sql
   tools/            screenshots, PWA check
   docs/
     adr/ architecture/ plans/   (tracked; client material stays untracked)
@@ -419,8 +419,8 @@ Coverage target: handlers and projectors 100% of branches; the rest pragmatic.
 
 ## 20. Environments, deployment, operations
 
-- **Local:** `infra/docker-compose.yml` with `php:8.5-fpm`, `nginx`, `postgres:18`, `redis:7`, `horizon`, `scheduler`, `minio`, `mailpit`. `make up`, `make test`, `make rebuild`. The host machine's PHP version is irrelevant; everything runs in the containers.
-- **CI (GitHub Actions):** Pint, Larastan, Pest with Postgres service, OpenAPI export and diff, TypeScript client regeneration check, web typecheck and Vitest.
+- **Local:** `infra/docker-compose.yml` with `php:8.5-fpm`, `nginx`, `mysql:8.4`, `redis:7`, `horizon`, `scheduler`, `minio`, `mailpit`. `make up`, `make test`, `make rebuild`. The host machine's PHP version is irrelevant; everything runs in the containers.
+- **CI (GitHub Actions):** Pint, Larastan, Pest with a MySQL service, OpenAPI export and diff, TypeScript client regeneration check, web typecheck and Vitest.
 - **Staging:** one VM in the region chosen under ADR-001 (in-country if available, else `af-south-1`), Docker Compose, TLS by Caddy or nginx + certbot, nightly `pg_dump` to object storage, weekly restore to a scratch database as a drill.
 - **Observability:** JSON logs to stdout; Sentry (or self-hosted GlitchTip) for exceptions; `/up` health; Horizon dashboard behind admin auth; a `device_heartbeats` table fed by the client with its pending outbox count, surfaced as the sync-lag metric.
 

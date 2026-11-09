@@ -10,7 +10,7 @@ down:
 logs:
 	$(COMPOSE) logs -f --tail=100
 db:            ## start only Postgres and Redis (enough for local php + pest)
-	$(COMPOSE) up -d postgres redis
+	$(COMPOSE) up -d mysql redis
 migrate:
 	cd apps/api && php artisan migrate
 fresh:

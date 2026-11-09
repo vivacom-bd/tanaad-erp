@@ -13,8 +13,9 @@ return new class extends Migration
         $common = function (Blueprint $table, bool $siteNullable = false): void {
             $siteNullable ? $table->uuid('site_id')->nullable()->index() : $table->uuid('site_id')->index();
             $table->unsignedBigInteger('seq')->default(0)->index();
-            $table->timestampTz('deleted_at')->nullable();
-            $table->timestampsTz();
+            $table->dateTime('deleted_at', 6)->nullable();
+            $table->dateTime('created_at', 6)->nullable();
+            $table->dateTime('updated_at', 6)->nullable();
         };
 
         Schema::create('site_settings', function (Blueprint $table) use ($common): void {
@@ -132,11 +133,11 @@ return new class extends Migration
             $table->uuid('id')->primary();
             $common($table);
             $table->unique('site_id');
-            $table->text('address')->default('');
+            $table->string('address', 500)->default('');
             $table->string('phone')->default('');
             $table->string('email')->default('');
             $table->string('tin')->default('');
-            $table->text('bank_details')->default('');
+            $table->string('bank_details', 1000)->default('');
             $table->string('mobile_money')->default('');
             $table->decimal('vat_rate_pct', 7, 3)->default(0);
             $table->boolean('efris_connected')->default(false);

@@ -9,7 +9,7 @@ Today the repository root holds `docs/` (untracked by design: client briefs, PDD
 ## Decision
 
 1. **Promote the workspace to the repository root** with `git mv`: `apps/`, `packages/`, `contracts/`, `tools/`, `pnpm-workspace.yaml`, `package.json`, `netlify.toml`, `vercel.json` move up one level; `tanaad-app/` disappears. Deploy configs are updated for the new base directory.
-2. **Add** `apps/api` (Laravel), `infra/` (Docker Compose, Dockerfiles, nginx, Postgres init), `.github/workflows/`.
+2. **Add** `apps/api` (Laravel), `infra/` (Docker Compose, Dockerfiles, nginx, MySQL init).
 3. **Track engineering docs under `docs/`**, keep client material untracked. `.gitignore` changes from `docs/` to:
    ```
    docs/*

@@ -9,12 +9,12 @@ x-php: &php
   env_file:
     - ../apps/api/.env
   environment:
-    DB_HOST: postgres
+    DB_HOST: mysql
     REDIS_HOST: redis
     AWS_ENDPOINT: http://minio:9000
     MAIL_HOST: mailpit
   depends_on:
-    postgres:
+    mysql:
       condition: service_healthy
     redis:
       condition: service_started
@@ -45,23 +45,26 @@ services:
     container_name: tanaad-scheduler
     command: php artisan schedule:work
 
-  postgres:
-    image: postgres:18-alpine
-    container_name: tanaad-postgres
+  mysql:
+    image: mysql:8.4
+    container_name: tanaad-mysql
+    # Triggers (the append-only ledger guard) need this when binary logging is on.
+    command: ["--log-bin-trust-function-creators=1", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci", "--default-time-zone=+00:00"]
     ports:
-      - "${DB_PORT:-5440}:5432"
+      - "${DB_PORT:-3340}:3306"
     environment:
-      POSTGRES_USER: tanaad
-      POSTGRES_PASSWORD: tanaad
-      POSTGRES_DB: tanaad
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_USER: tanaad
+      MYSQL_PASSWORD: tanaad
+      MYSQL_DATABASE: tanaad
     volumes:
-      - postgres:/var/lib/postgresql
-      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      - mysql:/var/lib/mysql
+      - ./mysql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U tanaad -d tanaad"]
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -proot --silent"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 20
 
   redis:
     image: redis:7-alpine
@@ -92,6 +95,6 @@ services:
       - "1025:1025"
 
 volumes:
-  postgres:
+  mysql:
   redis:
   minio:

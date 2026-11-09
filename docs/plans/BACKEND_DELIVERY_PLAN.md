@@ -31,7 +31,7 @@ Goal: an empty but complete skeleton that proves the ledger end to end with one 
 | P0-08 | `Config`: sites, site settings, ref lists, products, prices, machines, benchmarks, zones, FX, company profile, number series; `GET /sites/{site}/config` in the prototype's shape; seeders from `apps/web/src/config/sites/*.ts` and the demo seed master data | L |
 | P0-09 | `POST /events` ingestion with ordering, duplicates, rejection results, `assigned`; `GET /sites/{site}/snapshots/{projection}` delta | M |
 | P0-10 | Architecture tests (module dependency rule, no writes outside projectors, no facades in handlers); replay test harness; policy-matrix dataset test | S |
-| P0-11 | CI: Pint, Larastan, Pest with Postgres, OpenAPI export + `oasdiff`, `openapi-typescript` staleness check, web typecheck + Vitest | M |
+| P0-11 | CI: Pint, Larastan, Pest with MySQL, OpenAPI export + `oasdiff`, `openapi-typescript` staleness check, web typecheck + Vitest | M |
 | P0-12 | Frontend: `data/api/` client scaffold, auth against `/auth/*`, bootstrap from `/me` + `/config`; `VITE_DEMO` switch | M |
 
 **Gate:** sign in as a seeded user, fetch site config, post one `config.ref_list_changed` through `/events` and see it in the snapshot delta. `make rebuild` reproduces the projection.
@@ -136,7 +136,7 @@ Working days: 45 planned + 5 buffer. If the holiday fortnight is worked, Phase 4
 | Event payload shape changes mid-build | Frontend adapter churn | JSON schemas per event version; additive changes only after Phase 1 |
 | Single developer | Schedule risk | Architecture tests and templates make each module mechanical; a second developer can take Phase 3 unaided |
 | Holiday fortnight | Phase 3 split | Already scheduled around it |
-| PostgreSQL 18 unavailable at the host | Deploy delay | Nothing depends on 18-only features; 17 works unchanged |
+| MySQL 8.4 unavailable at the host | Deploy delay | Nothing depends on 8.4-only features; 8.0 works unchanged |
 | Scope creep from the prototype's richer screens | Phase overruns | Only store actions in Appendix A are in scope; new screens wait for Phase 5 |
 
 ## What comes after (Phase 5+, not planned here)

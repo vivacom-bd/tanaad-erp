@@ -74,7 +74,7 @@ it('runs policies in the same transaction and queues reactors after commit', fun
 
     expect(DB::table('events')->count())->toBe(2)
         ->and(DB::table('events')->where('type', 'notes.note_flagged')->exists())->toBeTrue()
-        ->and(DB::table('test_notes')->value('flagged'))->toBeTrue()
+        ->and((bool) DB::table('test_notes')->value('flagged'))->toBeTrue()
         ->and($result->events)->toHaveCount(1);
 
     Queue::assertPushed(RunReactor::class, fn (RunReactor $j) => $j->reactor === NoteReactor::class && $j->eventId === $result->primary()->id());
@@ -109,14 +109,11 @@ it('never lets the ledger be updated or deleted', function (): void {
     app(CommandBus::class)->dispatch(new AddNote(($this->ctx)(), '2026-11-09', 'permanent'));
 
     $attempt = function (string $sql): string {
-        DB::statement('SAVEPOINT attempt');
         try {
-            DB::statement($sql);
+            DB::transaction(fn () => DB::statement($sql));
 
             return 'allowed';
         } catch (Illuminate\Database\QueryException $e) {
-            DB::statement('ROLLBACK TO SAVEPOINT attempt');
-
             return $e->getMessage();
         }
     };

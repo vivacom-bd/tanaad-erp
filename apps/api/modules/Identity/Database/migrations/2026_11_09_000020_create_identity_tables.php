@@ -14,16 +14,18 @@ return new class extends Migration
             $table->uuid('id')->primary();
             $table->string('code', 32)->nullable()->unique();   // prototype id such as u_ceo1, for the demo seed
             $table->string('name');
+            $table->string('username', 32)->nullable()->unique();   // short sign-in name such as ceo1 or smbags
             $table->string('email')->nullable()->unique();
             $table->string('password')->nullable();
             $table->string('pin_hash')->nullable();
             $table->unsignedSmallInteger('pin_failed_count')->default(0);
-            $table->timestampTz('pin_locked_until')->nullable();
+            $table->dateTime('pin_locked_until', 6)->nullable();
             $table->uuid('person_id')->nullable();
             $table->string('avatar_seed', 8)->default('');
             $table->boolean('active')->default(true);
             $table->rememberToken();
-            $table->timestampsTz();
+            $table->dateTime('created_at', 6)->nullable();
+            $table->dateTime('updated_at', 6)->nullable();
         });
 
         Schema::create('user_site_roles', function (Blueprint $table): void {
@@ -32,8 +34,9 @@ return new class extends Migration
             $table->foreignUuid('site_id')->nullable()->constrained('sites');
             $table->string('role', 32);
             $table->unsignedBigInteger('seq')->default(0)->index();
-            $table->timestampTz('deleted_at')->nullable();
-            $table->timestampsTz();
+            $table->dateTime('deleted_at', 6)->nullable();
+            $table->dateTime('created_at', 6)->nullable();
+            $table->dateTime('updated_at', 6)->nullable();
 
             $table->unique(['user_id', 'site_id', 'role']);
         });
@@ -44,11 +47,12 @@ return new class extends Migration
             $table->string('name');
             $table->string('kind', 32)->default('tablet');
             $table->uuid('registered_by')->nullable();
-            $table->timestampTz('last_seen_at')->nullable();
+            $table->dateTime('last_seen_at', 6)->nullable();
             $table->boolean('active')->default(true);
             $table->unsignedBigInteger('seq')->default(0)->index();
-            $table->timestampTz('deleted_at')->nullable();
-            $table->timestampsTz();
+            $table->dateTime('deleted_at', 6)->nullable();
+            $table->dateTime('created_at', 6)->nullable();
+            $table->dateTime('updated_at', 6)->nullable();
         });
     }
 

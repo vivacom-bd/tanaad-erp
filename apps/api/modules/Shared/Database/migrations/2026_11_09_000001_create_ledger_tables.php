@@ -12,16 +12,16 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('events', function (Blueprint $table): void {
-            $table->uuid('id')->primary();
+            $table->bigIncrements('seq');                       // global order; the cursor sync reads by
+            $table->uuid('id')->unique();
             $table->uuid('site_id')->nullable()->index();
             $table->string('type', 120)->index();
             $table->unsignedSmallInteger('version')->default(1);
             $table->uuid('actor_id')->nullable();
             $table->uuid('device_id')->nullable();
-            $table->timestampTz('occurred_at');
-            $table->timestampTz('received_at');
-            $table->bigInteger('seq')->generatedAs()->unique();
-            $table->jsonb('payload');
+            $table->dateTime('occurred_at', 6);
+            $table->dateTime('received_at', 6);
+            $table->json('payload');
             $table->uuid('corrects_event_id')->nullable();
             $table->text('reason')->nullable();
             $table->uuid('batch_id')->nullable()->index();
@@ -35,17 +35,8 @@ return new class extends Migration
         });
 
         // Append-only at the database level: no row is ever updated or deleted.
-        DB::unprepared(<<<'SQL'
-            CREATE OR REPLACE FUNCTION events_append_only() RETURNS trigger AS $$
-            BEGIN
-                RAISE EXCEPTION 'events is append-only (% on %)', TG_OP, OLD.id;
-            END;
-            $$ LANGUAGE plpgsql;
-
-            CREATE TRIGGER events_append_only
-            BEFORE UPDATE OR DELETE ON events
-            FOR EACH ROW EXECUTE FUNCTION events_append_only();
-        SQL);
+        DB::unprepared("CREATE TRIGGER events_no_update BEFORE UPDATE ON events FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'events is append-only (UPDATE)'");
+        DB::unprepared("CREATE TRIGGER events_no_delete BEFORE DELETE ON events FOR EACH ROW SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'events is append-only (DELETE)'");
 
         Schema::create('day_locks', function (Blueprint $table): void {
             $table->uuid('id')->primary();
@@ -54,7 +45,8 @@ return new class extends Migration
             $table->date('day');
             $table->uuid('locked_by_event');
             $table->uuid('reopened_by_event')->nullable();
-            $table->timestampsTz();
+            $table->dateTime('created_at', 6)->nullable();
+            $table->dateTime('updated_at', 6)->nullable();
 
             $table->unique(['site_id', 'ledger', 'day']);
         });
@@ -72,13 +64,13 @@ return new class extends Migration
         Schema::create('projection_cursors', function (Blueprint $table): void {
             $table->string('projector', 191)->primary();
             $table->unsignedBigInteger('last_seq')->default(0);
-            $table->timestampTz('updated_at')->nullable();
+            $table->dateTime('updated_at', 6)->nullable();
         });
 
         Schema::create('reactor_runs', function (Blueprint $table): void {
             $table->string('reactor', 191);
             $table->uuid('event_id');
-            $table->timestampTz('ran_at');
+            $table->dateTime('ran_at', 6);
             $table->text('error')->nullable();
 
             $table->primary(['reactor', 'event_id']);
@@ -91,7 +83,8 @@ return new class extends Migration
         Schema::dropIfExists('projection_cursors');
         Schema::dropIfExists('number_series');
         Schema::dropIfExists('day_locks');
-        DB::unprepared('DROP TRIGGER IF EXISTS events_append_only ON events; DROP FUNCTION IF EXISTS events_append_only();');
+        Schema::disableForeignKeyConstraints();
         Schema::dropIfExists('events');
+        Schema::enableForeignKeyConstraints();
     }
 };
