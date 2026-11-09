@@ -13,8 +13,8 @@ export function clearSession(): void {
   try { localStorage.removeItem(KEY); } catch { /* storage unavailable */ }
 }
 
-export async function login(email: string, password: string): Promise<Session> {
-  const s = await api<Session>('/auth/login', { method: 'POST', body: { email, password } });
+export async function login(username: string, password: string): Promise<Session> {
+  const s = await api<Session>('/auth/login', { method: 'POST', body: { username, password } });
   saveSession(s);
   return s;
 }

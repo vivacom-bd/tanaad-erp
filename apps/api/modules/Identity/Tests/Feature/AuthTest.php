@@ -26,8 +26,8 @@ function registerDevice(Tests\TestCase $t, User $admin, Site $site, string $name
     return $t->withToken(officeToken($admin))->postJson("/api/v1/sites/{$site->code}/devices", ['name' => $name])->assertCreated()->json();
 }
 
-it('signs an office user in with email and password', function (): void {
-    $r = $this->postJson('/api/v1/auth/login', ['email' => 'u_sm_mats@demo.tanaad.local', 'password' => 'password'])->assertCreated();
+it('signs an office user in with username and password', function (): void {
+    $r = $this->postJson('/api/v1/auth/login', ['username' => 'smmats', 'password' => 'password'])->assertCreated();
     expect($r->json('token'))->toBeString()
         ->and($r->json('user.code'))->toBe('u_sm_mats')
         ->and($r->json('user.roles.0.role'))->toBe('site_manager')
@@ -38,11 +38,11 @@ it('signs an office user in with email and password', function (): void {
 });
 
 it('answers a wrong password with problem+json and no token', function (): void {
-    $this->postJson('/api/v1/auth/login', ['email' => 'u_sm_mats@demo.tanaad.local', 'password' => 'nope'])
+    $this->postJson('/api/v1/auth/login', ['username' => 'smmats', 'password' => 'nope'])
         ->assertForbidden()
         ->assertHeader('Content-Type', 'application/problem+json')
         ->assertJsonPath('code', 'forbidden');
-    $this->postJson('/api/v1/auth/login', ['email' => 'not-an-email'])->assertStatus(422)->assertJsonPath('code', 'invalid_payload');
+    $this->postJson('/api/v1/auth/login', ['username' => ''])->assertStatus(422)->assertJsonPath('code', 'invalid_payload');
 });
 
 it('lets a group admin register a device and records the event', function (): void {

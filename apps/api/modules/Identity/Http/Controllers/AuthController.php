@@ -29,13 +29,13 @@ final class AuthController extends ApiController
         private readonly Config $config,
     ) {}
 
-    /** Office and CEO sign-in: email + password → bearer token. */
+    /** Office and CEO sign-in: username + password → bearer token. */
     public function login(Request $request): JsonResponse
     {
-        $data = $request->validate(['email' => ['required', 'email'], 'password' => ['required', 'string']]);
-        $user = User::query()->with('siteRoles.site')->where('email', $data['email'])->where('active', true)->first();
+        $data = $request->validate(['username' => ['required', 'string', 'max:32'], 'password' => ['required', 'string']]);
+        $user = User::query()->with('siteRoles.site')->where('username', strtolower(trim($data['username'])))->where('active', true)->first();
         if ($user === null || $user->password === null || ! $this->hasher->check($data['password'], $user->password)) {
-            throw Rejection::forbidden('Email or password is wrong.');
+            throw Rejection::forbidden('Username or password is wrong.');
         }
         $token = $user->createToken('office', ['user'], now()->addDays(30));
 

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from '@tanstack/react-router';
-import { ArrowRight, Eye, EyeOff, Fingerprint, KeyRound, Lock, Mail } from 'lucide-react';
+import { ArrowRight, Eye, EyeOff, Fingerprint, KeyRound, Lock, User as UserIcon } from 'lucide-react';
 import type { SiteCode, User } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { SITE_LIST, SITES } from '@/config/sites';
@@ -9,7 +9,8 @@ import { Avatar, Button, ChipGroup, Field, Input, Note, PinPad, Tabs } from '@/c
 import { BrandPanel, Logo } from './BrandPanel';
 
 const DEMO_PIN = '1234';
-const demoEmailOf = (u: User) => `${u.name.toLowerCase().replace(/[^a-z ]/g, '').trim().split(/\s+/).join('.')}@demo.local`;
+/** Same sign-in name the API seeds: the user id without "u_" and underscores (u_sm_bags → smbags). */
+const usernameOf = (u: User) => u.id.replace(/^u_/, '').replace(/_/g, '');
 const whereOf = (u: User) => { const sites = [...new Set(u.roles.map((r) => r.siteId).filter(Boolean))] as SiteCode[]; return sites.length ? sites.map((x) => SITES[x].shortName).join(' + ') : 'Group'; };
 
 /**
@@ -19,14 +20,14 @@ const whereOf = (u: User) => { const sites = [...new Set(u.roles.map((r) => r.si
 export function Login() {
   const nav = useNavigate(); const users = useStore((s) => s.users); const logIn = useStore((s) => s.logIn);
   const [mode, setMode] = useState<'password' | 'pin'>('password');
-  const [email, setEmail] = useState(''); const [password, setPassword] = useState(''); const [show, setShow] = useState(false);
+  const [username, setUsername] = useState(''); const [password, setPassword] = useState(''); const [show, setShow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tabletSite, setTabletSite] = useState<SiteCode>('mats'); const [pinUser, setPinUser] = useState<User | null>(null); const [pinError, setPinError] = useState<string | null>(null);
 
   const enter = (u: User, method: 'password' | 'pin') => { logIn(u.id, method); nav({ to: '/portals' as never }); };
   const submit = () => {
-    const user = users.find((u) => demoEmailOf(u) === email.trim().toLowerCase());
-    if (!email.trim()) return setError('Enter your work email.');
+    const user = users.find((u) => usernameOf(u) === username.trim().toLowerCase());
+    if (!username.trim()) return setError('Enter your username.');
     if (!user) return setError('This demo account was not found. Choose one below.');
     if (!password) return setError('Enter your password.');
     setError(null);
@@ -52,10 +53,10 @@ export function Login() {
           {mode === 'password' ? (
             <>
               <form onSubmit={(e) => { e.preventDefault(); submit(); }} className="surface p-5">
-                <Field label="Work email" className="mb-3">
+                <Field label="Username" className="mb-3">
                   <div className="relative">
-                    <Mail className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-3)]" />
-                    <Input big autoFocus type="email" autoComplete="username" placeholder="Work email" value={email} onChange={(e) => { setEmail(e.target.value); setError(null); }} className="pl-9" />
+                    <UserIcon className="size-4 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-3)]" />
+                    <Input big autoFocus autoComplete="username" autoCapitalize="none" placeholder="Username, e.g. smbags" value={username} onChange={(e) => { setUsername(e.target.value); setError(null); }} className="pl-9" />
                   </div>
                 </Field>
                 <Field label="Password" className="mb-4">
@@ -79,12 +80,12 @@ export function Login() {
                 </div>
                 <div className="surface overflow-hidden max-h-[224px] overflow-y-auto scrollbar-thin">
                   {demo.map((u) => (
-                    <button key={u.id} type="button" onClick={() => { setEmail(demoEmailOf(u)); setPassword('demo'); setError(null); }}
+                    <button key={u.id} type="button" onClick={() => { setUsername(usernameOf(u)); setPassword('password'); setError(null); }}
                       className="group w-full flex items-center gap-2.5 px-3 py-2 text-left border-b border-[var(--line)] last:border-b-0 hover:bg-[var(--hover)]">
                       <Avatar name={u.name} seed={u.avatarSeed} size={26} />
                       <span className="min-w-0 flex-1">
                         <span className="block t-base font-medium truncate">{u.name}</span>
-                        <span className="block t-xs text-[var(--text-3)] truncate">{[...new Set(u.roles.map((r) => roleLabel(r.role)))].join(' + ')} · {whereOf(u)}</span>
+                        <span className="block t-xs text-[var(--text-3)] truncate">{usernameOf(u)} · {[...new Set(u.roles.map((r) => roleLabel(r.role)))].join(' + ')} · {whereOf(u)}</span>
                       </span>
                       <ArrowRight className="size-4 text-[var(--text-4)] group-hover:text-[var(--text)]" />
                     </button>

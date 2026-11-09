@@ -55,7 +55,7 @@ describe('login()', () => {
   it('stores the session', async () => {
     const body = { token: 'tok', user: { id: 'u1', code: 'U1', name: 'A', avatar_seed: 's', person_id: null, roles: [] }, sites: null, device: null };
     fetchMock.mockResolvedValue(json(201, body));
-    await login('a@b.c', 'pw');
+    await login('smbags', 'pw');
     expect(loadSession()).toEqual(body);
     const init = fetchMock.mock.calls[0]?.[1];
     expect(init?.method).toBe('POST');

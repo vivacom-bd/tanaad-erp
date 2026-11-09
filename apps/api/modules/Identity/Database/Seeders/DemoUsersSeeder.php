@@ -12,7 +12,7 @@ use Tanaad\Identity\PinLockout;
 
 /**
  * The prototype's demo users (apps/web/src/data/seed/build.ts). Password "password",
- * PIN 2468 for site managers, 1357 for the mechanic, 1234 for everyone else. Demo only.
+ * PIN 1234 for everyone, username is the code without "u_" and underscores (smbags). Demo only.
  */
 final class DemoUsersSeeder extends Seeder
 {
@@ -41,14 +41,10 @@ final class DemoUsersSeeder extends Seeder
             ['u_sales_rec', 'Nasra Mohamed', 'NM', [['sales', 'recycling']]],
         ];
         foreach ($rows as [$code, $name, $seed, $roles]) {
-            $pin = match (true) {
-                str_starts_with($code, 'u_sm_') => '2468',
-                $code === 'u_mech' => '1357',
-                default => '1234',
-            };
+            $pin = '1234';
             $user = User::query()->updateOrCreate(['code' => $code], [
                 'name' => $name,
-                'email' => $code.'@demo.tanaad.local',
+                'username' => str_replace('_', '', substr($code, 2)),
                 'password' => 'password',
                 'pin_hash' => $pins->hash($pin),
                 'avatar_seed' => $seed,
