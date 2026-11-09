@@ -1,1 +1,0 @@
-O:23:"PHPStan\Cache\CacheItem":2:{s:11:"variableKey";s:71:"v2-ba3c623c8622f51888ef8c0e7a6a745cb5349ee38540f0ddc797e1ef841f6ab2-8.5";s:4:"data";a:3:{s:7:"classes";a:1:{s:30:"laravel\sanctum\newaccesstoken";b:1;}s:9:"functions";a:0:{}s:9:"constants";a:0:{}}}

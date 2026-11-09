@@ -28,3 +28,4 @@ apps/api/.phpunit.cache
 
 # Regenerate with `pnpm shots`
 docs/architecture/frontend/screenshots/
+apps/api/storage/framework/phpstan
