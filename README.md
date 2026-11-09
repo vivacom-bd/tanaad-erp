@@ -16,7 +16,7 @@ If `pnpm` crashes on start with a V8 fatal error under corepack, prefix commands
 
 `pnpm demo` is the real thing: an installable PWA with a service worker, so it opens and reloads with the network off. `pnpm dev` also serves the manifest and a service worker (the browser offers "Install"), but offline reloads only work in the built app, because the dev server ships unbundled modules.
 
-The demo runs entirely in the browser on a deterministic seed (August 2026 site-visit figures). State persists in IndexedDB; **Reset demo data** in the command palette or presenter panel restores the seed.
+The demo runs entirely in the browser on a deterministic seed (August 2026 site-visit figures). State persists in IndexedDB; **Reset local data** in the command palette (and **Reset** in the presenter panel, Ctrl+.) restores the seed. Against the API (`VITE_API_URL` set, `VITE_DEMO` not 1) the app signs in with the server's accounts and syncs through the outbox instead; the local seed is only for demo mode.
 
 ## Install as an app
 
@@ -24,7 +24,7 @@ Open `http://localhost:4173` in Chrome or Edge and use **Install app** (status b
 
 ## Flow
 
-**Sign in** (password, or PIN on a shared floor tablet; demo accounts are listed, any password, PIN 1234) → **Portals** (one card per workspace the person may open; others are shown locked) → **workspace** (Group HQ or a site).
+**Sign in** (password, or PIN on a shared floor tablet; in demo mode the accounts are listed, any password, PIN 1234; with the API use the server's usernames and passwords) → **Portals** (one card per workspace the person may open; others are shown locked) → **workspace** (Group HQ or a site).
 
 ## Keyboard
 
@@ -40,7 +40,7 @@ Open `http://localhost:4173` in Chrome or Edge and use **Install app** (status b
 | `Ctrl/⌘ B` | Collapse the sidebar |
 | `Ctrl/⌘ .` | Presenter panel (reset, offline, alert, storyline jumps) |
 
-Demo PINs: sign-in 1234, Site Manager override 2468, Mechanic 1357.
+Demo-mode PINs (local seed only, not real credentials): quick sign-in 1234, Site Manager override 2468, Mechanic 1357. With the API, quick sign-in sends the username and PIN to `POST /api/v1/auth/pin-login`.
 
 ## Two densities, one layout
 

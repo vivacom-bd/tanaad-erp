@@ -36,9 +36,11 @@ Goal: an empty but complete skeleton that proves the ledger end to end with one 
 
 **Gate:** sign in as a seeded user, fetch site config, post one `config.ref_list_changed` through `/events` and see it in the snapshot delta. `make rebuild` reproduces the projection.
 
-**Status (9 Nov 2026):** done on branch `backend/phase-0`, gate passed against the dev database. P0-01 to P0-10 and P0-12 complete; P0-11 reduced to a minimal unmaintained workflow because CI is deferred by decision (local `make check` is the gate). Additions beyond the plan: a `Sync` module owns `/events` and `/snapshots` so `Shared` stays free of module imports; config is seeded through `config.*` events so snapshot pulls from `since=0` return the seed; duplicates return the assigned number. The suite runs in about 20 seconds.
+**Status (9 Nov 2026):** built on branch `backend/phase-1`; backend suite green (360 tests, Pint and Larastan clean), web typecheck and Vitest (32) green. P1-01 to P1-10 delivered, including settlement list/cancel endpoints, the offline-ingest test for settlement events, `SendBrief` and the briefs table, `cash.opening_set`, PIN sign-in, advances posted to the cash book, whole-shilling settlement and a real `hold` decision. The gate scenario is covered by an automated HTTP test (`tests/Feature/Gate/Phase1GateTest.php`) but has not been clicked through in a browser. Known follow-ups: briefs are not sent offline (group-wide, outbox is per site); attendance marker names are not shown in any screen yet. Demo logins use short usernames and PIN 1234 (ADR-012 switched the database to MySQL).
 
 ## Phase 1 — People and cash (Weeks 2–3: 17–28 Nov)
+
+**Status (9 Nov 2026):** built on branch `backend/phase-1`; backend suite green (324 tests, Pint and Larastan clean), web typecheck and Vitest green. P1-01 to P1-10 delivered with these exceptions: no offline-ingest test for settlement event types, no list endpoints for settlement runs or advances, no cancel-run command, no `SendBrief`/briefs table, Settlement screen still computes locally in the web app (no store actions for runs, payouts, advances), PIN sign-in stays local. Gate not yet run end to end in a browser. Demo logins use short usernames and PIN 1234 (ADR-012 switched the database to MySQL).
 
 | ID | Task | Size |
 |---|---|---|
