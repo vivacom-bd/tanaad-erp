@@ -29,3 +29,33 @@ apps/api/.phpunit.cache
 # Regenerate with `pnpm shots`
 docs/architecture/frontend/screenshots/
 apps/api/storage/framework/phpstan
+
+# AI tool and editor state, never part of the project
+.claude/
+.commandcode/
+.cursor/
+.windsurf/
+.aider*
+.continue/
+.codex/
+.gemini/
+.copilot/
+.github/copilot-instructions.md
+CLAUDE.md
+AGENTS.md
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets and local environment (examples stay tracked)
+.env
+.env.*
+!.env.example
+
+# Caches and OS junk
+.cache/
+.eslintcache
+.turbo/
+Thumbs.db
+*.tmp
