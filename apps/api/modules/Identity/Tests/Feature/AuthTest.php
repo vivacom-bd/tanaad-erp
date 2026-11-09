@@ -117,3 +117,24 @@ it('treats a repeated Idempotency-Key as a duplicate, not a second grant', funct
         ->postJson("/api/v1/users/{$this->cashier->id}/roles", ['role' => 'driver', 'site' => 'mats'])->assertCreated()->assertJsonPath('event_id', $key);
     expect(DB::table('events')->where('type', 'identity.role_assigned')->count())->toBe(1);
 });
+
+it('signs in with username and PIN and returns the login shape', function (): void {
+    $r = $this->postJson('/api/v1/auth/pin-login', ['username' => 'smmats', 'pin' => '1234'])->assertCreated();
+    expect($r->json('token'))->toBeString()->and($r->json('user.code'))->toBe('u_sm_mats')->and($r->json('sites'))->toBe([$this->mats->id]);
+    $this->withToken($r->json('token'))->getJson('/api/v1/me')->assertOk();
+});
+
+it('answers a wrong PIN or unknown user with the same generic message', function (): void {
+    $wrong = $this->postJson('/api/v1/auth/pin-login', ['username' => 'smmats', 'pin' => '9999'])->assertForbidden();
+    $unknown = $this->postJson('/api/v1/auth/pin-login', ['username' => 'nobody', 'pin' => '1234'])->assertForbidden();
+    expect($wrong->json('detail'))->toBe('Username or PIN is wrong.')->and($unknown->json('detail'))->toBe('Username or PIN is wrong.')
+        ->and($wrong->json('token'))->toBeNull();
+});
+
+it('throttles PIN sign-in at five attempts a minute per username and IP', function (): void {
+    for ($i = 0; $i < 5; $i++) {
+        $this->postJson('/api/v1/auth/pin-login', ['username' => 'nobody', 'pin' => '0000'])->assertForbidden();
+    }
+    $this->postJson('/api/v1/auth/pin-login', ['username' => 'nobody', 'pin' => '0000'])->assertStatus(429);
+    $this->postJson('/api/v1/auth/pin-login', ['username' => 'smmats', 'pin' => '1234'])->assertCreated();
+});

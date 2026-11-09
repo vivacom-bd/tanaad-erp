@@ -12,3 +12,7 @@ Route::prefix('v1')->group(function (): void {
 require __DIR__.'/../modules/Identity/Http/routes.php';
 require __DIR__.'/../modules/Config/Http/routes.php';
 require __DIR__.'/../modules/Sync/Http/routes.php';
+require __DIR__.'/../modules/Media/Http/routes.php';
+require __DIR__.'/../modules/Cash/Http/routes.php';
+require __DIR__.'/../modules/People/Http/routes.php';
+require __DIR__.'/../modules/Group/Http/routes.php';

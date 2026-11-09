@@ -4,7 +4,10 @@ declare(strict_types=1);
 
 namespace Tanaad\Identity;
 
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Routing\Router;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
 use Tanaad\Identity\Authorization\IdentityAuthorizer;
 use Tanaad\Identity\Commands\AssignRole;
@@ -26,6 +29,9 @@ final class IdentityServiceProvider extends ServiceProvider
         /** @var Router $router */
         $router = $this->app->make(Router::class);
         $router->aliasMiddleware('site', EnsureSiteAccess::class);
+
+        RateLimiter::for('pin-login', fn (Request $r): Limit => Limit::perMinute(5)
+            ->by(strtolower(trim((string) $r->input('username'))).'|'.$r->ip()));
 
         $registry
             ->command(RegisterDevice::class, RegisterDeviceHandler::class, IdentityAuthorizer::class)

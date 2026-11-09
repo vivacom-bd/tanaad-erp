@@ -18,6 +18,11 @@ return [
     // How many follow-up commands a policy chain may raise inside one transaction.
     'policy_depth_max' => (int) env('TANAAD_POLICY_DEPTH_MAX', 5),
 
+    // Fallback for people:archive-absent when a site has no archive_after_absent_days; 0 = off.
+    'people' => [
+        'archive_after_absent_days' => (int) env('TANAAD_ARCHIVE_AFTER_ABSENT_DAYS', 0),
+    ],
+
     'pin' => [
         'max_attempts' => (int) env('TANAAD_PIN_MAX_ATTEMPTS', 5),
         'lockout_minutes' => (int) env('TANAAD_PIN_LOCKOUT_MINUTES', 15),

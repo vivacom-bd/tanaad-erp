@@ -42,6 +42,25 @@ final class AuthController extends ApiController
         return new JsonResponse(['token' => $token->plainTextToken, ...$this->session($user, null)], 201);
     }
 
+    /** Quick sign-in on a trusted browser: username + PIN → the same token response as login. Throttled per username and IP. */
+    public function pinLogin(Request $request): JsonResponse
+    {
+        $data = $request->validate(['username' => ['required', 'string', 'max:32'], 'pin' => ['required', 'string', 'min:4', 'max:8']]);
+        $fail = Rejection::forbidden('Username or PIN is wrong.');
+        $user = User::query()->with('siteRoles.site')->where('username', strtolower(trim($data['username'])))->where('active', true)->first();
+        if ($user === null || $user->pin_hash === null) {
+            throw $fail;
+        }
+        try {
+            $this->pins->verify($user, $data['pin']);
+        } catch (Rejection) {
+            throw $fail;
+        }
+        $token = $user->createToken('office', ['user'], now()->addDays(30));
+
+        return new JsonResponse(['token' => $token->plainTextToken, ...$this->session($user, null)], 201);
+    }
+
     /** Shared tablet: a device token plus a user's PIN → short-lived user token bound to the device. */
     public function pin(Request $request): JsonResponse
     {
