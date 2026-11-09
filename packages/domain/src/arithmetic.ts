@@ -96,8 +96,19 @@ export function bundlesFromPieces(pieces: number, bundlePieces: number): { bundl
   return { bundles: Math.floor(pieces / bundlePieces), loosePieces: pieces % bundlePieces };
 }
 
-export function round2(n: number) { return Math.round(n * 100) / 100; }
-export function round3(n: number) { return Math.round(n * 1000) / 1000; }
+/**
+ * Half-up decimal rounding, away from zero, without float noise: 1.005 → 1.01, -2.345 → -2.35.
+ * The server uses BigDecimal with the same rule (ADR-009); contracts/fixtures pins both.
+ */
+function roundHalfUp(n: number, places: number): number {
+  if (!Number.isFinite(n)) return n;
+  const sign = n < 0 ? -1 : 1;
+  const shifted = Number(`${Math.abs(n)}e${places}`);
+  const r = sign * Number(`${Math.round(shifted)}e-${places}`);
+  return r === 0 ? 0 : r; // never -0
+}
+export function round2(n: number) { return roundHalfUp(n, 2); }
+export function round3(n: number) { return roundHalfUp(n, 3); }
 
 /** Landed cost per kg in UGX: goods plus every extra cost, converted at the purchase's exchange reference, over the kilos actually received. */
 export function landedCost(args: { qtyKg: number; unitPrice: number; currency: 'UGX' | 'USD'; fx: number; costs: { amount: number; currency: 'UGX' | 'USD' }[]; receivedKg?: number }) {

@@ -8,7 +8,8 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
     "preview": "pnpm --filter @tanaad/web preview",
-    "shots": "node tools/shot.mjs"
+    "shots": "node tools/shot.mjs",
+    "fixtures": "node --experimental-strip-types --no-warnings tools/fixtures.mjs"
   },
   "devDependencies": {
     "puppeteer-core": "^25.13.0"

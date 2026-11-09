@@ -4,13 +4,13 @@ declare(strict_types=1);
 
 return [
     // Business timezone for business-day and shift boundaries (ADR-008).
-    'timezone' => env('TANAAD_TIMEZONE', 'Africa/Mogadishu'),
+    'timezone' => env('TANAAD_TIMEZONE', 'Africa/Kampala'),
 
     // Hour at which a business day starts when a site has no setting of its own.
     'day_start_hour' => (int) env('TANAAD_DAY_START_HOUR', 6),
 
     // Default currency for sites without their own setting (ADR-009).
-    'currency' => env('TANAAD_CURRENCY', 'USD'),
+    'currency' => env('TANAAD_CURRENCY', 'UGX'),
 
     // Maximum number of events accepted in one POST /events batch.
     'ingest_batch_max' => (int) env('TANAAD_INGEST_BATCH_MAX', 500),
