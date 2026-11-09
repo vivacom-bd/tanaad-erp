@@ -5,3 +5,4 @@ export * from './auth';
 export * from './outbox';
 export * from './snapshots';
 export * from './bootstrap';
+export * from './mapping';

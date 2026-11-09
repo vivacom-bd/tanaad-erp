@@ -242,7 +242,7 @@ export function CreditDesk() {
               <KV k="Oldest open invoice" v={sb.openInvoices.length ? <Badge tone={sb.ageDays > statement.creditDays ? 'bad' : 'neutral'}>{sb.ageDays} days</Badge> : 'none open'} />
             </div>
             <WhatsAppPreview className="mx-auto w-full" to={`${statement.contact} · ${statement.name}`} lines={statementLines(statement)} sent={false} />
-            <p className="t-xs text-[var(--text-3)]">Text is built from invoices and payments on record. Copy it and paste into WhatsApp yourself — this demo does not send messages.</p>
+            <p className="t-xs text-[var(--text-3)]">Text is built from invoices and payments on record. Copy it and paste into WhatsApp yourself — this build does not send messages.</p>
           </div>
         ); })()}
       </Sheet>

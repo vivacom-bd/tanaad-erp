@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowRight, Bell, Clock, Copy, CreditCard, Flame, Lock, MessageSquareText, Table2, Users, Wallet, type LucideIcon } from 'lucide-react';
 import type { SiteSettings } from '@tanaad/domain';
 import { useGo } from '@/app/hooks';
@@ -6,6 +6,10 @@ import { SITE_COLOR } from '@/config/siteIdentity';
 import { roleLabel } from '@/config/roles';
 import { useStore } from '@/data/store';
 import { Avatar, Badge, Bar, Button, DataGrid, PageHeader, Panel, Split, Tabs, cn, type Column } from '@/components/ui';
+import { isReal } from '@/data/api/sync';
+import { listBriefs, sendBrief, type BriefChannel, type BriefRow } from '@/data/api/briefs';
+import { userLabel } from '@/data/api/names';
+import { fmtTime } from '@/data/format';
 import { WhatsAppPreview } from '@/components/WhatsAppPreview';
 import { SITE_LIST } from '@/config/sites';
 import { cashDayFor, cashInSafe, cashSummary, headcount, massBalanceDay, openExceptions, outputToday } from '@/data/selectors';
@@ -60,9 +64,20 @@ export function Brief() {
     return out;
   }, [s.today, sites, needs]);
 
+  // Real mode: CEO and group admin log each copy/send on the server.
+  const canSend = isReal() && (s.session?.role === 'ceo' || s.session?.role === 'group_admin');
+  const [sent, setSent] = useState<BriefRow[]>([]);
+  const refreshSent = () => { if (canSend) listBriefs(s.today).then(setSent).catch(() => undefined); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(refreshSent, [canSend, s.today]);
+  const record = async (channel: BriefChannel) => {
+    try { await sendBrief(s.today, channel, lines); refreshSent(); toast({ kind: 'ok', title: channel === 'whatsapp' ? 'Logged as sent on WhatsApp' : channel === 'log' ? 'Brief logged' : 'Copy logged' }); }
+    catch (e) { toast({ kind: 'error', title: 'Could not log the brief', detail: e instanceof Error ? e.message : undefined }); }
+  };
   const copyMessage = async () => {
     try {
       await navigator.clipboard.writeText(lines.join('\n'));
+      if (canSend) void record('copy');
       toast({ kind: 'ok', title: 'Brief copied', detail: 'Paste into WhatsApp when you are ready to send.' });
     } catch {
       toast({ kind: 'warn', title: 'Could not copy', detail: 'Select the preview text and copy it by hand.' });
@@ -84,7 +99,8 @@ export function Brief() {
       <PageHeader eyebrow="Group HQ" title="Morning brief"
         meta={<Badge tone="neutral" dot>Preview</Badge>}
         subtitle="Five numbers per site, composed now from the same records the site screens show. Copy the text when you are ready to send it yourself."
-        actions={<Button variant="primary" icon={Copy} onClick={copyMessage} hotkey="mod+enter" hotkeyLabel="Copy the brief">Copy message</Button>} />
+        actions={<>{canSend && <Button onClick={() => void record('whatsapp')}>Mark sent on WhatsApp</Button>}<Button variant="primary" icon={Copy} onClick={copyMessage} hotkey="mod+enter" hotkeyLabel="Copy the brief">Copy message</Button></>} />
+      {canSend && sent.length > 0 && <div className="t-sm text-[var(--text-2)] mb-[var(--gap)]">Logged today: {sent.map((b) => `${b.channel === 'whatsapp' ? 'sent on WhatsApp' : b.channel === 'copy' ? 'copied' : 'logged'} ${fmtTime(b.sentAt)} by ${userLabel(b.sentBy, s.users, undefined, s.people)}`).join(' · ')}</div>}
 
       <Split aside={<>
         <Panel icon={Clock} title="How it goes out" sub="manual for now"

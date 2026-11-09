@@ -74,7 +74,7 @@ function SignupDesk({ onRestart }: { onRestart: () => void }) {
   return (
     <div>
       <PageHeader eyebrow={`People · ${site.name}`} title="Casual sign-up" meta={<><Badge>{kind === 'day' ? 'Day' : 'Night'} shift</Badge><Badge>{fmtDayShort(s.today)}</Badge></>}
-        subtitle="Enter worker details and engagement information. Camera capture is simulated in this demo; no image is saved."
+        subtitle="Enter worker details and engagement information. Camera capture is simulated; no image is saved."
         actions={<Badge tone="neutral">{today.length} signed up today</Badge>} />
 
       <div className="grid gap-[var(--gap)] items-start min-[1180px]:grid-cols-[minmax(0,1fr)_360px]">
@@ -188,7 +188,7 @@ function SignupDesk({ onRestart }: { onRestart: () => void }) {
                 <div className="mt-2 pt-1.5 border-t border-dashed border-neutral-400 text-[10px] font-bold tracking-wider flex justify-between"><span>CASUAL</span><span className="text-neutral-500 font-normal">{done ? done.person.id.slice(-6).toUpperCase() : 'NOT ISSUED'}</span></div>
               </div>
             </div>
-            <div className="t-xs text-[var(--text-3)] mt-2">{done ? 'Badge preview. Printing and QR lookup are not connected in this demo.' : 'A badge preview is available after registration.'}</div>
+            <div className="t-xs text-[var(--text-3)] mt-2">{done ? 'Badge preview. Printing and QR lookup are not connected.' : 'A badge preview is available after registration.'}</div>
           </Panel>
 
           <Panel icon={History} title="Registered today" sub={today.length ? `${today.length} at ${site.shortName}` : undefined} pad={false} footer={`${week} casual${week === 1 ? '' : 's'} joined in the last 7 days.`}>

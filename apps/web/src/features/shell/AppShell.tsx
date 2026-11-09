@@ -17,6 +17,8 @@ import { fmtDayLong, fmtDateTime } from '@/data/format';
 import { cashDayFor, currentShiftKind, DEMO_HOUR, openExceptions, portalsFor } from '@/data/selectors';
 import { PresenterPanel } from '@/demo/PresenterPanel';
 import { Toasts } from './Toasts';
+import { SyncIssues } from './SyncIssues';
+import { isReal, realLogout } from '@/data/api/sync';
 import { CommandPalette } from './CommandPalette';
 import { ShortcutHelp } from './ShortcutHelp';
 
@@ -258,7 +260,7 @@ function TitleBar({ scope, current, hubLabel, desktop, onMenu }: { scope: 'group
     { label: 'Keyboard shortcuts', icon: Keyboard, onSelect: () => prefs.setHelp(true) },
     ...(pwa.canInstall ? [{ label: 'Install as an app', icon: Download, onSelect: () => void pwa.install() }] : []),
     ...(pwa.canInstall ? [{ label: 'Install App', icon: Download, onSelect: () => void pwa.install() }] : []),
-    { label: 'Sign Out', icon: LogOut, divider: true, onSelect: () => { signOut(); nav({ to: '/' }); } },
+    { label: 'Sign Out', icon: LogOut, divider: true, onSelect: () => { if (isReal()) void realLogout(); signOut(); nav({ to: '/' }); } },
   ];
 
   return (
@@ -267,7 +269,6 @@ function TitleBar({ scope, current, hubLabel, desktop, onMenu }: { scope: 'group
       <nav className="app-no-drag flex items-center gap-2 min-w-0 t-base pl-1" aria-label="Breadcrumb">
         <div className="hidden sm:flex items-center gap-1.5">
           <span className="font-bold text-xs tracking-wider uppercase text-[var(--text)]">Tanaad</span>
-          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-[var(--surface-2)] text-[var(--text-3)] border border-[var(--line)]">Demo</span>
         </div>
         <ChevronRight className="hidden sm:block size-3 text-[var(--text-4)] shrink-0" />
         <span className="size-2 rounded-full shrink-0" style={{ background: SITE_COLOR[key] }} />
@@ -311,11 +312,13 @@ function TitleBar({ scope, current, hubLabel, desktop, onMenu }: { scope: 'group
 
       {/* Offline Status (Only shown when offline) */}
       {!online && (
-        <div className="app-no-drag flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium bg-[var(--bad-bg)] text-[var(--bad)] border border-[var(--bad)]/20" title="Demo connection is offline. New demo events are queued on this device.">
+        <div className="app-no-drag flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium bg-[var(--bad-bg)] text-[var(--bad)] border border-[var(--bad)]/20" title="Connection is offline. New events are queued on this device.">
           <CloudOff className="size-3.5" />
-          <span>Demo offline · {pending} queued</span>
+          <span>Offline · {pending} queued</span>
         </div>
       )}
+
+      <SyncIssues />
 
       {/* Alerts Bell */}
       <div ref={bell} className="relative app-no-drag">
@@ -368,8 +371,8 @@ function StatusBar({ scope }: { scope: 'group' | 'site' }) {
       </> : <><Seg><Building2 className="size-3" />{COMPANY.groupName}</Seg><Seg>{fmtDayLong(s.today)}</Seg><Seg>USD 1 = UGX {s.fx.toLocaleString()}</Seg></>}
       <span className="flex-1" />
       {pwa.updateReady && <Seg onClick={pwa.applyUpdate}><RefreshCw className="size-3" />Update ready</Seg>}
-      {offline && <Seg onClick={() => s.setOnline(true)} title="Demo: the simulated connection is off. Click to turn it back on."><CloudOff className="size-3" />Offline</Seg>}
-      <Seg title="This build uses sample data stored in this browser. No production API is connected.">Demo data</Seg>
+      {offline && <Seg onClick={() => s.setOnline(true)} title="The connection is off. Click to turn it back on."><CloudOff className="size-3" />Offline</Seg>}
+      <Seg title="Data is stored in this browser. No server is connected.">Local data</Seg>
     </footer>
   );
 }

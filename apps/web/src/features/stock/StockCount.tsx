@@ -107,7 +107,7 @@ export function StockCount() {
         {result && (
           <Panel icon={ClipboardCheck} title="Just recorded" sub={result.zone} actions={<Badge tone={result.rows.some((r) => r.counted !== r.system) ? 'bad' : 'ok'} dot>{result.rows.some((r) => r.counted !== r.system) ? `${result.rows.filter((r) => r.counted !== r.system).length} with a difference` : 'Everything matches'}</Badge>}
             footer="Nothing was silently changed: the system figure stays, the counted figure stays, and the difference is in the audit feed with your name.">
-            <div className="t-sm font-medium mb-1">Count saved in this demo · {plural(result.rows.length, 'product')}</div>
+            <div className="t-sm font-medium mb-1">Count saved · {plural(result.rows.length, 'product')}</div>
             {result.rows.map((r) => <div key={r.product.id} className="flex items-center gap-2 min-h-7 touch:min-h-10 border-b border-[var(--line)] last:border-b-0 t-sm"><ProductName product={r.product} className="flex-1" strong={false} /><span className="num text-[var(--text-3)]">{fmtNum(r.counted)} / {fmtNum(r.system)}</span><Variance v={r.counted - r.system} /></div>)}
           </Panel>
         )}

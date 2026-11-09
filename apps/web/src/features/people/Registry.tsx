@@ -3,8 +3,9 @@ import { Archive, ArrowDownLeft, ArrowLeftRight, CalendarClock, CreditCard, Down
 import type { AttendanceStatus, Engagement, EngagementType, Person } from '@tanaad/domain';
 import { contractDaysRemaining } from '@tanaad/domain';
 import { useStore } from '@/data/store';
+import { isReal } from '@/data/api/sync';
 import { useGo, useQueryParam, useSite } from '@/app/hooks';
-import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Empty, KpiStrip, PageHeader, SearchInput, Select, Sheet, Stat, Status, Tabs, Toolbar, cn, type Column } from '@/components/ui';
+import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Empty, Input, KpiStrip, PageHeader, SearchInput, Select, Sheet, Stat, Status, Tabs, Toolbar, cn, type Column } from '@/components/ui';
 import { CountUp, Donut, TimeTrack } from '@/components/charts';
 import { activeEngagement, addDays, currentShiftKind, dailySeries, headcount, lastWorkingDays, shiftId, sitePeople } from '@/data/selectors';
 import { fmtDay, fmtDayShort, fmtNum, fmtUGX } from '@/data/format';
@@ -126,8 +127,12 @@ export function Registry() {
 
 function ProfileActions({ r, onClose }: { r: RegRow; onClose: () => void }) {
   const s = useStore(); const isArchived = r.person.status === 'archived';
+  const [ending, setEnding] = useState(false); const [why, setWhy] = useState('');
+  const canEnd = isReal() && !isArchived && r.eng?.status === 'active';
+  const confirmEnd = () => { if (!r.eng || !why.trim()) return; s.endEngagement(r.eng.id, why.trim()); say({ kind: 'ok', title: `${r.person.fullName}: engagement ended`, detail: why.trim() }); setEnding(false); setWhy(''); };
+  if (ending) return <><Input autoFocus aria-label="Reason for ending the engagement" value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Why is this engagement ending? (required)" className="flex-1 min-w-0" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmEnd(); } else if (e.key === 'Escape') { e.stopPropagation(); setEnding(false); } }} /><Button variant="ghost" onClick={() => { setEnding(false); setWhy(''); }}>Back</Button><Button variant="primary" disabled={!why.trim()} onClick={confirmEnd}>Confirm end</Button></>;
   const toggle = () => { if (isArchived) { s.reactivatePerson(r.person.id); say({ kind: 'ok', title: `${r.person.fullName} reactivated` }); } else { s.archivePerson(r.person.id); say({ kind: 'ok', title: `${r.person.fullName} archived`, detail: 'Reactivate any time from Attendance → Archived.' }); onClose(); } };
-  return <><span className="mr-auto t-sm text-[var(--text-3)]">{r.isShared ? 'Shared workers are archived from their home site.' : isArchived ? 'Off the roster, record kept.' : 'Archiving keeps the record and history.'}</span><Button variant={isArchived ? 'primary' : 'secondary'} icon={isArchived ? RotateCcw : Archive} onClick={toggle} disabled={r.isShared}>{isArchived ? 'Reactivate' : 'Archive worker'}</Button></>;
+  return <><span className="mr-auto t-sm text-[var(--text-3)]">{r.isShared ? 'Shared workers are archived from their home site.' : isArchived ? 'Off the roster, record kept.' : 'Archiving keeps the record and history.'}</span>{canEnd && !r.isShared && <Button variant="secondary" onClick={() => setEnding(true)}>End engagement</Button>}<Button variant={isArchived ? 'primary' : 'secondary'} icon={isArchived ? RotateCcw : Archive} onClick={toggle} disabled={r.isShared}>{isArchived ? 'Reactivate' : 'Archive worker'}</Button></>;
 }
 
 const RANK: Record<AttendanceStatus, number> = { present: 3, half: 2, absent: 1 };

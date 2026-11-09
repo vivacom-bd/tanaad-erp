@@ -144,7 +144,7 @@ export function ScanAnything() {
                   <div className="mt-4 grid gap-3 sm:grid-cols-2">
                     <div>
                       <div className="t-label mb-1">Made from</div>
-                      {h.parents.length === 0 ? <span className="t-sm text-[var(--text-3)]">No parent labels linked{label.kind === 'bundle' || label.kind === 'pack' ? '. Racks and rolls are consumed by stage, not by lot, in the demo' : ''}.</span> : <div className="flex flex-wrap gap-1.5">{h.parents.map((p) => <button key={p.id} type="button" onClick={() => lookup(p.code)} className={chip}>{p.code}</button>)}</div>}
+                      {h.parents.length === 0 ? <span className="t-sm text-[var(--text-3)]">No parent labels linked{label.kind === 'bundle' || label.kind === 'pack' ? '. Racks and rolls are consumed by stage, not by lot' : ''}.</span> : <div className="flex flex-wrap gap-1.5">{h.parents.map((p) => <button key={p.id} type="button" onClick={() => lookup(p.code)} className={chip}>{p.code}</button>)}</div>}
                     </div>
                     <div>
                       <div className="t-label mb-1">Went into</div>

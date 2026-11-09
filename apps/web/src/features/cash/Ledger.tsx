@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Camera, CameraOff } from 'lucide-react';
 import type { CashEntry } from '@tanaad/domain';
-import { Avatar, Badge, Button, Sheet, cn } from '@/components/ui';
+import { Avatar, Badge, Button, Field, Input, Sheet, cn } from '@/components/ui';
+import { useStore } from '@/data/store';
+import { isReal } from '@/data/api/sync';
+import { userLabel } from '@/data/api/names';
 import { fmtNum, fmtUGX, fmtUSD } from '@/data/format';
 import { timeOf, useExpenseCategories } from './categories';
 import { varianceTone } from './CloseDaySheet';
@@ -141,14 +144,25 @@ export function LedgerTable({ opening, groups, expected, counted, variance, thre
 }
 
 /** Inspector for one ledger line: everything recorded on the voucher. */
-export function LineSheet({ row, onClose, machines, users, fx }: { row?: LedgerRow; onClose: () => void; machines: { id: string; code: string }[]; users: { id: string; name: string; avatarSeed?: string }[]; fx: number }) {
+export function LineSheet({ row, onClose, machines, users, fx, canCorrect = false }: { canCorrect?: boolean; row?: LedgerRow; onClose: () => void; machines: { id: string; code: string }[]; users: { id: string; name: string; avatarSeed?: string }[]; fx: number }) {
   const e = row?.e; const categoryLabel = useExpenseCategories().label;
+  const [fixing, setFixing] = useState(false); const [amount, setAmount] = useState(''); const [payee, setPayee] = useState(''); const [note, setNote] = useState(''); const [reason, setReason] = useState('');
+  useEffect(() => { setFixing(false); }, [e?.id]);
   const by = e ? users.find((u) => u.id === e.by) : undefined;
   const m = e?.machineId ? machines.find((x) => x.id === e.machineId) : undefined;
   const Item = ({ label, children }: { label: string; children: ReactNode }) => <div className="flex items-center justify-between gap-4 row-h border-b border-[var(--line)] last:border-b-0"><dt className="t-sm font-medium text-[var(--text-2)] shrink-0">{label}</dt><dd className="t-base text-right min-w-0 truncate">{children}</dd></div>;
   return (
-    <Sheet open={!!e} onClose={onClose} title={e ? title(e, categoryLabel) : ''} sub={e ? `${e.direction === 'in' ? 'Money in' : 'Money out'} · ${timeOf(e.at)}` : undefined} width={420} footer={<Button onClick={onClose}>Close</Button>}>
-      {e && row && (
+    <Sheet open={!!e} onClose={onClose} title={e ? title(e, categoryLabel) : ''} sub={e ? `${e.direction === 'in' ? 'Money in' : 'Money out'} · ${timeOf(e.at)}` : undefined} width={420} footer={<>{canCorrect && isReal() && e && e.category !== 'payout' && !fixing && <Button onClick={() => { setFixing(true); setAmount(String(e.amount)); setPayee(e.payee ?? ''); setNote(e.note ?? ''); setReason(''); }}>Correct entry</Button>}<Button onClick={onClose}>Close</Button></>}>
+      {e && row && fixing && (
+        <div className="flex flex-col gap-3">
+          <Field label="Amount"><Input type="number" min={0} step="0.01" value={amount} onChange={(x) => setAmount(x.target.value)} /></Field>
+          <Field label={e.direction === 'in' ? 'Received from' : 'Paid to'}><Input value={payee} onChange={(x) => setPayee(x.target.value)} /></Field>
+          <Field label="Note"><Input value={note} onChange={(x) => setNote(x.target.value)} /></Field>
+          <Field label="Reason for the correction" hint="Required"><Input value={reason} onChange={(x) => setReason(x.target.value)} placeholder="What was wrong?" /></Field>
+          <div className="flex gap-2 justify-end"><Button variant="ghost" onClick={() => setFixing(false)}>Back</Button><Button variant="primary" disabled={!reason.trim() || !(Number(amount) > 0)} onClick={() => { useStore.getState().correctCashEntry(e.id, { amount: Number(amount), payee: payee.trim() || undefined, note: note.trim() || undefined }, reason.trim()); useStore.getState().toast({ kind: 'ok', title: 'Correction recorded', detail: reason.trim() }); setFixing(false); onClose(); }}>Save correction</Button></div>
+        </div>
+      )}
+      {e && row && !fixing && (
         <div className="flex flex-col gap-3">
           <div className="surface-2 px-3.5 py-3 flex items-end justify-between gap-3">
             <div><div className="t-label">{e.direction === 'in' ? 'Received' : 'Paid out'}</div><div className="num t-hero mt-1">{e.currency === 'USD' ? fmtUSD(e.amount) : fmtUGX(e.amount)}</div></div>
@@ -159,7 +173,7 @@ export function LineSheet({ row, onClose, machines, users, fx }: { row?: LedgerR
             {e.subcategory && <Item label="Kind">{e.subcategory}</Item>}
             {m && <Item label="Machine">{m.code}</Item>}
             <Item label={e.direction === 'in' ? 'Received from' : 'Paid to'}>{e.payee ?? '—'}</Item>
-            <Item label="Recorded by">{by ? <span className="inline-flex items-center gap-1.5"><Avatar name={by.name} seed={by.avatarSeed} size={20} />{by.name}</span> : e.by}</Item>
+            <Item label="Recorded by">{by ? <span className="inline-flex items-center gap-1.5"><Avatar name={by.name} seed={by.avatarSeed} size={20} />{by.name}</span> : userLabel(e.by, users, e.byName)}</Item>
             <Item label="Receipt photo">{e.hasReceiptPhoto ? <Badge tone="ok"><Camera className="size-3" />Attached</Badge> : <Badge tone="neutral"><CameraOff className="size-3" />None</Badge>}</Item>
             {e.note && <Item label="Note">{e.note}</Item>}
             {e.currency === 'USD' && <Item label="Reference rate"><span className="num">{fmtNum(e.fxReference || fx)} UGX/USD</span></Item>}

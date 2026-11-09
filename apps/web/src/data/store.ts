@@ -10,6 +10,7 @@ import { buildMasterData } from './seed/masterData';
 import { dexieStorage } from './persist';
 import { uuid7, nowIso } from './ids';
 import { SITES } from '@/config/sites';
+import { DEMO } from './api/env';
 
 export interface Session { userId: string; role: Role; siteId?: SiteCode; deviceId: string }
 
@@ -35,6 +36,9 @@ const SEED_VERSION = 20;
 
 type Mut = (s: AppState) => void;
 
+/** Real-mode sync installs a sink here (data/api/sync.ts); in demo mode it stays null and nothing leaves the device. */
+export const eventSink: { current: ((ev: DomainEvent) => void) | null } = { current: null };
+
 export interface Actions {
   // session & demo
   /** Authenticate a person on this device (login screen). */
@@ -52,7 +56,15 @@ export interface Actions {
   markAlertsRead: () => void;
   // people
   registerCasual: (p: { siteId: SiteCode; fullName: string; phoneMomo: string; sector: string; rate: number; idNumber: string }) => Person;
-  markAttendance: (p: { shiftId: string; personId: string; siteId: SiteCode; status: AttendanceStatus; overtimeHours?: number }) => void;
+  markAttendance: (p: { shiftId: string; personId: string; siteId: SiteCode; status: AttendanceStatus; overtimeHours?: number; reason?: string }) => void;
+  /** Real mode: end an engagement with a reason (people.engagement_ended). */
+  endEngagement: (engagementId: string, reason: string, endDate?: string) => void;
+  /** Real mode: replace a cash entry with a corrected one (cash.entry_corrected). The original stays on the server, superseded. */
+  /** Real mode: set a day's opening balance before its first entry (cash.opening_set). */
+  setCashOpening: (siteId: SiteCode, day: string, amount: number) => void;
+  correctCashEntry: (entryId: string, patch: Partial<Pick<CashEntry, 'amount' | 'payee' | 'note' | 'subcategory'>>, reason: string) => void;
+  /** Real mode: raise an exception by hand (group.exception_raised). The server projects it; it is not added locally. */
+  raiseManualException: (e: Pick<BusinessException, 'siteId' | 'kind' | 'severity' | 'title' | 'detail'> & { subjectRef?: string }) => string;
   renewContract: (engagementId: string, termDays: number) => void;
   archivePerson: (personId: string) => void;
   reactivatePerson: (personId: string) => void;
@@ -123,6 +135,7 @@ export const useStore = create<AppState & Actions>()(
           d.events = [...d.events, ev];
           if (opts.audit) d.audit = [{ id: uuid7(), siteId, kind: type, summary: opts.audit.summary, actorId: a.id, actorName: a.name, deviceId: a.deviceId, at: ev.occurredAt, reason: opts.reason, flag: opts.audit.flag ?? 'normal' }, ...d.audit];
         });
+        eventSink.current?.(ev);
         return ev;
       };
       const seed = buildSeed(); const master = buildMasterData();
@@ -149,19 +162,25 @@ export const useStore = create<AppState & Actions>()(
           emit('PersonRegistered', p.siteId, { person, eng }, { audit: { summary: `${person.fullName} registered as casual (${p.sector})` } });
           return person;
         },
-        markAttendance: ({ shiftId, personId, siteId, status, overtimeHours = 0 }) => {
+        markAttendance: ({ shiftId, personId, siteId, status, overtimeHours = 0, reason }) => {
           const a = actor(); const s = get();
           const existing = s.attendance.find((x) => x.shiftId === shiftId && x.personId === personId);
           const rec: Attendance = { id: existing?.id ?? uuid7(), shiftId, personId, workedSiteId: siteId, status, overtimeHours, markedBy: a.id, at: nowIso() };
           mutate((d) => { d.attendance = existing ? d.attendance.map((x) => (x.id === existing.id ? rec : x)) : [...d.attendance, rec]; });
-          emit(existing ? 'AttendanceCorrected' : 'AttendanceMarked', siteId, rec, existing ? { audit: { summary: `Attendance changed to ${status} for ${s.people.find((p) => p.id === personId)?.fullName}`, flag: 'edit' } } : {});
+          emit(existing ? 'AttendanceCorrected' : 'AttendanceMarked', siteId, rec, existing ? { reason, audit: { summary: `Attendance changed to ${status} for ${s.people.find((p) => p.id === personId)?.fullName}`, flag: 'edit' } } : {});
         },
         renewContract: (engagementId, termDays) => {
           const s = get(); const old = s.engagements.find((e) => e.id === engagementId); if (!old) return;
           const start = s.today; const end = new Date(start + 'T00:00:00Z'); end.setUTCDate(end.getUTCDate() + termDays);
           const fresh: Engagement = { ...old, id: uuid7(), startDate: start, endDate: end.toISOString().slice(0, 10), termDays, status: 'active' };
           mutate((d) => { d.engagements = [fresh, ...d.engagements.map((e) => (e.id === engagementId ? { ...e, status: 'renewed' as const } : e))]; });
-          emit('EngagementRenewed', old.siteId, fresh, { audit: { summary: `${s.people.find((p) => p.id === old.personId)?.fullName}: ${termDays}-day contract renewed` } });
+          emit('EngagementRenewed', old.siteId, { ...fresh, renewsEngagementId: engagementId }, { audit: { summary: `${s.people.find((p) => p.id === old.personId)?.fullName}: ${termDays}-day contract renewed` } });
+        },
+        endEngagement: (engagementId, reason, endDate) => {
+          const s = get(); const eng = s.engagements.find((e) => e.id === engagementId); if (!eng) return;
+          const end = endDate ?? s.today;
+          mutate((d) => { d.engagements = d.engagements.map((e) => (e.id === engagementId ? { ...e, status: 'ended' as const, endDate: end } : e)); });
+          emit('EngagementEnded', eng.siteId, { engagementId, personId: eng.personId, endDate: end }, { reason, audit: { summary: `${s.people.find((p) => p.id === eng.personId)?.fullName}: engagement ended`, flag: 'edit' } });
         },
         archivePerson: (personId) => { mutate((d) => { d.people = d.people.map((p) => (p.id === personId ? { ...p, status: 'archived' } : p)); }); emit('PersonArchived', get().people.find((p) => p.id === personId)?.homeSiteId, { personId }); },
         reactivatePerson: (personId) => { mutate((d) => { d.people = d.people.map((p) => (p.id === personId ? { ...p, status: 'active' } : p)); }); emit('PersonReactivated', get().people.find((p) => p.id === personId)?.homeSiteId, { personId }); },
@@ -173,17 +192,27 @@ export const useStore = create<AppState & Actions>()(
           mutate((d) => { d.cashEntries = [...d.cashEntries, entry]; });
           emit('CashEntryRecorded', e.siteId, entry);
         },
+        correctCashEntry: (entryId, patch, reason) => {
+          const orig = get().cashEntries.find((e) => e.id === entryId); if (!orig) return;
+          const fixed: CashEntry = { ...orig, ...patch, id: uuid7(), at: nowIso(), by: actor().id };
+          mutate((d) => { d.cashEntries = d.cashEntries.map((e) => (e.id === entryId ? fixed : e)); });
+          emit('CashEntryCorrected', orig.siteId, { ...fixed, correctsEntryId: entryId }, { reason, audit: { summary: `Cash entry corrected to ${fixed.amount.toLocaleString()}`, flag: 'edit' } });
+        },
+        setCashOpening: (siteId, day, amount) => {
+          mutate((d) => { d.cashDays = d.cashDays.map((c) => (c.siteId === siteId && c.day === day ? { ...c, opening: amount } : c)); });
+          emit('CashOpeningSet', siteId, { day, amount }, { audit: { summary: `Opening balance for ${day} set to ${amount.toLocaleString()}`, flag: 'edit' } });
+        },
         closeCashDay: (cashDayId, counted, denominations) => {
           const s = get(); const cd = s.cashDays.find((c) => c.id === cashDayId)!; const a = actor();
           const entries = s.cashEntries.filter((e) => e.cashDayId === cashDayId);
           const sum = (f: (e: CashEntry) => boolean) => entries.filter(f).reduce((t, e) => t + e.amount, 0);
           const r = cashClose({ opening: cd.opening, sales: sum((e) => e.category === 'sale'), receipts: sum((e) => e.direction === 'in' && e.category !== 'sale'), expenses: sum((e) => e.direction === 'out' && e.category !== 'wages' && e.category !== 'payout'), wages: sum((e) => e.category === 'wages' || e.category === 'payout'), counted });
           mutate((d) => { d.cashDays = d.cashDays.map((c) => (c.id === cashDayId ? { ...c, status: 'closed', countedClosing: counted, signedBy: a.id, closedAt: nowIso(), denominations } : c)); });
-          emit('CashDayClosed', cd.siteId, { cashDayId, counted, variance: r.variance }, { audit: { summary: `Cash day ${cd.day} closed and signed, variance ${r.variance.toLocaleString()}`, flag: r.variance !== 0 ? 'variance' : 'normal' } });
+          emit('CashDayClosed', cd.siteId, { cashDayId, day: cd.day, counted, variance: r.variance, denominations }, { audit: { summary: `Cash day ${cd.day} closed and signed, variance ${r.variance.toLocaleString()}`, flag: r.variance !== 0 ? 'variance' : 'normal' } });
           if (Math.abs(r.variance) > cfg(cd.siteId).cashVariance) get().raiseException({ siteId: cd.siteId, kind: 'cash_variance', severity: 'warning', title: `Cash close ${r.variance < 0 ? 'short' : 'over'} by UGX ${Math.abs(r.variance).toLocaleString()}`, detail: `Counted closing on ${cd.day} differs from expected.`, subjectRef: cashDayId, ownerRole: 'site_manager' });
           return { variance: r.variance };
         },
-        reopenCashDay: (cashDayId, reason) => { const cd = get().cashDays.find((c) => c.id === cashDayId)!; mutate((d) => { d.cashDays = d.cashDays.map((c) => (c.id === cashDayId ? { ...c, status: 'reopened' } : c)); }); emit('CashDayReopened', cd.siteId, { cashDayId }, { reason, audit: { summary: `Cash day ${cd.day} reopened`, flag: 'reopen' } }); },
+        reopenCashDay: (cashDayId, reason) => { const cd = get().cashDays.find((c) => c.id === cashDayId)!; mutate((d) => { d.cashDays = d.cashDays.map((c) => (c.id === cashDayId ? { ...c, status: 'reopened' } : c)); }); emit('CashDayReopened', cd.siteId, { cashDayId, day: cd.day }, { reason, audit: { summary: `Cash day ${cd.day} reopened`, flag: 'reopen' } }); },
 
         recordProduction: (e) => {
           const s = get(); const entry: ProductionEntry = { id: uuid7(), at: nowIso(), ...e };
@@ -285,7 +314,8 @@ export const useStore = create<AppState & Actions>()(
         savePurchase: (p) => { const s0 = get(); const existing = p.id ? s0.purchases.find((x) => x.id === p.id) : undefined; const rec: Purchase = { ...existing, ...p, id: p.id ?? uuid7(), reference: p.reference ?? existing?.reference ?? `PO-${String(s0.purchases.length + 1).padStart(4, '0')}`, fxReference: p.fxReference ?? existing?.fxReference ?? s0.fx, example: false } as Purchase; mutate((d) => { d.purchases = existing ? d.purchases.map((x) => (x.id === rec.id ? rec : x)) : [rec, ...d.purchases]; }); emit('PurchaseSaved', p.siteId, rec, { audit: { summary: `Purchase ${rec.reference} ${existing ? 'changed' : 'recorded'}: ${rec.material} from ${rec.supplier}` } }); return rec; },
         receivePurchase: (id, receivedKg) => { const s0 = get(); const p = s0.purchases.find((x) => x.id === id); if (!p) return; mutate((d) => { d.purchases = d.purchases.map((x) => (x.id === id ? { ...x, status: 'received', receivedOn: s0.today, receivedKg } : x)); }); emit('PurchaseReceived', p.siteId, { id, receivedKg }, { audit: { summary: `Purchase ${p.reference} received: ${receivedKg.toLocaleString()} kg of ${p.qtyKg.toLocaleString()} kg ordered`, flag: receivedKg < p.qtyKg * 0.995 ? 'variance' : 'normal' } }); },
 
-        decideException: (eid, decision, reason) => { const a = actor(); const ex = get().exceptions.find((x) => x.id === eid)!; mutate((d) => { d.exceptions = d.exceptions.map((x) => (x.id === eid ? { ...x, status: decision, decidedBy: a.id, decidedAt: nowIso(), decisionReason: reason } : x)); }); emit('ExceptionDecided', ex.siteId, { id: eid, decision }, { reason, audit: { summary: `Exception "${ex.title}" ${decision}${reason ? `: ${reason}` : ''}` } }); },
+        decideException: (eid, decision, reason) => { const a = actor(); const ex = get().exceptions.find((x) => x.id === eid)!; const keepOpen = !DEMO && decision === 'held'; mutate((d) => { d.exceptions = d.exceptions.map((x) => (x.id === eid ? { ...x, status: keepOpen ? 'open' : decision, ...(DEMO ? {} : { onHold: keepOpen }), decidedBy: a.id, decidedAt: nowIso(), decisionReason: reason } : x)); }); emit('ExceptionDecided', ex.siteId, { id: eid, decision }, { reason, audit: { summary: `Exception "${ex.title}" ${decision}${reason ? `: ${reason}` : ''}` } }); },
+        raiseManualException: (e) => { const id = uuid7(); emit('ExceptionRaisedManual', e.siteId, { id, ownerRole: 'site_manager', ...e }, { audit: { summary: `Exception raised: ${e.title}` } }); return id; },
         raiseException: (e) => { const ex: BusinessException = { id: uuid7(), raisedAt: nowIso(), status: 'open', ...e }; mutate((d) => { d.exceptions = [ex, ...d.exceptions]; }); emit('ExceptionRaised', e.siteId, ex); },
       };
     },

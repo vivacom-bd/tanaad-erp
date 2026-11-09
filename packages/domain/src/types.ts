@@ -115,6 +115,7 @@ export interface Person {
   avatarSeed: string;      // deterministic avatar colour/initials
   status: 'active' | 'archived';
   joinedOn: string;
+  number?: string;         // server-assigned person number (provisional until synced)
 }
 
 export interface Engagement {
@@ -142,6 +143,8 @@ export interface Attendance {
   status: AttendanceStatus;
   overtimeHours: number;
   markedBy: string;
+  /** Real mode: the server's display name for markedBy, when it sends one. */
+  markedByName?: string;
   at: string;
 }
 
@@ -176,6 +179,8 @@ export interface CashEntry {
   hasReceiptPhoto: boolean;
   at: string;
   by: string;
+  /** Real mode: the server's display name for `by`, when it sends one. */
+  byName?: string;
 }
 
 export interface Label {
@@ -381,6 +386,8 @@ export interface BusinessException {
   decidedBy?: string;
   decidedAt?: string;
   decisionReason?: string;
+  /** Held on the server: still open and decidable, shown marked Held. */
+  onHold?: boolean;
 }
 
 export interface AuditEvent {

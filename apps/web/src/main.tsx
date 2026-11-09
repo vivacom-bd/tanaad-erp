@@ -6,6 +6,8 @@ import '@/app/prefs';
 import { router } from '@/app/router';
 import { initPwa } from '@/app/pwa';
 import { useStore } from '@/data/store';
+import { loadSession } from '@/data/api/auth';
+import { isReal, startSync } from '@/data/api/sync';
 
 initPwa(
   () => {}, // offline caching is silent; nobody needs to be told the files were cached
@@ -16,6 +18,6 @@ initPwa(
 // would briefly see "no session" and bounce to sign-in, and late hydration could overwrite a fresh sign-in.
 const root = ReactDOM.createRoot(document.getElementById('root')!);
 let started = false;
-const start = () => { if (started) return; started = true; root.render(<React.StrictMode><RouterProvider router={router} /></React.StrictMode>); };
+const start = () => { if (started) return; started = true; if (isReal() && loadSession()) startSync(); /* real mode resumes a saved API session; demo never syncs */ root.render(<React.StrictMode><RouterProvider router={router} /></React.StrictMode>); };
 if (useStore.persist.hasHydrated()) start();
 else { useStore.persist.onFinishHydration(start); setTimeout(start, 2500); }

@@ -96,7 +96,7 @@ export function PrintLabel() {
 
   return (
     <div>
-      <PageHeader eyebrow={`${site.name} · Production`} title="Create label" subtitle="Create a label record and review the sticker preview. Physical printing is not connected in this demo."
+      <PageHeader eyebrow={`${site.name} · Production`} title="Create label" subtitle="Create a label record and review the sticker preview. Physical printing is not connected."
         meta={<><Badge tone="neutral" dot>Printer</Badge><Badge tone="neutral">{fmtNum(todays.length)} labels recorded today</Badge></>} />
       {site.toBeConfirmed && <Note tone="warn" className="mb-[var(--gap)]">{site.toBeConfirmed}</Note>}
       <Split asideWidth={360} aside={<>

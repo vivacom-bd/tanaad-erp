@@ -1,4 +1,5 @@
 // Hand-written for now; these will be generated from contracts/openapi.yaml later (ADR-007).
+import type { Role, SiteCode } from '@tanaad/domain';
 
 export type ProblemCode =
   | 'unknown_type' | 'invalid_payload' | 'forbidden' | 'day_locked' | 'not_found'
@@ -9,24 +10,24 @@ export interface Problem {
   details?: Record<string, unknown>;
 }
 
-export interface RoleGrant { role: string; site_id: string | null; site_code: string | null }
+export interface RoleGrant { role: Role; site_id: string | null; site_code: SiteCode | null }
 
 export interface Profile {
   id: string; code: string; name: string; avatar_seed: string; person_id: string | null;
   roles: RoleGrant[];
 }
 
-export interface Device { id: string; name: string; site_id: string; site_code: string }
+export interface Device { id: string; name: string; site_id: string; site_code: SiteCode }
 
 export interface Session {
   token: string;
   expires_at?: string;
   user: Profile;
-  sites: string[] | null; // null = every site
+  sites: SiteCode[] | null; // null = every site
   device: Device | null;
 }
 
-export interface MeResponse { user: Profile; sites: string[] | null; device: Device | null }
+export interface MeResponse { user: Profile; sites: SiteCode[] | null; device: Device | null }
 
 export interface EnvelopeOut {
   id: string; type: string; version: number; occurred_at: string;

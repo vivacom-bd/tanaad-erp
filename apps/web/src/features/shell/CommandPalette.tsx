@@ -41,7 +41,7 @@ export function CommandPalette({ scope, site }: { scope: 'group' | 'site'; site:
     if (pwa.canInstall) out.push({ id: 'sys:install', title: 'Install Tanaad as an app', sub: 'Own window, works offline', group: 'Preferences', icon: Download, run: () => void pwa.install(), words: 'pwa desktop install' });
     out.push(
       { id: 'sys:switch', title: 'All portals', sub: 'Switch workspace', group: 'Session', icon: User, keys: 'alt+p', run: go('/portals') },
-      { id: 'sys:reset', title: 'Reset demo data', sub: 'Restore the seeded day', group: 'Session', icon: RotateCcw, run: () => { s.resetDemo(); s.toast({ kind: 'ok', title: 'Demo data restored' }); } },
+      { id: 'sys:reset', title: 'Reset local data', sub: 'Restore the seeded day', group: 'Session', icon: RotateCcw, run: () => { s.resetDemo(); s.toast({ kind: 'ok', title: 'Local data restored' }); } },
       { id: 'sys:out', title: 'Sign out', group: 'Session', icon: LogOut, run: () => { s.signOut(); nav({ to: '/' }); } },
     );
     // Records: only once the user has typed something.

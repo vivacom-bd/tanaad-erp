@@ -3,8 +3,9 @@ import type { KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { Archive, CalendarClock, CheckCircle2, Clock, Download, EyeOff, ListChecks, Lock, Phone, RotateCcw, ShieldAlert, TrendingUp, UserX, Users } from 'lucide-react';
 import type { Attendance as AttendanceRec, AttendanceStatus, Engagement, Person, ShiftKind } from '@tanaad/domain';
 import { useStore } from '@/data/store';
+import { isReal } from '@/data/api/sync';
 import { useGo, useSite } from '@/app/hooks';
-import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Dialog, Empty, Kbd, Meter, Note, NumberPad, PageHeader, Panel, SearchInput, Select, Tabs, cn, useHotkey, useIsTouch, type Column } from '@/components/ui';
+import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Dialog, Empty, Input, Kbd, Meter, Note, NumberPad, PageHeader, Panel, SearchInput, Select, Tabs, cn, useHotkey, useIsTouch, type Column } from '@/components/ui';
 import { LineChart } from '@/components/charts';
 import { currentShiftKind, dailySeries, lastWorkingDays, rosterFor, shiftId } from '@/data/selectors';
 import { fmtDay, fmtDayLong, fmtDayShort } from '@/data/format';
@@ -29,6 +30,8 @@ export function Attendance() {
   const [otId, setOtId] = useState<string | null>(null);
   const [cur, setCur] = useState({ r: 0, c: 5 });
   const grid = useRef<HTMLDivElement>(null);
+  /** Real mode: a change to an already-marked row is a correction and needs a short reason. */
+  const [fix, setFix] = useState<{ row: RosterRow; status: AttendanceStatus; hours: number; label: string } | null>(null); const [fixWhy, setFixWhy] = useState('');
 
   const days = useMemo(() => lastWorkingDays(site.id, s.today, 6), [site.id, s.today]);
   const todayCol = days.indexOf(s.today);
@@ -67,16 +70,26 @@ export function Attendance() {
   const mark = (row: RosterRow, status: AttendanceStatus, announce = true) => {
     if (row.contractState === 'expired') { say({ kind: 'warn', title: 'Contract has ended', detail: `Renew ${row.person.fullName.split(' ')[0]}'s contract before marking.` }); return false; }
     const prev = recOf(row.person.id, s.today);
-    s.markAttendance({ shiftId: todayShift, personId: row.person.id, siteId: site.id, status, overtimeHours: status === 'absent' ? 0 : prev?.overtimeHours ?? 0 });
+    const hours = status === 'absent' ? 0 : prev?.overtimeHours ?? 0;
+    if (isReal() && prev && prev.status !== status) { setFix({ row, status, hours, label: MARK[status].label.toLowerCase() }); setFixWhy(''); return false; }
+    s.markAttendance({ shiftId: todayShift, personId: row.person.id, siteId: site.id, status, overtimeHours: hours });
     if (announce) say({ kind: 'ok', title: `${row.person.fullName.split(' ')[0]}: ${MARK[status].label.toLowerCase()}`, detail: `${kind} shift, ${fmtDayShort(s.today)}` });
     return true;
   };
   const cycle = (row: RosterRow) => { const st = recOf(row.person.id, s.today)?.status; mark(row, st ? CYCLE[st] : 'present'); };
+  const confirmFix = () => {
+    if (!fix || !fixWhy.trim()) return;
+    s.markAttendance({ shiftId: todayShift, personId: fix.row.person.id, siteId: site.id, status: fix.status, overtimeHours: fix.hours, reason: fixWhy.trim() });
+    say({ kind: 'ok', title: `${fix.row.person.fullName.split(' ')[0]}: ${fix.label}`, detail: `Correction: ${fixWhy.trim()}` });
+    setFix(null); setFixWhy('');
+  };
   const lockedTap = () => say({ kind: 'info', title: 'Past days are locked', detail: 'Ask the Site Manager to correct a past shift.' });
   const doRenew = (eng: Engagement, term: number) => { const name = s.people.find((p) => p.id === eng.personId)?.fullName; s.renewContract(eng.id, term); setRenewId(null); say({ kind: 'ok', title: `Contract renewed for ${term} days`, detail: name }); };
   const saveOt = (row: RosterRow, hours: number) => {
     const prev = recOf(row.person.id, s.today);
-    s.markAttendance({ shiftId: todayShift, personId: row.person.id, siteId: site.id, status: !prev || prev.status === 'absent' ? 'present' : prev.status, overtimeHours: hours });
+    const status = !prev || prev.status === 'absent' ? 'present' : prev.status;
+    if (isReal() && prev && (prev.status !== status || prev.overtimeHours !== hours)) { setOtId(null); setFix({ row, status, hours, label: hours ? `${hours} h overtime` : 'overtime cleared' }); setFixWhy(''); return; }
+    s.markAttendance({ shiftId: todayShift, personId: row.person.id, siteId: site.id, status, overtimeHours: hours });
     setOtId(null); say({ kind: 'ok', title: hours ? `${hours} h overtime for ${row.person.fullName.split(' ')[0]}` : `Overtime cleared for ${row.person.fullName.split(' ')[0]}`, detail: `${kind} shift, ${fmtDayShort(s.today)}` });
   };
 
@@ -154,6 +167,16 @@ export function Attendance() {
           )}
           <Button variant="primary" icon={ListChecks} hotkey="r" hotkeyLabel="Start roll call" onClick={() => { setTab('sheet'); setRoll(true); }} disabled={roster.length === 0 || roll}>Guided Roll Call</Button>
         </>} />
+
+      {fix && (
+        <div role="group" aria-label="Correction reason" className="flex flex-wrap items-center gap-2 rounded-md border border-[var(--warn)] bg-[var(--surface-2)] px-3 py-2">
+          <span className="t-base"><b>Correct {fix.row.person.fullName.split(' ')[0]} to {fix.label}.</b> Why?</span>
+          <Input autoFocus value={fixWhy} onChange={(e) => setFixWhy(e.target.value)} maxLength={200} aria-label="Reason for the correction" placeholder="Short reason (required)" className="flex-1 min-w-[200px]"
+            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmFix(); } else if (e.key === 'Escape') { e.stopPropagation(); setFix(null); } }} />
+          <Button variant="ghost" onClick={() => setFix(null)}>Cancel</Button>
+          <Button variant="primary" disabled={!fixWhy.trim()} onClick={confirmFix}>Save correction</Button>
+        </div>
+      )}
 
       <div className="flex items-end justify-between gap-3 border-b border-[var(--line)] -mb-1">
         <Tabs variant="underline" value={tab} onChange={setTab} tabs={[{ value: 'sheet', label: 'Attendance Sheet', count: roster.length }, { value: 'archived', label: 'Archived Workers', count: archivedTotal }]} />

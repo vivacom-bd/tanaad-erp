@@ -92,7 +92,7 @@ export function Settings() {
                   <Field label="VAT rate (%)" hint="Leave at 0 if this company does not charge VAT."><Input key={site + 'vat'} disabled={!canEdit} className="num max-w-[140px]" inputMode="decimal" defaultValue={cp.vatRatePct} onBlur={(e) => { const v = Number(e.target.value.replace(/[^0-9.]/g, '')) || 0; if (v !== cp.vatRatePct) { s.updateCompanyProfile(site, { vatRatePct: v }); s.toast({ kind: 'ok', title: `VAT rate set to ${v}%` }); } }} /></Field>
                 </div>
               </Panel>
-              <Panel title="URA EFRIS" sub="fiscal invoicing"><div className="flex items-center gap-2 mb-2"><Badge tone="neutral" dot>{cp.efrisConnected ? 'Marked connected' : 'Not connected'}</Badge></div><p className="t-sm text-[var(--text-2)]">This demo does not connect to URA or send invoices. No Fiscal Document Number or verification QR is generated. The status shown here is a company profile flag only.</p></Panel>
+              <Panel title="URA EFRIS" sub="fiscal invoicing"><div className="flex items-center gap-2 mb-2"><Badge tone="neutral" dot>{cp.efrisConnected ? 'Marked connected' : 'Not connected'}</Badge></div><p className="t-sm text-[var(--text-2)]">This build does not connect to URA or send invoices. No Fiscal Document Number or verification QR is generated. The status shown here is a company profile flag only.</p></Panel>
             </div>); })()}
           {section === 'products' && <ProductsEditor site={site} canEdit={canEdit} />}
           {section === 'machines' && <MachinesEditor site={site} canEdit={canEdit} />}
@@ -127,7 +127,7 @@ export function Settings() {
                 { key: 'r', header: 'Roles and portals', wrap: true, cell: (u) => <span className="flex flex-wrap gap-1">{u.roles.map((r, i) => <Badge key={i} tone={r.siteId ? 'neutral' : 'accent'}>{roleLabel(r.role)}{r.siteId ? ` · ${SITES[r.siteId].shortName}` : ' · Group'}</Badge>)}</span> },
               ]} />
               <Panel title="Roles" sub="what each role is for" pad={false}>{ROLES.map((r) => <div key={r.role} className="flex items-center gap-3 px-[var(--pad)] min-h-[var(--row-h)] border-b border-[var(--line)] last:border-b-0"><span className="t-base font-medium w-[120px]">{r.label}</span><span className="t-sm text-[var(--text-3)] flex-1 truncate">{r.description}</span><Badge tone="neutral">{r.scope}</Badge></div>)}
-                <div className="p-[var(--pad)]"><Note tone="info">User accounts, passwords and PINs are created here once the server is connected. In this build the accounts are the demo set.</Note></div>
+                <div className="p-[var(--pad)]"><Note tone="info">User accounts, passwords and PINs are created here once the server is connected. In this build the accounts are preset.</Note></div>
               </Panel>
             </div>
           )}

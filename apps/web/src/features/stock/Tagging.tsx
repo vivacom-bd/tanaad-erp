@@ -90,8 +90,8 @@ export function Tagging() {
 
   return (
     <div>
-      <PageHeader eyebrow={`${site.name} · Stock`} title="Label existing stock" meta={<>{target ? <Badge tone="neutral" dot>Demo estimate · {Math.round(pct)}%</Badge> : <Badge tone="neutral">{plural(tagged.length, 'label')} recorded</Badge>}</>}
-        subtitle={`Create a label record for each existing ${one} you count in a zone. Physical printing is not connected in this demo.`}
+      <PageHeader eyebrow={`${site.name} · Stock`} title="Label existing stock" meta={<>{target ? <Badge tone="neutral" dot>Estimate · {Math.round(pct)}%</Badge> : <Badge tone="neutral">{plural(tagged.length, 'label')} recorded</Badge>}</>}
+        subtitle={`Create a label record for each existing ${one} you count in a zone. Physical printing is not connected.`}
         actions={<Button icon={Boxes} onClick={() => go.site('stock')}>Stock wall</Button>} />
 
       {/* Campaign progress: labelled against the estimate of standing stock */}
@@ -106,7 +106,7 @@ export function Tagging() {
         <div className="flex-1 min-w-[240px]">
           {target ? <>
             <TimeTrack progress={tagged.length / target} startLabel="0" endLabel={`~${fmtNum(target)} estimated`} nowLabel={`${fmtNum(tagged.length)} labelled`} />
-            <div className="t-xs text-[var(--text-3)] mt-1 flex flex-wrap items-center gap-x-2">This estimate and the session tally are local demo data; they are not a verified stock count.<button type="button" className="inline-flex items-center gap-1 font-medium text-[var(--text-2)] hover:text-[var(--text)] underline underline-offset-2" onClick={() => { setDraft(String(target)); setEstimating(true); }}><Pencil className="size-3" />Change estimate</button></div>
+            <div className="t-xs text-[var(--text-3)] mt-1 flex flex-wrap items-center gap-x-2">This estimate and the session tally are local data; they are not a verified stock count.<button type="button" className="inline-flex items-center gap-1 font-medium text-[var(--text-2)] hover:text-[var(--text)] underline underline-offset-2" onClick={() => { setDraft(String(target)); setEstimating(true); }}><Pencil className="size-3" />Change estimate</button></div>
           </> : (
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-md border border-dashed border-[var(--line-2)] px-3 py-2 t-sm text-[var(--text-2)]">
               <span className="min-w-0 flex-1">No estimate of the standing stock yet. Walk the store, enter a rough total, and this bar shows how far the campaign has come.</span>
@@ -127,7 +127,7 @@ export function Tagging() {
           footer="Label printer">
           <div className="min-h-[186px] grid place-items-center">
             {printing ? <Sticker key={printing.id} label={printing} product={s.products.find((p) => p.id === printing.productId)} site={site} shiftKind={currentShiftKind()} printing compact />
-              : <Empty icon={Tag} title="No label recorded yet" hint={`Create a demo label record for the first ${one}.`} />}
+              : <Empty icon={Tag} title="No label recorded yet" hint={`Create a label record for the first ${one}.`} />}
           </div>
         </Panel>
           <Panel icon={Tag} title="Labels recorded today" sub={plural(today.length, 'label')} pad={false} actions={<Button size="sm" variant="ghost" onClick={() => go.site('stock')}>Stock wall</Button>}

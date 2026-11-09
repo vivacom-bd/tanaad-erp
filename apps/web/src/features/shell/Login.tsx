@@ -7,6 +7,7 @@ import { SITE_LIST, SITES } from '@/config/sites';
 import { roleLabel } from '@/config/roles';
 import { Avatar, Button, ChipGroup, Field, Input, Note, PinPad, Tabs } from '@/components/ui';
 import { BrandPanel, Logo } from './BrandPanel';
+import { isReal, realLogin, realPinLogin, signInMessage } from '@/data/api/sync';
 
 const DEMO_PIN = '1234';
 /** Same sign-in name the API seeds: the user id without "u_" and underscores (u_sm_bags → smbags). */
@@ -25,10 +26,25 @@ export function Login() {
   const [tabletSite, setTabletSite] = useState<SiteCode>('mats'); const [pinUser, setPinUser] = useState<User | null>(null); const [pinError, setPinError] = useState<string | null>(null);
 
   const enter = (u: User, method: 'password' | 'pin') => { logIn(u.id, method); nav({ to: '/portals' as never }); };
+  const [busy, setBusy] = useState(false);
+  const submitReal = async () => {
+    if (!username.trim()) return setError('Enter your username.');
+    if (!password) return setError('Enter your password.');
+    setError(null); setBusy(true);
+    try {
+      const code = await realLogin(username.trim().toLowerCase(), password);
+      const user = useStore.getState().users.find((u) => u.id === code);
+      if (!user) return setError(`Signed in, but this app has no profile for ${code}.`);
+      enter(user, 'password');
+    } catch (e) {
+      setError(signInMessage(e));
+    } finally { setBusy(false); }
+  };
   const submit = () => {
+    if (isReal()) return void submitReal();
     const user = users.find((u) => usernameOf(u) === username.trim().toLowerCase());
     if (!username.trim()) return setError('Enter your username.');
-    if (!user) return setError('This demo account was not found. Choose one below.');
+    if (!user) return setError('Account not found. Choose one below.');
     if (!password) return setError('Enter your password.');
     setError(null);
     enter(user, 'password');
@@ -69,13 +85,13 @@ export function Login() {
                   </div>
                 </Field>
                 {error && <Note tone="bad" className="mb-3">{error}</Note>}
-                <Button type="submit" variant="primary" size="lg" block>Sign in<ArrowRight className="size-4" /></Button>
-                <p className="t-xs text-[var(--text-3)] text-center mt-3">Demo mode accepts any non-empty password.</p>
+                <Button type="submit" variant="primary" size="lg" block disabled={busy}>Sign in<ArrowRight className="size-4" /></Button>
+                <p className="t-xs text-[var(--text-3)] text-center mt-3">{isReal() ? 'Signs in against the Tanaad server.' : 'Enter your password to continue.'}</p>
               </form>
 
               <div className="mt-5">
                 <div className="flex items-center gap-3 mb-2">
-                  <span className="t-label">Demo accounts</span>
+                  <span className="t-label">Accounts</span>
                   <span className="flex-1 border-t border-[var(--line)]" />
                 </div>
                 <div className="surface overflow-hidden max-h-[224px] overflow-y-auto scrollbar-thin">
@@ -110,11 +126,13 @@ export function Login() {
                 </div>
               </> : <>
                 <div className="flex items-center gap-3 mb-4"><Avatar name={pinUser.name} seed={pinUser.avatarSeed} size={44} /><div className="flex-1"><div className="t-lg font-semibold">{pinUser.name}</div><div className="t-sm text-[var(--text-3)]">{SITES[tabletSite].name}</div></div><Button size="sm" variant="ghost" onClick={() => setPinUser(null)}>Not you?</Button></div>
-                <PinPad title="Enter your 4-digit PIN" error={pinError} onSubmit={(pin) => { if (pin === DEMO_PIN) enter(pinUser, 'pin'); else setPinError('Wrong PIN. The demo PIN is 1234.'); }} />
+                <PinPad title="Enter your 4-digit PIN" error={pinError} onSubmit={(pin) => {
+                  if (isReal()) { setPinError(null); realPinLogin(usernameOf(pinUser), pin).then((code) => { const u = useStore.getState().users.find((x) => x.id === code); if (u) enter(u, 'pin'); else setPinError(`Signed in, but this app has no profile for ${code}.`); }).catch((e) => setPinError(signInMessage(e))); return; }
+                  if (pin === DEMO_PIN) enter(pinUser, 'pin'); else setPinError('Wrong PIN. Try again.');
+                }} />
               </>}
             </div>
           )}
-          {mode === 'pin' && <p className="t-xs text-[var(--text-3)] mt-3">Demo PIN: 1234</p>}
         </div>
       </div>
     </div>

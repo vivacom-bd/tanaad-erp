@@ -137,7 +137,7 @@ export function Invoices() {
         <Fact label="Fiscal Document Number"><span className="text-[var(--text-2)]">Recorded on each invoice, if returned by URA</span></Fact>
         <Fact label="Verification code / QR"><span className="text-[var(--text-2)]">Recorded on each invoice, if returned by URA</span></Fact>
         <Fact label="Seller TIN"><span className="text-[var(--text-2)]">{orTbp(co?.tin)}</span></Fact>
-        <div className="px-[var(--pad)] py-1.5 t-xs text-[var(--text-3)]">This demo does not send invoices to URA. A company profile flag does not mean EFRIS is connected.</div>
+        <div className="px-[var(--pad)] py-1.5 t-xs text-[var(--text-3)]">This build does not send invoices to URA. A company profile flag does not mean EFRIS is connected.</div>
       </div>
       <CompanyDetailsHint siteId={site.id} />
     </DocPreview>
@@ -160,7 +160,7 @@ export function Invoices() {
     <div>
       <PrintStyles />
       <PageHeader eyebrow={`Sales · ${site.name}`} title="Invoices and statements" meta={<Badge tone="neutral" className="num">{fxLine(s.fx)}</Badge>}
-        subtitle="Review invoices, statements and recorded payments. Sharing is a demo preview; nothing is sent to WhatsApp."
+        subtitle="Review invoices, statements and recorded payments. Sharing is a preview; nothing is sent to WhatsApp."
         actions={<Button icon={Download} onClick={exportCsv} hotkey={sheet && !beside ? undefined : 'e'} hotkeyLabel="Export this list to CSV">Export</Button>}
         tabs={<Tabs variant="underline" value={tab} onChange={(t) => { setTab(t); setSheet(false); }} tabs={[{ value: 'invoices', label: 'Invoices', count: invoices.length }, { value: 'statements', label: 'Statements', count: statements.length }, { value: 'payments', label: 'Payments', count: payments.length }]} />} />
 
@@ -171,7 +171,7 @@ export function Invoices() {
         <Stat label="Collected, 30 days" icon={HandCoins} accent="var(--series-3)" sparkColor="var(--series-3)" spark={weekly.map((w) => w.collectedUsd)} value={<CountUp value={collected30[cCol]} format={(n) => shortMoney(n, cCol)} />} sub={paid30.length ? `${plural(paid30.length, 'payment')} ${alsoMoney(collected30, cCol)}` : 'No payment in the last 30 days'} onClick={() => setTab('payments')} />
       </KpiStrip>
 
-      {tab === 'invoices' && <Note tone="warn" icon={ShieldCheck} className="mb-[var(--gap)]"><span><b>EFRIS is not connected in this demo.</b> No Fiscal Document Number or verification QR is generated. Invoice documents are not fiscal invoices; connect and verify a real URA integration before using them for tax reporting.</span></Note>}
+      {tab === 'invoices' && <Note tone="warn" icon={ShieldCheck} className="mb-[var(--gap)]"><span><b>EFRIS is not connected.</b> No Fiscal Document Number or verification QR is generated. Invoice documents are not fiscal invoices; connect and verify a real URA integration before using them for tax reporting.</span></Note>}
       {tab === 'invoices' && layout(<>
         <div className="grid gap-[var(--gap)] md:grid-cols-2 mb-[var(--gap)]">
           <Panel icon={Hourglass} title="Unpaid by age" sub={cUnp}>

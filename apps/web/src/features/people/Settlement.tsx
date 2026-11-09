@@ -8,6 +8,8 @@ import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Empty, Input, KpiStrip
 import { CountUp } from '@/components/charts';
 import { activeEngagement, addDays, dow, lastWorkingDays, sitePeople } from '@/data/selectors';
 import { fmtDay, fmtDayShort, fmtNum, fmtTime, fmtUGX } from '@/data/format';
+import { isReal } from '@/data/api/sync';
+import { SettlementApi } from './SettlementApi';
 import { BASIS, EngTag, MONTH_WORKING_DAYS, MarkDot, MasterEmpty, STANDARD_DAY_HOURS, downloadCsv } from './kit';
 
 interface Line { no: number; person: Person; eng: Engagement; from: string; units: number; unitLabel: string; otHours: number; marks: { day: string; status?: AttendanceStatus }[]; gross: number; overtime: number; advances: number; net: number; periodNote?: string }
@@ -21,7 +23,10 @@ const say = (t: { kind: 'ok' | 'warn' | 'error' | 'info'; title: string; detail?
 const dash = <span className="text-[var(--text-4)]">–</span>;
 
 /** Settlement runs laid out like the salary sheet, with the arithmetic done by the domain and every payout posted to the cash book. */
-export function Settlement() {
+/** In real mode the server owns runs, approvals and payouts; the demo screen below stays for local mode. */
+export function Settlement() { return isReal() ? <SettlementApi /> : <SettlementDemo />; }
+
+function SettlementDemo() {
   const s = useStore(); const site = useSite();
   const [cycle, setCycle] = useState<SettlementCycle>('weekly');
   const [approved, setApproved] = useState<Partial<Record<SettlementCycle, { by: string; at: string; lines: Line[] }>>>({});

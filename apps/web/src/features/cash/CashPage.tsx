@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
+import type { SiteCode } from '@tanaad/domain';
 import { CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, Download, LineChart as LineChartIcon, Lock, Plus, Printer, Receipt, ScrollText, ShieldCheck, Unlock, Wallet } from 'lucide-react';
 import { useStore } from '@/data/store';
 import { useSite, useGo, useSiteSettings } from '@/app/hooks';
@@ -9,6 +10,8 @@ import { cashDayFor, cashSummary, dailySeries, lastWorkingDays } from '@/data/se
 import { compact, fmtDay, fmtDayLong, fmtDayShort, fmtNum, fmtUGX, fmtUSD } from '@/data/format';
 import { PRINT_CSS, SITE_MANAGER_PIN, downloadCsv, stampOf, timeOf, useExpenseCategories } from './categories';
 import { CloseDaySheet, varianceTone } from './CloseDaySheet';
+import { isReal, useSync } from '@/data/api/sync';
+import { userLabel } from '@/data/api/names';
 import { LedgerTable, LineSheet, type LedgerGroup } from './Ledger';
 
 type Overlay = 'none' | 'close' | 'reopen' | 'receipt';
@@ -36,7 +39,7 @@ export function CashPage() {
   const sum = cd ? cashSummary(s, cd.id) : undefined;
   const me = s.users.find((u) => u.id === s.session?.userId); const cashierName = me?.name ?? 'Cashier';
   const signerUser = cd?.signedBy ? s.users.find((u) => u.id === cd.signedBy) : undefined;
-  const signer = cd?.signedBy ? signerUser?.name ?? cd.signedBy : undefined;
+  const signer = cd?.signedBy ? userLabel(cd.signedBy, s.users, undefined, s.people) : undefined;
   const isOpen = !cd || cd.status !== 'closed';
   // Tolerance for the count and the category names are master data (Settings), never written here.
   const threshold = useSiteSettings().cashVariance; const categoryLabel = useExpenseCategories().label;
@@ -146,6 +149,7 @@ export function CashPage() {
 
       <div className="grid gap-[var(--gap)] xl:grid-cols-[minmax(0,1fr)_360px] items-start">
         <div className="flex flex-col gap-[var(--gap)] min-w-0">
+          {isReal() && day <= s.today && cd?.status !== 'closed' && entries.length === 0 && <OpeningControl siteId={site.id} day={day} current={cd?.opening ?? 0} />}
           {!cd || !sum ? (
             <Panel icon={ScrollText} title="Ledger" sub={fmtDay(day)}>
               <Empty icon={Wallet} title={`No page for ${fmtDay(day)}`} hint={day > s.today ? 'This day has not happened yet.' : 'Record the first receipt or expense and the page opens with the carried-forward balance.'}
@@ -199,7 +203,7 @@ export function CashPage() {
       {cd && sum && <CloseDaySheet open={panel === 'close'} onClose={closePanel} expected={sum.expectedClosing} threshold={threshold} cashierName={cashierName} dayLabel={fmtDay(day)} onConfirm={onClose} />}
       <ReopenSheet open={panel === 'reopen'} dayLabel={fmtDay(day)} onClose={closePanel} onReopen={(reason) => { if (!cd) return; reopenCashDay(cd.id, reason); setPanel('none'); toast({ kind: 'warn', title: `${fmtDay(day)} reopened`, detail: reason }); }} />
       <ReceiptSheet open={panel === 'receipt'} dayLabel={fmtDay(day)} onClose={closePanel} onSave={(amount, payee) => { addCashEntry({ siteId: site.id, day, direction: 'in', category: 'receipt', amount, payee, hasReceiptPhoto: false }); setPanel('none'); toast({ kind: 'ok', title: `Receipt ${fmtUGX(amount)} recorded`, detail: payee }); }} />
-      <LineSheet row={line} onClose={() => setLineId(null)} machines={s.machines} users={s.users} fx={s.fx} />
+      <LineSheet row={line} canCorrect={cd?.status !== 'closed'} onClose={() => setLineId(null)} machines={s.machines} users={s.users} fx={s.fx} />
     </div>
   );
 }
@@ -238,5 +242,20 @@ function ReceiptSheet({ open, onClose, onSave, dayLabel }: { open: boolean; onCl
       <Field label="Received from" className="mb-3"><Input value={payee} onChange={(e) => setPayee(e.target.value)} placeholder="Name or reason, e.g. Client deposit" data-autofocus="" /></Field>
       <div onKeyDown={(e) => { if (e.key === 'Enter' && !(e.ctrlKey || e.metaKey) && ok) { e.preventDefault(); save(); } }}><NumberPad value={amount} onChange={setAmount} suffix="UGX" label="Amount" max={999_999_999} /></div>
     </Sheet>
+  );
+}
+
+/** Real mode: set the day's opening balance before its first entry. A server rejection shows beneath. */
+function OpeningControl({ siteId, day, current }: { siteId: SiteCode; day: string; current: number }) {
+  const set = useStore((x) => x.setCashOpening); const toast = useStore((x) => x.toast);
+  const rejected = useSync((x) => x.rejected).filter((r) => r.siteCode === siteId && r.envelope.type === 'cash.opening_set');
+  const [v, setV] = useState(String(current || ''));
+  const n = Number(v); const ok = v !== '' && Number.isFinite(n) && n >= 0;
+  return (
+    <div className="mb-[var(--gap)] flex flex-wrap items-end gap-2">
+      <Field label="Opening balance (UGX)" hint="Only before the first entry of the day"><Input type="number" min={0} inputMode="decimal" value={v} onChange={(e) => setV(e.target.value)} className="w-[180px]" /></Field>
+      <Button disabled={!ok} onClick={() => { set(siteId, day, n); toast({ kind: 'info', title: 'Opening balance sent', detail: fmtUGX(n) }); }}>Set opening</Button>
+      {rejected.map((r) => <Note key={r.key} tone="warn" className="basis-full"><b>Not accepted:</b> {r.reason ?? r.code}</Note>)}
+    </div>
   );
 }

@@ -104,7 +104,7 @@ export function Intake() {
     setGross(null); setPhoto(false); setCustom(''); setCustomOn(false); setTarget(rnd(600, 2400)); setRound((r) => r + 1); if (adding) { setCollector(who); setAdding(false); setNewName(''); }
     focusFirst();
   };
-  const pay = (d: CollectorDelivery) => { s.payCollector(d.id); useStore.getState().toast({ kind: 'ok', title: 'Payment recorded', detail: `${fmtUGX(amountOf(d))} for ${d.collector} added to the local demo cash book. No money was transferred.` }); };
+  const pay = (d: CollectorDelivery) => { s.payCollector(d.id); useStore.getState().toast({ kind: 'ok', title: 'Payment recorded', detail: `${fmtUGX(amountOf(d))} for ${d.collector} added to the local cash book. No money was transferred.` }); };
   const send = async (d: CollectorDelivery) => { await messaging.sendWhatsApp(d.collector, `Voucher ${no(d)}`); setSentId(d.id); useStore.getState().toast({ kind: 'ok', title: 'Voucher ready to share', detail: `No message was sent to ${d.collector}.` }); };
   const voucherLines = (d: CollectorDelivery) => [`${site.legalName} · Voucher ${no(d)}`, `${d.collector} · ${fmtDayLong(d.day)} ${fmtTime(d.at)}`, `Gross ${fmtKg(d.grossKg)} − tare ${fmtKg(d.tareKg)} − ${d.deductionPct}% = net ${fmtKg(d.netKg)}`, `${fmtKg(d.netKg)} × ${fmtUGX(d.pricePerKg)} = ${fmtUGX(amountOf(d))}`, d.paid ? 'Marked paid.' : 'Unpaid.'];
   useHotkey('c', () => setPhoto((p) => !p), { label: 'Capture the scale photo' });
@@ -132,7 +132,7 @@ export function Intake() {
       {site.toBeConfirmed && <Note tone="warn">{site.toBeConfirmed}</Note>}
 
       <Workbench asideWidth={420} aside={<>
-        <Panel className={WIDE} icon={Receipt} title={current ? 'Voucher' : 'Voucher preview'} sub={current ? 'demo record' : 'updates as you weigh'}
+        <Panel className={WIDE} icon={Receipt} title={current ? 'Voucher' : 'Voucher preview'} sub={current ? 'recorded' : 'updates as you weigh'}
           actions={<><Badge tone={current ? (current.paid ? 'ok' : 'warn') : 'neutral'} dot={!!current}>{current ? (current.paid ? 'Paid' : 'Unpaid') : 'Draft'}</Badge>{current && <IconButton icon={X} label="Back to the draft" onClick={() => setVoucher(null)} />}</>}
           footer={<div className="grid grid-cols-2 gap-2"><Button variant="primary" icon={Banknote} disabled={!current || current.paid} onClick={() => current && pay(current)} hotkey="y" hotkeyLabel="Mark paid">{current?.paid ? 'Marked paid' : 'Mark paid'}</Button><Button icon={MessageCircle} disabled={!current} onClick={() => setShare(true)} hotkey="s" hotkeyLabel="Prepare voucher share preview">Prepare share preview</Button></div>}>
           {current
@@ -167,7 +167,7 @@ export function Intake() {
               </div>
             </FormSection>
             <FormSection n={2} done={gross !== null} title="Gross weight" hint="everything on the platform">
-              <ScaleBay innerRef={scaleRef} note={gross !== null ? <span className="inline-flex items-center gap-1 text-[var(--text-2)]"><CheckCircle2 className="size-3.5 text-[var(--ok)]" />Demo scale reading · {fmtKg(gross)} gross</span> : 'Read the scale or enter the reading by hand.'}>
+              <ScaleBay innerRef={scaleRef} note={gross !== null ? <span className="inline-flex items-center gap-1 text-[var(--text-2)]"><CheckCircle2 className="size-3.5 text-[var(--ok)]" />Scale reading · {fmtKg(gross)} gross</span> : 'Read the scale or enter the reading by hand.'}>
                 <ScaleWidget key={round} title={scaleTitle} targetKg={target} onReading={(kg) => { setGross(kg); setVoucher(null); }} />
               </ScaleBay>
             </FormSection>

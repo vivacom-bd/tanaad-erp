@@ -91,7 +91,7 @@ export function Portals() {
         <div className="mb-6">
           <div className={cn('t-label mb-1.5', dark ? 'text-[var(--color-amber-400)]' : undefined)}>Workspaces</div>
           <h1 className={cn('text-[28px] leading-tight font-semibold tracking-[-0.02em]', dark ? 'text-white' : undefined)}>Choose where to work</h1>
-          <p className={cn('t-base mt-1.5', dark ? 'text-slate-400' : 'text-[var(--text-2)]')}>Demo data · {fmtDayLong(s.today)} · only assigned workspaces are shown.</p>
+          <p className={cn('t-base mt-1.5', dark ? 'text-slate-400' : 'text-[var(--text-2)]')}>{fmtDayLong(s.today)} · only assigned workspaces are shown.</p>
         </div>
 
         <div className={cn('grid gap-4', cards.length > 1 ? 'sm:grid-cols-2' : 'max-w-[560px]')}>

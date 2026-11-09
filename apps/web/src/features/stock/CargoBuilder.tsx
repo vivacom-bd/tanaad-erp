@@ -83,7 +83,7 @@ function OverrideForm({ dn, reason, setReason, onPin, error }: { dn: string; rea
   const toPin = () => pinBox.current?.querySelector<HTMLElement>('[tabindex]')?.focus();
   return (
     <div>
-      <Note tone="bad" className="mb-3">{dn} failed the simulated gate check. Record a reason for this demo override.</Note>
+      <Note tone="bad" className="mb-3">{dn} failed the simulated gate check. Record a reason for this override.</Note>
       <Field label="Reason" required hint={<span className="touch:hidden">Enter moves on to the PIN.</span>}>
         <Input ref={input} value={reason} onChange={(e) => setReason(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && reason.trim()) { e.preventDefault(); toPin(); } }} placeholder="What was checked, and why the lorry may leave" />
       </Field>
@@ -153,7 +153,7 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
   const undo = () => { refocus(); const last = scannedLabels.at(-1); if (!last) return; unscanLast(dispatch.id); push(last.code, 'undo', 'Removed from manifest'); toast({ kind: 'info', title: `${last.code} removed` }); };
   const submitTyped = () => { const c = typed.trim().toUpperCase(); if (!c) return; doScan(c); setTyped(''); };
 
-  const onReading = (kg: number) => { const r = recordGateWeight(dispatch.id, kg); setRecounting(false); setScaleRun(0); beep(r.decision === 'pass' ? 'ok' : 'bad'); toast(r.decision === 'pass' ? { kind: 'ok', title: `Demo gate result · ${dispatch.deliveryNoteNo}`, detail: `${fmtKg(kg)} demo reading, ${fmtPct(r.variancePct, true)} vs expected. This is not a real gate pass.` } : { kind: 'error', title: 'Gate hold recorded', detail: r.reasons[0] }); };
+  const onReading = (kg: number) => { const r = recordGateWeight(dispatch.id, kg); setRecounting(false); setScaleRun(0); beep(r.decision === 'pass' ? 'ok' : 'bad'); toast(r.decision === 'pass' ? { kind: 'ok', title: `Gate result · ${dispatch.deliveryNoteNo}`, detail: `${fmtKg(kg)} reading, ${fmtPct(r.variancePct, true)} vs expected. This is not a real gate pass.` } : { kind: 'error', title: 'Gate hold recorded', detail: r.reasons[0] }); };
   const verdict = !recounting && dispatch.gateStatus !== 'pending' && dispatch.gateKg !== undefined ? gateDecision({ expectedKg: dispatch.expectedKg, actualKg: dispatch.gateKg, tolerancePct: tol, scannedBundles: scanned, orderedBundles: ordered }) : null;
   const gateOpen = !verdict && !locked;
 
@@ -268,7 +268,7 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
             <IconChip size="lg" solid icon={hold ? Siren : pass ? ShieldCheck : ShieldAlert} color={tone} className={hold ? 'anim-alarm' : undefined} />
             <div className="min-w-0 flex-1 basis-[240px]">
               <div className="flex items-center gap-2 flex-wrap"><h3 className="t-title">{hold ? 'Gate check held' : pass ? 'Gate check passed' : 'Override recorded'}</h3><Badge tone={hold ? 'bad' : pass ? 'ok' : 'warn'} dot>{hold ? 'Hold' : pass ? 'Pass' : 'Override'}</Badge></div>
-              <div className="t-sm text-[var(--text-2)]">{hold ? `The demo gate check is held for ${dispatch.deliveryNoteNo}.` : pass ? `${dispatch.vehicle} passed the simulated check for ${dispatch.deliveryNoteNo}${dispatch.gatePassedAt ? ` · checked at ${fmtTime(dispatch.gatePassedAt)}` : ''}.` : `Demo override for ${dispatch.deliveryNoteNo}: “${dispatch.overrideReason}”`}</div>
+              <div className="t-sm text-[var(--text-2)]">{hold ? `The gate check is held for ${dispatch.deliveryNoteNo}.` : pass ? `${dispatch.vehicle} passed the simulated check for ${dispatch.deliveryNoteNo}${dispatch.gatePassedAt ? ` · checked at ${fmtTime(dispatch.gatePassedAt)}` : ''}.` : `Override for ${dispatch.deliveryNoteNo}: “${dispatch.overrideReason}”`}</div>
             </div>
             {hold ? <Badge tone="bad" dot>CEOs alerted · {ceos.join(' & ')}</Badge>
               : <div className="text-right shrink-0"><div className="t-label">Gate pass no.</div><div className="code t-lg font-semibold">{gatePassNo(dispatch)}</div></div>}
@@ -287,12 +287,12 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
               {hold ? <>
                 <div className="t-label mb-1.5">Why the gate is locked</div>
                 <ul className="flex flex-col gap-1.5">{verdict.reasons.map((r) => <li key={r} className="flex items-start gap-2 t-base font-medium"><XCircle className="size-4 shrink-0 mt-0.5 text-[var(--bad)]" />{r}</li>)}</ul>
-                <Note tone="bad" className="mt-3">Recount and weigh again, or record a Site Manager override with a PIN and reason in this demo.</Note>
+                <Note tone="bad" className="mt-3">Recount and weigh again, or record a Site Manager override with a PIN and reason.</Note>
               </> : <>
                 <div className="t-label mb-1.5">Captured at the gate</div>
                 <div className="flex flex-col gap-1.5"><CaptureTile kind="signature" done={dispatch.hasDriverSignature} label={`Driver signature · ${dispatch.driver}`} /><CaptureTile kind="photo" done={dispatch.hasLorryPhoto} label={`Lorry photo · ${dispatch.vehicle}`} /></div>
                 {!pass && <Note tone="warn" className="mt-3">Recorded in the audit feed with the Site Manager's name and reason. Both CEOs can see it.</Note>}
-                <p className="t-sm text-[var(--text-3)] mt-2.5">{waSent ? 'Preview prepared.' : 'Prepare a demo share preview. This build does not send messages or PDFs.'}</p>
+                <p className="t-sm text-[var(--text-3)] mt-2.5">{waSent ? 'Preview prepared.' : 'Prepare a share preview. This build does not send messages or PDFs.'}</p>
               </>}
             </div>
           </div>

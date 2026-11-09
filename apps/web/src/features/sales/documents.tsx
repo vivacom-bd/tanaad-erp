@@ -92,7 +92,7 @@ function FiscalBlock({ co, invoice }: { co?: CompanyProfile; invoice?: Invoice }
         <div className={row}><span className="text-[var(--text-2)]">Taxpayer TIN</span><span className="font-mono font-medium">{orTbp(co?.tin)}</span></div>
       </div>
       <div className="px-3 py-1.5 border-t border-[var(--line)] t-xs text-[var(--text-3)] flex items-center justify-between">
-        <span>{hasFiscalResponse ? 'Fiscal response details are stored on this invoice.' : 'EFRIS is not connected in this demo. This document is not a fiscal invoice.'}</span>
+        <span>{hasFiscalResponse ? 'Fiscal response details are stored on this invoice.' : 'EFRIS is not connected. This document is not a fiscal invoice.'}</span>
         {!hasFiscalResponse && <span className="font-mono text-[10px] text-[var(--warn)] font-semibold">NOT SENT</span>}
       </div>
     </div>

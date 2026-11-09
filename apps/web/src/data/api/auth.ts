@@ -19,6 +19,12 @@ export async function login(username: string, password: string): Promise<Session
   return s;
 }
 
+export async function pinLogin(username: string, pin: string): Promise<Session> {
+  const s = await api<Session>('/auth/pin-login', { method: 'POST', body: { username, pin } });
+  saveSession(s);
+  return s;
+}
+
 export async function pinUnlock(deviceToken: string, userId: string, pin: string): Promise<Session> {
   const s = await api<Session>('/auth/pin', { method: 'POST', body: { user_id: userId, pin }, token: deviceToken });
   saveSession(s);

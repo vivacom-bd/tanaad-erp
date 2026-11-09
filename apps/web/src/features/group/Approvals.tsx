@@ -1,14 +1,18 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Check, ChevronDown, ChevronUp, CircleCheck, ExternalLink, History, Inbox, Pause, ShieldCheck } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, CircleCheck, ExternalLink, History, Inbox, Pause, Plus, ShieldCheck } from 'lucide-react';
 import type { BusinessException, ExceptionKind, SiteCode } from '@tanaad/domain';
 import { useStore, type AppState } from '@/data/store';
 import { useGo, useQueryParam } from '@/app/hooks';
-import { Avatar, Badge, Button, DataGrid, Empty, IconButton, Input, Kbd, Meter, MiniBars, PageHeader, Panel, SearchInput, Sheet, Split, StackedBar, Tabs, Toolbar, cn, useIsTouch, useMedia, type Column, type Tone } from '@/components/ui';
+import { Avatar, Badge, Button, DataGrid, Empty, IconButton, Field, Input, Kbd, Meter, MiniBars, PageHeader, Panel, SearchInput, Sheet, Split, StackedBar, Tabs, Toolbar, cn, useIsTouch, useMedia, type Column, type Tone } from '@/components/ui';
 import { SITES, SITE_LIST } from '@/config/sites';
 import { SITE_COLOR } from '@/config/siteIdentity';
 import { roleLabel } from '@/config/roles';
 import { activeEngagement, cashSummary, clientBalance, currentShiftKind, lastWorkingDays, liveSite, machineWall, massBalanceDay, openExceptions, orderTotal } from '@/data/selectors';
 import { fmtDateTime, fmtDay, fmtDayShort, fmtKg, fmtMoney, fmtNum, fmtTime, fmtUGX } from '@/data/format';
+import { userLabel } from '@/data/api/names';
+import { SYSTEM_KINDS } from '@/data/api/mapping';
+import { isReal, refreshGroupExceptions } from '@/data/api/sync';
+import { decisionNeedsNote } from '@/data/api/mapping';
 import { IconChip, KIND_META, KV, catLabel, ReasonQuote, SEVERITIES, SEVERITY_ICON, SiteBadge, agoLabel, plural, setPresetSelection, severityColor, severityLabel, severityTone, takePresetSelection, useListKeys } from './shared';
 
 type Decision = 'approved' | 'held' | 'resolved';
@@ -163,10 +167,14 @@ export function Approvals() {
   const [tab, setTab] = useState<'open' | 'decided'>('open');
   const [site, setSite] = useState<SiteCode | 'all'>('all'); const [kind, setKind] = useState<ExceptionKind | 'all'>('all'); const q0 = useQueryParam('q'); const [q, setQ] = useState(q0 ?? '');
   const [selId, setSelId] = useState<string | null>(() => takePresetSelection());
+  const [noteMissing, setNoteMissing] = useState(false);
   const [armed, setArmed] = useState<Decision | null>(null); const [reason, setReason] = useState('');
+  const [raiseOpen, setRaiseOpen] = useState(false);
   const [sheet, setSheet] = useState(false); const [inspect, setInspect] = useState<BusinessException | null>(null);
   const reasonRef = useRef<HTMLInputElement>(null); const listRef = useRef<HTMLDivElement>(null);
 
+  // Real mode: the inbox is GET /exceptions (status wording mapped in data/api/mapping); deciding goes to the decision endpoint via the store's sync sink.
+  useEffect(() => { if (isReal()) refreshGroupExceptions().catch(() => toast({ kind: 'warn', title: 'Could not load exceptions from the server' })); }, [toast]);
   const allOpen = useMemo(() => openExceptions(s), [s]);
   const match = (e: BusinessException) => (site === 'all' || e.siteId === site) && (kind === 'all' || e.kind === kind) && (!q.trim() || `${e.title} ${e.detail} ${KIND_META[e.kind].label} ${SITES[e.siteId].name}`.toLowerCase().includes(q.trim().toLowerCase()));
   const open = allOpen.filter(match);
@@ -177,27 +185,28 @@ export function Approvals() {
   const byKind = (k: ExceptionKind | 'all') => (tab === 'open' ? allOpen : decidedAll).filter((e) => (site === 'all' || e.siteId === site) && (k === 'all' || e.kind === k)).length;
 
   const selected = open.find((e) => e.id === selId) ?? open[0]; const index = selected ? open.indexOf(selected) : -1;
-  const select = (id: string) => { setSelId(id); setArmed(null); setReason(''); };
+  const select = (id: string) => { setSelId(id); setNoteMissing(false); setArmed(null); setReason(''); };
   useListKeys(open.length, index, (i) => select(open[i].id), { enabled: tab === 'open', noun: 'exception' });
   useEffect(() => { listRef.current?.querySelector('[aria-current="true"]')?.scrollIntoView({ block: 'nearest' }); }, [selected?.id]);
 
   const arm = (d: Decision) => { setArmed(d); if (!split) setSheet(true); setTimeout(() => reasonRef.current?.focus(), 40); };
-  const disarm = () => { setArmed(null); reasonRef.current?.blur(); };
+  const disarm = () => { setArmed(null); setNoteMissing(false); reasonRef.current?.blur(); };
   const confirm = () => {
     if (!selected || !armed) return;
+    if (isReal() && decisionNeedsNote(armed) && !reason.trim()) { setNoteMissing(true); reasonRef.current?.focus(); return; }
     const next = open[index + 1] ?? open[index - 1];
     decide(selected.id, armed, reason.trim() || undefined);
     toast({ kind: 'ok', title: `${DECISION[armed].done}: ${selected.title}`, detail: reason.trim() || undefined });
-    setArmed(null); setReason(''); setSelId(next?.id ?? null); setSheet(false); reasonRef.current?.blur();
+    setArmed(null); setNoteMissing(false); setReason(''); setSelId(next?.id ?? null); setSheet(false); reasonRef.current?.blur();
   };
-  const userName = (id?: string) => s.users.find((u) => u.id === id)?.name ?? 'System';
+  const userName = (id?: string) => (id ? userLabel(id, s.users, undefined, s.people) : 'System');
   const link = (to: 'credit', id: string) => { setPresetSelection(id); go.group(to); };
 
   const decisionBar = selected && (
     <div className="w-full">
       <div className="flex flex-wrap items-center justify-end gap-2">
-        <Input ref={reasonRef} value={reason} onChange={(e) => setReason(e.target.value)} className="basis-full 2xl:basis-0 2xl:flex-1 2xl:min-w-[200px]" aria-label="Reason"
-          placeholder={armed ? DECISION[armed].hint : 'Reason. Recommended for a hold, optional otherwise'}
+        <Input ref={reasonRef} value={reason} onChange={(e) => { setReason(e.target.value); setNoteMissing(false); }} aria-invalid={noteMissing || undefined} className="basis-full 2xl:basis-0 2xl:flex-1 2xl:min-w-[200px]" aria-label="Reason"
+          placeholder={armed ? (isReal() && decisionNeedsNote(armed) ? 'Note required: why is this on hold?' : DECISION[armed].hint) : 'Reason. Recommended for a hold, optional otherwise'}
           onKeyDown={(e) => { if (e.key === 'Enter' && armed) { e.preventDefault(); confirm(); } else if (e.key === 'Escape' && armed) { e.stopPropagation(); disarm(); } }} />
         {armed ? <>
           <Button variant="ghost" onClick={disarm}>Cancel</Button>
@@ -208,6 +217,7 @@ export function Approvals() {
           <Button variant="primary" icon={CircleCheck} hotkey="r" hotkeyLabel="Resolve the selected exception" onClick={() => arm('resolved')}>Resolve</Button>
         </>}
       </div>
+      {noteMissing && <div role="alert" className="t-xs text-[var(--bad)] mt-1.5">Add a short note. The server needs one to record a hold.</div>}
       <div className="t-xs text-[var(--text-3)] mt-1.5">{armed ? <>Press <Kbd keys="enter" /> to confirm or <Kbd keys="escape" /> to go back. </> : null}Closes this exception on the record. Gate unlocks, stock, and cash still happen on the site screens. Credit orders are decided on the Credit desk.</div>
     </div>
   );
@@ -244,7 +254,7 @@ export function Approvals() {
                       className={cn('w-full flex items-start gap-2.5 px-[var(--pad)] py-2 touch:py-2.5 text-left border-b border-[var(--line)] hover:bg-[var(--hover)]', on && split && 'bg-[var(--selected)] hover:bg-[var(--selected)] shadow-[inset_2px_0_0_var(--focus)]')}>
                       <IconChip icon={KIND_META[e.kind].icon} color={severityColor(e.severity)} className="mt-0.5" />
                       <span className="min-w-0 flex-1">
-                        <span className="block t-base font-medium leading-snug">{e.title}</span>
+                        <span className="block t-base font-medium leading-snug">{e.title}{e.onHold && <Badge tone="warn" dot className="ml-1.5 align-middle">Held</Badge>}</span>
                         <span className="flex items-center gap-1.5 mt-1 t-sm text-[var(--text-3)] min-w-0"><SiteBadge site={e.siteId} /><span className="truncate">{KIND_META[e.kind].label} · {roleLabel(e.ownerRole)}</span></span>
                       </span>
                       <span className="num t-xs text-[var(--text-3)] whitespace-nowrap mt-0.5">{agoLabel(e.raisedAt, s.today)}</span>
@@ -261,9 +271,11 @@ export function Approvals() {
 
   return (
     <div>
+      {isReal() && <RaiseSheet open={raiseOpen} onClose={() => setRaiseOpen(false)} />}
       <PageHeader eyebrow="Group HQ" title="Approvals"
         meta={<><Badge tone={allOpen.length ? 'warn' : 'ok'} dot>{allOpen.length} open</Badge>{critical > 0 && <Badge tone="bad" dot>{critical} critical</Badge>}</>}
         subtitle="Every open exception across the three sites, one decision each. Your name and reason go on the audit feed."
+        actions={isReal() ? <Button icon={Plus} onClick={() => setRaiseOpen(true)}>Raise exception</Button> : undefined}
         tabs={<Tabs variant="underline" value={tab} onChange={(v) => { setTab(v); setArmed(null); }} tabs={[{ value: 'open', label: 'Open', count: allOpen.length }, { value: 'decided', label: 'Decided today', count: decidedAll.length }]} />} />
 
       <Toolbar>
@@ -309,5 +321,28 @@ export function Approvals() {
       </Sheet>
       {touch ? null : <p className="t-xs text-[var(--text-3)] mt-2">Press <Kbd keys="a" />, <Kbd keys="h" /> or <Kbd keys="r" /> to start a decision on the selected exception, type a reason if you have one, then <Kbd keys="enter" />.</p>}
     </div>
+  );
+}
+
+/** Manual raise (real mode). The kinds are the ones people can raise; the system raises the others itself. */
+const MANUAL_KINDS = (Object.keys(KIND_META) as ExceptionKind[]).filter((k) => !SYSTEM_KINDS.includes(k));
+function RaiseSheet({ open, onClose }: { open: boolean; onClose: () => void }) {
+  const raise = useStore((x) => x.raiseManualException); const toast = useStore((x) => x.toast);
+  const [site, setSite] = useState<SiteCode>(SITE_LIST[0].id); const [kind, setKind] = useState<ExceptionKind>(MANUAL_KINDS[0]);
+  const [severity, setSeverity] = useState<'info' | 'warning' | 'critical'>('warning'); const [title, setTitle] = useState(''); const [detail, setDetail] = useState('');
+  useEffect(() => { if (open) { setTitle(''); setDetail(''); setSeverity('warning'); } }, [open]);
+  const ok = title.trim().length > 0 && title.trim().length <= 255 && detail.trim().length > 0;
+  const sel = 'ctl w-full rounded-md border border-[var(--line-2)] bg-[var(--surface)] px-2.5 t-base';
+  return (
+    <Sheet open={open} onClose={onClose} title="Raise an exception" sub="Goes to the owner for a decision" width={440}
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!ok} onClick={() => { raise({ siteId: site, kind, severity, title: title.trim(), detail: detail.trim() }); toast({ kind: 'info', title: 'Exception sent', detail: title.trim() }); onClose(); }}>Raise exception</Button></>}>
+      <div className="flex flex-col gap-3">
+        <Field label="Site"><select className={sel} value={site} onChange={(e) => setSite(e.target.value as SiteCode)}>{SITE_LIST.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</select></Field>
+        <Field label="Kind"><select className={sel} value={kind} onChange={(e) => setKind(e.target.value as ExceptionKind)}>{MANUAL_KINDS.map((k) => <option key={k} value={k}>{KIND_META[k].label}</option>)}</select></Field>
+        <Field label="Severity"><select className={sel} value={severity} onChange={(e) => setSeverity(e.target.value as typeof severity)}>{SEVERITIES.map((v) => <option key={v} value={v}>{severityLabel[v]}</option>)}</select></Field>
+        <Field label="Title" hint="At most 255 characters"><Input value={title} maxLength={255} onChange={(e) => setTitle(e.target.value)} /></Field>
+        <Field label="Detail"><Input value={detail} maxLength={2000} onChange={(e) => setDetail(e.target.value)} placeholder="What happened and where" /></Field>
+      </div>
+    </Sheet>
   );
 }

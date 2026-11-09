@@ -166,7 +166,7 @@ export function ComboEscGuard() {
 /* ───────────────────────────── WhatsApp share panel ───────────────────────────── */
 export function WhatsAppSend({ client, lines, attachment, successTitle, onBack, backLabel }: { client: Client; lines: string[]; attachment?: string; successTitle: string; onBack?: () => void; backLabel?: string }) {
   const [state, setState] = useState<'idle' | 'preparing' | 'prepared'>('idle'); const toast = useStore((s) => s.toast);
-  const prepare = async () => { setState('preparing'); await messaging.sendWhatsApp(client.whatsapp, lines.join('\n'), attachment); setState('prepared'); toast({ kind: 'ok', title: `${successTitle} · demo preview`, detail: `No message was sent to ${client.contact}.` }); };
+  const prepare = async () => { setState('preparing'); await messaging.sendWhatsApp(client.whatsapp, lines.join('\n'), attachment); setState('prepared'); toast({ kind: 'ok', title: `${successTitle} · preview`, detail: `No message was sent to ${client.contact}.` }); };
   return (
     <div className="flex flex-col items-start gap-3">
       {onBack && <Button size="sm" variant="ghost" icon={ArrowLeft} onClick={onBack}>{backLabel ?? 'Back'}</Button>}

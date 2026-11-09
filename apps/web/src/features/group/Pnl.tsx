@@ -137,7 +137,7 @@ export function Pnl() {
           <Button icon={Printer} hotkey="p" onClick={print}>Print</Button>
           <Button variant="primary" icon={Download} hotkey="e" onClick={exportCsv}>Export CSV</Button>
         </>} />
-      <Note tone="neutral">In production, P&L and costing read <b>closed and signed</b> cash days only. The demo includes today's open page so the numbers move as you work; anything touching an open day is marked provisional.</Note>
+      <Note tone="neutral">In production, P&L and costing read <b>closed and signed</b> cash days only. This build includes today's open page so the numbers move as you work; anything touching an open day is marked provisional.</Note>
 
       <KpiStrip>
         <Stat label="Group sales" icon={TrendingUp} accent="var(--series-3)" value={<><CountUp value={total.sales} format={compact} /><span className="t-base text-[var(--text-3)] font-medium"> UGX</span></>} delta={<Delta value={delta((b) => b.sales)} label={d.reference} />} spark={daily.map((x) => x.group.sales)} sub={`${usd0(total.sales / fx)} at ${fmtNum(fx)}`} />
