@@ -10,6 +10,7 @@ import { CountUp, Donut, TimeTrack } from '@/components/charts';
 import { activeEngagement, addDays, currentShiftKind, dailySeries, headcount, lastWorkingDays, shiftId, sitePeople } from '@/data/selectors';
 import { fmtDay, fmtDayShort, fmtNum, fmtUGX } from '@/data/format';
 import { SITES } from '@/config/sites';
+import { usePeopleAccess } from './access';
 import { BASIS, ContractNote, ENG, ENG_TYPES, EngTag, MarkDot, MasterEmpty, PhotoFrame, RenewDialog, contractStateFor, downloadCsv, useContractTerms, usePeopleRules, type ContractState } from './kit';
 
 interface RegRow { person: Person; eng?: Engagement; daysLeft?: number; cstate: ContractState; isShared: boolean; marks: (AttendanceStatus | undefined)[]; worked: number }
@@ -19,7 +20,7 @@ const elapsedOf = (e: Engagement, today: string) => { if (!e.endDate) return 0; 
 
 /** Every worker who touches this site: who they are, how they are engaged, what they are owed per unit. */
 export function Registry() {
-  const s = useStore(); const site = useSite(); const go = useGo();
+  const s = useStore(); const site = useSite(); const go = useGo(); const access = usePeopleAccess();
   const rules = usePeopleRules(); const warn = rules.warningDays; const within = `within ${warn} day${warn === 1 ? '' : 's'}`;
   const kind = currentShiftKind();
   const qp = useQueryParam('q');
@@ -42,7 +43,7 @@ export function Registry() {
   }, [s, site, warn, days]);
   const active = rows.filter((r) => r.person.status === 'active');
   const isEnding = (r: RegRow) => r.person.status === 'active' && r.cstate !== 'open' && !r.isShared;
-  const inScope = useMemo(() => { const needle = q.trim().toLowerCase(); return rows.filter((r) => (status === 'all' || (status === 'ending' ? isEnding(r) : r.person.status === status)) && (sector === 'all' || r.person.sector === sector) && (!needle || r.person.fullName.toLowerCase().includes(needle) || r.person.idNumber.toLowerCase().includes(needle) || r.person.phoneMomo.includes(needle))).sort((a, b) => a.person.fullName.localeCompare(b.person.fullName)); }, [rows, q, sector, status]);
+  const inScope = useMemo(() => { const needle = q.trim().toLowerCase(); return rows.filter((r) => (status === 'all' || (status === 'ending' ? isEnding(r) : r.person.status === status)) && (sector === 'all' || r.person.sector === sector) && (!needle || r.person.fullName.toLowerCase().includes(needle) || r.person.idNumber.toLowerCase().includes(needle) || r.person.phoneMomo.includes(needle) || (r.person.number ?? '').toLowerCase().includes(needle))).sort((a, b) => a.person.fullName.localeCompare(b.person.fullName)); }, [rows, q, sector, status]);
   const filtered = type === 'all' ? inScope : inScope.filter((r) => r.eng?.type === type);
   const expiring = active.filter((r) => r.cstate === 'expiring' && !r.isShared);
   const expired = active.filter((r) => r.cstate === 'expired' && !r.isShared);
@@ -81,7 +82,7 @@ export function Registry() {
     { key: 'rate', header: 'Rate', align: 'right', sort: (r) => r.eng?.rate ?? 0, cell: (r) => (r.eng ? <span className="num">{fmtNum(r.eng.rate)}<span className="t-sm text-[var(--text-3)]"> /{BASIS[r.eng.rateBasis]}</span></span> : '—') },
     { key: 'left', header: 'Days left', align: 'right', sort: (r) => (r.eng?.type === 'contract' ? r.daysLeft ?? 9999 : 9999), cell: (r) => (r.eng?.type === 'contract' && r.eng.endDate ? <ContractNote endDate={r.eng.endDate} state={r.cstate} today={s.today} plain /> : <span className="text-[var(--text-4)]">—</span>) },
     ...(status === 'all' || status === 'archived' ? [{ key: 'status', header: 'Status', sort: (r: RegRow) => r.person.status, cell: (r: RegRow) => <Status tone={r.person.status === 'active' ? 'ok' : 'neutral'}>{r.person.status === 'active' ? 'Active' : 'Archived'}</Status> }] : []),
-    ...(status === 'ending' ? [{ key: 'act', header: '', align: 'right' as const, cell: (r: RegRow) => (isEnding(r) && r.eng ? <Button size="sm" icon={CalendarClock} onClick={(e) => { e.stopPropagation(); setRenewId(r.person.id); }}>Renew</Button> : null) }] : []),
+    ...(status === 'ending' ? [{ key: 'act', header: '', align: 'right' as const, cell: (r: RegRow) => (isEnding(r) && r.eng && access.renew ? <Button size="sm" icon={CalendarClock} onClick={(e) => { e.stopPropagation(); setRenewId(r.person.id); }}>Renew</Button> : null) }] : []),
   ];
 
   return (
@@ -105,8 +106,8 @@ export function Registry() {
       </KpiStrip>
 
       <Toolbar right={<><span className="t-sm text-[var(--text-3)] num whitespace-nowrap">{filtered.length} of {rows.length}</span></>}>
-        <SearchInput value={q} onChange={setQ} placeholder="Search name, ID number or phone" className="max-w-[260px]" />
-        <Tabs value={type} onChange={setType} tabs={[{ value: 'all', label: 'All', count: inScope.length }, ...ENG_TYPES.map((t) => ({ value: t, label: ENG[t].label, count: inScope.filter((r) => r.eng?.type === t).length }))]} />
+        <SearchInput value={q} onChange={setQ} placeholder="Search name, number, ID or phone" className="max-w-none sm:max-w-[260px]" />
+        <Tabs className="max-sm:w-full" value={type} onChange={setType} tabs={[{ value: 'all', label: 'All', count: inScope.length }, ...ENG_TYPES.map((t) => ({ value: t, label: ENG[t].label, count: inScope.filter((r) => r.eng?.type === t).length }))]} />
         <Select aria-label="Sector" value={sector} onChange={(e) => setSector(e.target.value)} className="!w-auto"><option value="all">All sectors</option>{site.sectors.map((x) => <option key={x} value={x}>{x}</option>)}</Select>
         <Select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} className="!w-auto"><option value="active">Active</option><option value="ending">Ending {within}</option><option value="archived">Archived</option><option value="all">Active and archived</option></Select>
         {(q || type !== 'all' || sector !== 'all' || status !== 'active') && <Button variant="ghost" size="sm" onClick={clear}>Clear filters</Button>}
@@ -126,20 +127,20 @@ export function Registry() {
 }
 
 function ProfileActions({ r, onClose }: { r: RegRow; onClose: () => void }) {
-  const s = useStore(); const isArchived = r.person.status === 'archived';
+  const s = useStore(); const access = usePeopleAccess(); const isArchived = r.person.status === 'archived';
   const [ending, setEnding] = useState(false); const [why, setWhy] = useState('');
-  const canEnd = isReal() && !isArchived && r.eng?.status === 'active';
+  const canEnd = isReal() && access.end && !isArchived && r.eng?.status === 'active';
   const confirmEnd = () => { if (!r.eng || !why.trim()) return; s.endEngagement(r.eng.id, why.trim()); say({ kind: 'ok', title: `${r.person.fullName}: engagement ended`, detail: why.trim() }); setEnding(false); setWhy(''); };
   if (ending) return <><Input autoFocus aria-label="Reason for ending the engagement" value={why} onChange={(e) => setWhy(e.target.value)} placeholder="Why is this engagement ending? (required)" className="flex-1 min-w-0" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); confirmEnd(); } else if (e.key === 'Escape') { e.stopPropagation(); setEnding(false); } }} /><Button variant="ghost" onClick={() => { setEnding(false); setWhy(''); }}>Back</Button><Button variant="primary" disabled={!why.trim()} onClick={confirmEnd}>Confirm end</Button></>;
   const toggle = () => { if (isArchived) { s.reactivatePerson(r.person.id); say({ kind: 'ok', title: `${r.person.fullName} reactivated` }); } else { s.archivePerson(r.person.id); say({ kind: 'ok', title: `${r.person.fullName} archived`, detail: 'Reactivate any time from Attendance → Archived.' }); onClose(); } };
-  return <><span className="mr-auto t-sm text-[var(--text-3)]">{r.isShared ? 'Shared workers are archived from their home site.' : isArchived ? 'Off the roster, record kept.' : 'Archiving keeps the record and history.'}</span>{canEnd && !r.isShared && <Button variant="secondary" onClick={() => setEnding(true)}>End engagement</Button>}<Button variant={isArchived ? 'primary' : 'secondary'} icon={isArchived ? RotateCcw : Archive} onClick={toggle} disabled={r.isShared}>{isArchived ? 'Reactivate' : 'Archive worker'}</Button></>;
+  return <>{access.archive && <span className="mr-auto t-sm text-[var(--text-3)]">{r.isShared ? 'Shared workers are archived from their home site.' : isArchived ? 'Off the roster, record kept.' : 'Archiving keeps the record and history.'}</span>}{canEnd && !r.isShared && <Button variant="secondary" onClick={() => setEnding(true)}>End engagement</Button>}{access.archive && <Button variant={isArchived ? 'primary' : 'secondary'} icon={isArchived ? RotateCcw : Archive} onClick={toggle} disabled={r.isShared}>{isArchived ? 'Reactivate' : 'Archive worker'}</Button>}</>;
 }
 
 const RANK: Record<AttendanceStatus, number> = { present: 3, half: 2, absent: 1 };
 
 /** Inspector: identity, current engagement with its term, 14-day attendance strip, engagement history. */
 function Profile({ r, onRenew }: { r: RegRow; onRenew: (term: number) => void }) {
-  const s = useStore(); const site = useSite();
+  const s = useStore(); const site = useSite(); const access = usePeopleAccess();
   const terms = useContractTerms();
   const [term, setTerm] = useState<string | null>(() => { const t = terms.find((x) => x.days === r.eng?.termDays) ?? terms[0]; return t ? String(t.days) : null; });
   const money = s.cashEntries.filter((c) => c.payee === r.person.fullName && (c.category === 'advance' || c.category === 'payout' || c.category === 'wages')).sort((a, b) => b.at.localeCompare(a.at));
@@ -158,8 +159,8 @@ function Profile({ r, onRenew }: { r: RegRow; onRenew: (term: number) => void })
         <Avatar name={r.person.fullName} seed={r.person.avatarSeed} size={52} ring={r.cstate === 'expired' ? 'bad' : r.cstate === 'expiring' ? 'warn' : 'none'} className={cn(isArchived && 'opacity-60')} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 t-sm"><EngTag type={e?.type} /><Status tone={isArchived ? 'neutral' : 'ok'}>{isArchived ? 'Archived' : 'Active'}</Status>{r.isShared ? <Badge tone="accent">from {SITES[r.person.homeSiteId].shortName}</Badge> : r.person.sharedSites.length > 0 ? <Badge>also {r.person.sharedSites.map((x) => SITES[x].shortName).join(', ')}</Badge> : null}{e?.type === 'contract' && r.cstate !== 'open' && <ContractNote endDate={e.endDate} state={r.cstate} today={s.today} />}</div>
-          <div className="t-sm text-[var(--text-2)] mt-1">Joined {fmtDayShort(r.person.joinedOn)} · <span className="num">{r.person.phoneMomo}</span></div>
-          <div className="t-sm text-[var(--text-3)]">ID <span className="code text-[var(--text-2)]">{r.person.idNumber}</span></div>
+          <div className="t-sm text-[var(--text-2)] mt-1">{r.person.number ? <><span className="code" data-testid="person-number">{r.person.number}</span> · </> : null}Joined {fmtDayShort(r.person.joinedOn)} · <span className="num">{r.person.phoneMomo}</span></div>
+          <div className="t-sm text-[var(--text-3)]">ID {r.person.idNumber ? <span className="code text-[var(--text-2)]">{r.person.idNumber}</span> : <span>not recorded</span>}</div>
         </div>
         <div className="flex gap-1.5 shrink-0 max-sm:hidden"><PhotoFrame icon={CreditCard} label="ID card" className="w-[80px] h-[72px]" /><PhotoFrame icon={ScanFace} label="Face" round className="w-[64px] h-[72px]" /></div>
       </div>
@@ -173,7 +174,7 @@ function Profile({ r, onRenew }: { r: RegRow; onRenew: (term: number) => void })
               {e.type === 'contract' && e.endDate ? <ContractNote endDate={e.endDate} state={r.cstate} today={s.today} /> : <span className="t-sm text-[var(--text-3)]">since {fmtDayShort(e.startDate)}</span>}
             </div>
             {e.type === 'contract' && e.endDate && <div className="mt-3"><TimeTrack progress={total ? dayNo / total : 1} startLabel={fmtDayShort(e.startDate)} endLabel={fmtDayShort(e.endDate)} nowLabel={r.cstate === 'expired' ? 'term over' : `day ${Math.min(dayNo, total)} of ${total}`} color={r.cstate === 'expired' ? 'var(--bad)' : r.cstate === 'expiring' ? 'var(--warn)' : 'var(--series-3)'} /></div>}
-            {e.type === 'contract' && !isArchived && (
+            {e.type === 'contract' && !isArchived && access.renew && (
               <div className="mt-3 pt-3 border-t border-[var(--line)] flex flex-wrap items-center gap-2">
                 {terms.length === 0 ? <div className="w-full"><MasterEmpty compact title="No contract terms set up" hint="Add contract terms in Settings → Master data." /></div> : <>
                   <span className="t-sm font-medium text-[var(--text-2)] mr-1">Renew from today</span>

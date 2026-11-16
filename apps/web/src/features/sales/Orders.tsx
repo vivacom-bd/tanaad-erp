@@ -3,6 +3,7 @@ import { BarChart3, Download, Lock, PackageCheck, Plus, Receipt, ShieldCheck, Wa
 import type { Order } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { useQueryParam, useSite } from '@/app/hooks';
+import { isProvisionalOrder } from '@/data/api/salesMap';
 import { orderTotal } from '@/data/selectors';
 import { fmtDateTime, fmtMoney, fmtNum } from '@/data/format';
 import { Badge, Button, DataGrid, Kbd, KpiStrip, MiniBars, PageHeader, Panel, SearchInput, StackedBar, Stat, Tabs, Toolbar, cn, useMedia, type Column } from '@/components/ui';
@@ -48,14 +49,14 @@ export function Orders() {
   const weekly = weeks.map((w, i) => ({ label: w.label, partial: w.partial, value: all.filter((r) => weekOf(weeks, r.o.createdAt) === i).reduce((t, r) => t + r.bundles, 0) }));
 
   const cols: Column<R>[] = wide ? [
-    { key: 'no', header: 'Order', sort: (r) => r.o.number, cell: (r) => <span className="code font-medium">{r.o.number}</span> },
+    { key: 'no', header: 'Order', sort: (r) => r.o.number, cell: (r) => <span className="inline-flex items-center gap-1.5"><span className="code font-medium">{r.o.number}</span>{isProvisionalOrder(r.o.number) && <Badge tone="warn">number on sync</Badge>}</span> },
     { key: 'client', header: 'Client', sort: (r) => r.client?.name ?? '', cell: (r) => <ClientCell name={r.client?.name ?? '?'} width={roomy ? 230 : 190} /> },
     ...(roomy ? [{ key: 'market', header: 'Market', sort: (r: R) => `${r.client?.channel}${r.client?.country}`, cell: (r: R) => <span>{r.client?.country}<span className="text-[var(--text-3)]"> · {r.client?.channel === 'export' ? 'export' : 'local'}</span></span> } as Column<R>] : []),
     { key: 'lines', header: 'Lines', truncate: 230, cell: (r) => <span className="inline-flex items-center gap-1.5"><span className="inline-flex gap-0.5">{r.o.lines.slice(0, 4).map((l, i) => <Swatch key={i} colour={productOf(s, l.productId)?.colour} className="!size-2" />)}</span><span className="text-[var(--text-2)]" title={linesSummary(s, r.o)}>{linesSummary(s, r.o)}</span></span> },
     { key: 'bundles', header: 'Bundles', align: 'right', mono: true, sort: (r) => r.bundles, cell: (r) => fmtNum(r.bundles) },
     { key: 'total', header: 'Total', align: 'right', mono: true, sort: (r) => toUsd(r.total, r.o.currency, r.o.fxReference), cell: (r) => <span className="font-medium">{fmtMoney(r.total, r.o.currency)}</span> },
     { key: 'created', header: 'Created', mono: true, sort: (r) => r.o.createdAt, cell: (r) => <span className="text-[var(--text-2)]">{fmtDateTime(r.o.createdAt)}</span> },
-    { key: 'status', header: 'Status', sort: (r) => STATUS_RANK[r.o.status] * 10 + STAGES.indexOf(r.stage), cell: (r) => (r.o.status === 'awaiting_cash' ? <Badge tone="warn"><Lock className="size-3" />Awaiting cashier</Badge> : <StatusBadge status={r.o.status} />) },
+    { key: 'status', header: 'Status', sort: (r) => STATUS_RANK[r.o.status] * 10 + STAGES.indexOf(r.stage), cell: (r) => (r.o.status === 'awaiting_cash' ? <Badge tone="warn"><Lock className="size-3" />Awaiting cashier</Badge> : <StatusBadge status={r.o.status} invoiced={!!r.inv} />) },
   ] : [
     { key: 'no', header: 'Order', wrap: true, cell: (r) => <div className="min-w-0 py-1"><div className="flex items-center gap-1.5"><span className="code font-medium">{r.o.number}</span>{r.o.status === 'awaiting_cash' && <Lock className="size-3.5 text-[var(--warn)]" aria-label="Awaiting cashier" />}</div><div className="t-sm text-[var(--text-2)] truncate max-w-[42vw]">{r.client?.name}</div></div> },
     { key: 'total', header: 'Total', align: 'right', wrap: true, cell: (r) => <div className="flex flex-col items-end gap-1 py-1"><span className="num font-medium whitespace-nowrap">{fmtMoney(r.total, r.o.currency)}</span><StatusBadge status={r.o.status} /></div> },

@@ -4,7 +4,11 @@ import type { Order } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { useGo, useRefList, useSite } from '@/app/hooks';
 import { orderTotal } from '@/data/selectors';
+import { isReal } from '@/data/api/sync';
+import { isProvisionalOrder } from '@/data/api/salesMap';
+import { confirmCashOnline, issueInvoiceOnline, reasonOf, recordPaymentOnline } from '@/data/api/salesActions';
 import { fmtDateTime, fmtKg, fmtMoney, fmtNum, fmtPct } from '@/data/format';
+import { ServerDocumentButton } from '@/features/documents/ServerDocument';
 import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Field, Gauge, Note, NumberPad, Panel, Sheet, cn, useHotkey, type Column } from '@/components/ui';
 import { CASH_ROLES, Fact, ORDER_STATUS, STATUS_RANK, StatusBadge, Swatch, clientOf, dispatchOf, fxLine, invoiceOf, marketOf, orderBundles, plural, productOf, termsOf } from './shared';
 
@@ -45,8 +49,11 @@ export function OrderInspector({ order, onClose }: { order: Order; onClose: () =
   const s = useStore(); const site = useSite(); const go = useGo(); const role = s.session?.role ?? '';
   const client = clientOf(s, order.clientId)!; const dsp = dispatchOf(s, order.id); const inv = invoiceOf(s, order.id);
   const total = orderTotal(order); const bundles = orderBundles(order); const rank = STATUS_RANK[order.status];
-  const paidOnInv = inv ? s.payments.filter((p) => p.invoiceId === inv.id).reduce((t, p) => t + p.amount, 0) : 0;
+  const paidOnInv = inv ? inv.paid ?? s.payments.filter((p) => p.invoiceId === inv.id).reduce((t, p) => t + p.amount, 0) : 0;
   const [mode, setMode] = useState<'view' | 'cash' | 'pay'>('view'); const [amount, setAmount] = useState('');
+  const real = isReal(); const [busy, setBusy] = useState(false); const [err, setErr] = useState<string | null>(null); const provisional = real && isProvisionalOrder(order.number);
+  // Real mode: these four go to the server and show its answer. The server books cash, numbers the invoice and refuses an overpayment.
+  const run = async (job: () => Promise<void>) => { if (busy) return; setBusy(true); setErr(null); try { await job(); } catch (e) { setErr(reasonOf(e, 'The server did not accept this.')); } finally { setBusy(false); } };
   // Payment methods are master data (Settings → Master data: `payment_method`). Cash-before-delivery orders settle with the first one.
   const methods = useRefList('payment_method').map((m) => m.label);
   const [method, setMethod] = useState<string | null>((client.channel === 'export' ? methods[methods.length - 1] : methods[0]) ?? null);
@@ -54,17 +61,20 @@ export function OrderInspector({ order, onClose }: { order: Order; onClose: () =
 
   const recordCash = () => {
     const amt = Number(amount); if (!amt) return;
+    if (real) return void run(async () => { await confirmCashOnline(order, amt); toast({ kind: 'ok', title: 'Dispatch unlocked', detail: `${fmtMoney(amt, order.currency)} received from ${client.name} for ${order.number}` }); setMode('view'); });
     useStore.getState().addCashEntry({ siteId: site.id, day: s.today, direction: 'in', category: 'sale', amount: amt, currency: order.currency, payee: client.name, note: `${order.number} · cash before delivery`, hasReceiptPhoto: false });
     useStore.getState().confirmCash(order.id);
     toast({ kind: 'ok', title: 'Dispatch unlocked', detail: `${fmtMoney(amt, order.currency)} received from ${client.name} for ${order.number}` }); setMode('view');
   };
   const issue = () => {
+    if (real) return void run(async () => { const i = await issueInvoiceOnline(order); toast({ kind: 'ok', title: `${i.number} issued${(i.balance ?? 1) <= 0 ? ' and settled' : ''}`, detail: (i.balance ?? 1) <= 0 ? 'Cash was confirmed before delivery.' : `${fmtMoney(i.total, i.currency)} · ${client.creditDays} days credit` }); });
     const i = useStore.getState().issueInvoice(order.id);
     if (order.cashConfirmedAt) { useStore.getState().recordPayment({ clientId: client.id, invoiceId: i.id, amount: i.total, currency: i.currency, method: methods[0] ?? 'Cash', reference: `${order.number} cash on order` }); toast({ kind: 'ok', title: `${i.number} issued and settled`, detail: 'Cash was confirmed before delivery.' }); }
     else toast({ kind: 'ok', title: `${i.number} issued`, detail: `${fmtMoney(i.total, i.currency)} · ${client.creditDays} days credit` });
   };
   const recordPay = () => {
     const amt = Number(amount); if (!amt || !inv || !method) return;
+    if (real) return void run(async () => { await recordPaymentOnline(order.siteId, inv, { amount: amt, method, reference: `${method.split(/\s+/).map((w) => w[0]).join('').toUpperCase()}-${String(Date.now()).slice(-6)}` }); toast({ kind: 'ok', title: 'Payment recorded', detail: `${fmtMoney(amt, inv.currency)} from ${client.name} by ${method}` }); setMode('view'); });
     useStore.getState().recordPayment({ clientId: client.id, invoiceId: inv.id, amount: amt, currency: inv.currency, method, reference: `${method.split(/\s+/).map((w) => w[0]).join('').toUpperCase()}-${String(Date.now()).slice(-6)}` });
     toast({ kind: 'ok', title: 'Payment recorded', detail: `${fmtMoney(amt, inv.currency)} from ${client.name} by ${method}` }); setMode('view');
   };
@@ -95,7 +105,7 @@ export function OrderInspector({ order, onClose }: { order: Order; onClose: () =
     { key: 'a', header: 'Amount', align: 'right', mono: true, cell: (l) => <span className="font-medium">{fmtMoney(l.bundles * l.unitPrice, order.currency)}</span> },
   ];
 
-  const primary = mode !== 'view' ? null
+  const primary = mode !== 'view' || provisional ? null
     : order.status === 'awaiting_cash' && canCash ? <Button variant="primary" icon={Wallet} onClick={startCash} hotkey="mod+enter">Record cash received</Button>
     : order.status === 'awaiting_approval' && role === 'ceo' ? <Button variant="primary" icon={ExternalLink} onClick={() => go.group('credit')} hotkey="mod+enter">Open credit desk</Button>
     : order.status === 'approved' || order.status === 'picking' ? <Button variant="primary" icon={Truck} onClick={() => go.site('stock/dispatch')} hotkey="mod+enter">Open dispatch</Button>
@@ -105,9 +115,10 @@ export function OrderInspector({ order, onClose }: { order: Order; onClose: () =
 
   return (
     <Sheet open onClose={onClose} width={580}
-      title={<span className="flex items-center gap-2"><span className="code">{order.number}</span><StatusBadge status={order.status} /></span>}
+      title={<span className="flex items-center gap-2"><span className="code">{order.number}</span><StatusBadge status={order.status} invoiced={!!inv} /></span>}
       sub={`Created ${fmtDateTime(order.createdAt)} · ${fxLine(order.fxReference)}`}
       footer={<>
+        {inv && mode === 'view' && !provisional && <ServerDocumentButton kind="invoice" id={inv.id} size="md" />}
         {inv && mode === 'view' && <Button variant="ghost" icon={ScrollText} className="mr-auto" onClick={() => go.site('sales/invoices', undefined, inv.number)}>Invoice {inv.number}</Button>}
         {mode !== 'view' && <Button variant="ghost" onClick={() => setMode('view')}>Cancel</Button>}
         {mode === 'view' && <Button variant="secondary" onClick={onClose}>Close</Button>}
@@ -127,9 +138,12 @@ export function OrderInspector({ order, onClose }: { order: Order; onClose: () =
           </div>
         </div>
 
+        {provisional && <Note tone="warn"><b>Not on the server yet.</b> The number and the prices below are an estimate until this order syncs; the server sets the real ones.</Note>}
+        {err && <Note tone="bad">{err}</Note>}
+        {order.overLimit && order.status === 'awaiting_approval' && <Note tone="warn"><b>Over the credit limit.</b> The server flagged this order against the client's open balance.</Note>}
         {order.status === 'awaiting_cash' && mode === 'view' && <Note tone="warn" icon={Lock}><b>Awaiting cashier confirmation.</b> The warehouse cannot start picking until cash of {fmtMoney(total, order.currency)} is recorded.{!canCash && ' Ask the cashier to record the cash.'}</Note>}
         {order.status === 'awaiting_approval' && <Note tone="warn"><b>Waiting for the CEO.</b> Export credit is approved at the group credit desk; this order unlocks automatically. {order.notes && <span className="text-[var(--text-2)]">{order.notes}</span>}</Note>}
-        {order.status === 'held' && <Note tone="bad"><b>Held by the CEO.</b> {order.notes ?? 'No reason recorded.'}</Note>}
+        {order.status === 'held' && <Note tone="bad"><b>Held by the CEO.</b> {order.holdReason ?? order.notes ?? 'No reason recorded.'}</Note>}
 
         {mode === 'cash' && (
           <Panel icon={Wallet} title="Record cash received" sub={`from ${client.name}`}>

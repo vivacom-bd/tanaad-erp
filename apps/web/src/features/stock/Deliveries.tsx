@@ -7,13 +7,18 @@ import { nowIso } from '@/data/ids';
 import { addDays } from '@/data/selectors';
 import { Avatar, Button, DataGrid, FormRow, Input, KpiStrip, Note, PageHeader, Badge, SearchInput, Sheet, Stat, Tabs, Toolbar, cn, useIsTouch, useMedia, type Column } from '@/components/ui';
 import { CountUp } from '@/components/charts';
-import { fmtDateTime, fmtKg, fmtNum } from '@/data/format';
+import { fmtDateTime, fmtKg, fmtNum, kampalaDay } from '@/data/format';
+import { isReal } from '@/data/api/sync';
+import { deliverOnline } from '@/data/api/dispatch';
+import { ServerDocumentButton } from '@/features/documents/ServerDocument';
+import { PhotoPick, SignaturePad } from './Capture';
 import { QtyPad } from './kit';
+import { canConfirmDelivery } from './pod';
 import { CaptureTile, DeliveryNoteCard, IconChip, STATUS_META, ShipmentStepper, StatusBadge, VarianceBadge, deliveryStatus, downloadCsv, type DeliveryStatus } from './shared';
 
 type Filter = 'all' | 'open' | DeliveryStatus;
 interface RowT { d: Dispatch; status: DeliveryStatus; client: string; country: string; order: string }
-const onRoad = (st: DeliveryStatus) => st === 'gate_pass' || st === 'in_transit';
+const onRoad = (st: DeliveryStatus) => st === 'gate_pass' || st === 'gate_override' || st === 'in_transit';
 
 /** Deliveries and proof of delivery: what left the gate, what the receiver counted, and where each shipment is on its way to being paid. */
 export function Deliveries() {
@@ -22,6 +27,7 @@ export function Deliveries() {
   const [filter, setFilter] = useState<Filter>('all'); const [openId, setOpenId] = useState<string | null>(null);
   const [q, setQ] = useState(q0 ?? ''); useEffect(() => { if (q0 !== undefined) setQ(q0); }, [q0]);
   const [receiver, setReceiver] = useState(''); const [counted, setCounted] = useState(''); const [signed, setSigned] = useState(false);
+  const real = isReal(); const [sigHash, setSigHash] = useState<string | null>(null); const [photoHash, setPhotoHash] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<{ counted: number; expected: number } | null>(null);
   const tol = useSiteSettings()?.gateTolerancePct ?? site.thresholds.gateTolerancePct;
 
@@ -34,16 +40,26 @@ export function Deliveries() {
 
   const road = all.filter((r) => onRoad(r.status)); const delivered = all.filter((r) => r.status === 'delivered'); const short = all.filter((r) => r.status === 'discrepancy'); const held = all.filter((r) => r.status === 'held');
   const missing = short.reduce((x, r) => x + (r.d.pod!.bundlesExpected - r.d.pod!.bundlesCounted), 0);
-  const weekly = Array.from({ length: 8 }, (_, i) => { const end = addDays(s.today, -7 * (7 - i)); const start = addDays(end, -6); return all.filter((r) => r.d.pod && r.d.pod.deliveredAt.slice(0, 10) >= start && r.d.pod.deliveredAt.slice(0, 10) <= end).length; });
+  const weekly = Array.from({ length: 8 }, (_, i) => { const end = addDays(s.today, -7 * (7 - i)); const start = addDays(end, -6); return all.filter((r) => r.d.pod && kampalaDay(r.d.pod.deliveredAt) >= start && kampalaDay(r.d.pod.deliveredAt) <= end).length; });
 
   const open = s.dispatches.find((d) => d.id === openId); const order = s.orders.find((o) => o.id === open?.orderId); const client = s.clients.find((c) => c.id === order?.clientId);
   const expected = open?.scannedLabelIds.length ?? 0;
-  const canPod = !!open && !open.pod && (open.gateStatus === 'pass' || open.gateStatus === 'overridden');
-  useEffect(() => { if (open) { setReceiver(client?.contact ?? ''); setCounted(String(open.scannedLabelIds.length)); setSigned(false); setResult(null); } }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
+  const canPod = !!open && !open.pod && (open.gateStatus === 'pass' || open.gateStatus === 'overridden') && canConfirmDelivery(s.session?.role);
+  useEffect(() => { if (open) { setReceiver(client?.contact ?? ''); setCounted(String(open.scannedLabelIds.length)); setSigned(false); setSigHash(null); setPhotoHash(null); setResult(null); } }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
   const countedN = parseInt(counted || '0', 10);
 
-  const confirm = () => {
-    if (!open || !canPod || !receiver.trim() || !counted) return;
+  const signedNow = real ? !!sigHash : signed;
+  const confirm = async () => {
+    if (!open || !canPod || !receiver.trim() || !counted || busy) return;
+    if (real) {
+      // The server holds the signature and photo as Media; the delivery carries their hashes and the server records the discrepancy.
+      if (!sigHash) { toast({ kind: 'warn', title: 'Signature needed', detail: 'Have the receiver sign, then save the signature.' }); return; }
+      setBusy(true); const r = await deliverOnline(open.id, { receivedBy: receiver.trim(), bundlesReceived: countedN, signatureHash: sigHash, photoHash: photoHash ?? undefined }); setBusy(false);
+      if (!r.ok || !r.dispatch?.pod) { toast({ kind: 'error', title: 'Delivery not confirmed', detail: r.message }); return; }
+      const pod = r.dispatch.pod; setResult({ counted: pod.bundlesCounted, expected: pod.bundlesExpected });
+      toast(pod.bundlesCounted === pod.bundlesExpected ? { kind: 'ok', title: `${open.deliveryNoteNo} delivered`, detail: `${pod.bundlesCounted} bundles confirmed by ${receiver}.` } : { kind: 'error', title: `${open.deliveryNoteNo}: ${pod.bundlesExpected - pod.bundlesCounted} bundles missing`, detail: 'Exception raised for the CEO.' });
+      return;
+    }
     recordPod(open.id, { receiverName: receiver.trim() || 'Receiver', bundlesCounted: countedN, bundlesExpected: expected, deliveredAt: nowIso(), hasSignature: signed });
     setResult({ counted: countedN, expected });
     toast(countedN === expected ? { kind: 'ok', title: `${open.deliveryNoteNo} delivered`, detail: `${countedN} bundles confirmed by ${receiver}.` } : { kind: 'error', title: `${open.deliveryNoteNo}: ${expected - countedN} bundles missing`, detail: 'Exception raised for the CEO.' });
@@ -53,7 +69,7 @@ export function Deliveries() {
   const columns: Column<RowT>[] = wide ? [
     { key: 'dn', header: 'Delivery note', sort: (r) => r.d.deliveryNoteNo, cell: (r) => <span className="code font-medium">{r.d.deliveryNoteNo}</span> },
     { key: 'at', header: 'Opened', sort: (r) => r.d.createdAt, cell: (r) => <span className="num text-[var(--text-2)]">{fmtDateTime(r.d.createdAt)}</span> },
-    { key: 'c', header: 'Client', truncate: 250, sort: (r) => r.client, cell: (r) => <span className="inline-flex items-center gap-1.5"><Avatar name={r.client} size={20} />{r.client}<span className="t-sm text-[var(--text-3)]">{r.country}</span></span> },
+    { key: 'c', header: 'Client', truncate: 250, sort: (r) => r.client, cell: (r) => <span className="inline-flex items-center gap-1.5"><Avatar name={r.client} size={20} />{r.client}{r.country && <span className="t-sm text-[var(--text-3)]">{r.country}</span>}</span> },
     { key: 'b', header: 'Bundles', align: 'right', mono: true, sort: (r) => r.d.scannedLabelIds.length, cell: (r) => fmtNum(r.d.scannedLabelIds.length) },
     { key: 'e', header: 'Expected kg', align: 'right', mono: true, sort: (r) => r.d.expectedKg, cell: (r) => fmtNum(Math.round(r.d.expectedKg)) },
     { key: 'g', header: 'Gate kg', align: 'right', mono: true, sort: (r) => r.d.gateKg ?? -1, cell: (r) => (r.d.gateKg !== undefined ? <span className="font-medium">{fmtNum(r.d.gateKg)}</span> : <span className="text-[var(--text-4)]">—</span>) },
@@ -90,15 +106,15 @@ export function Deliveries() {
           ? <tr><td colSpan={3}>{rows.length} deliver{rows.length === 1 ? 'y' : 'ies'}</td><td className="text-right num">{fmtNum(rows.reduce((x, r) => x + r.d.scannedLabelIds.length, 0))}</td><td className="text-right num">{fmtNum(Math.round(rows.reduce((x, r) => x + r.d.expectedKg, 0)))}</td><td className="text-right num">{fmtNum(rows.reduce((x, r) => x + (r.d.gateKg ?? 0), 0))}</td><td colSpan={3} /></tr>
           : <tr><td>{rows.length} deliver{rows.length === 1 ? 'y' : 'ies'}</td><td className="text-right num">{fmtNum(rows.reduce((x, r) => x + r.d.scannedLabelIds.length, 0))}</td><td /></tr>) : undefined} />
 
-      <Sheet open={!!open} onClose={() => setOpenId(null)} title={open ? <span className="flex items-center gap-2"><span className="code">{open.deliveryNoteNo}</span><StatusBadge status={deliveryStatus(open)} /></span> : ''} sub={open ? `${client?.name} · ${order?.number} · ${open.driver}, ${open.vehicle}` : undefined} width={520}
-        footer={canPod && !result ? <><span className="t-sm text-[var(--text-3)] mr-auto touch:hidden">Counted {countedN} of {expected}</span><Button variant="primary" icon={PackageCheck} hotkey="mod+enter" disabled={!receiver.trim() || !counted} onClick={confirm}>Confirm delivery</Button></> : undefined}>
+      <Sheet open={!!open} onClose={() => setOpenId(null)} title={open ? <span className="flex items-center gap-2"><span className="code">{open.deliveryNoteNo}</span><StatusBadge status={deliveryStatus(open)} />{open.gateStatus === 'overridden' && open.overrideReason && <span className="t-sm text-[var(--text-3)] font-normal">{open.overrideReason}</span>}</span> : ''} sub={open ? `${client?.name} · ${order?.number} · ${open.driver}, ${open.vehicle}` : undefined} width={520}
+        footer={canPod && !result ? <><span className="t-sm text-[var(--text-3)] mr-auto touch:hidden">Counted {countedN} of {expected}</span><Button variant="primary" icon={PackageCheck} hotkey="mod+enter" disabled={!receiver.trim() || !counted || busy || (real && !sigHash)} onClick={confirm}>{busy ? 'Confirming…' : 'Confirm delivery'}</Button></> : undefined}>
         {open && (
           <div className="flex flex-col gap-4">
             {result ? (
               <div className="rounded-lg border overflow-hidden anim-pop" style={{ borderColor: `color-mix(in srgb, ${result.counted === result.expected ? 'var(--ok)' : 'var(--bad)'} 45%, var(--line))` }}>
                 <div className="flex items-center gap-3 px-3 py-2.5" style={{ background: `linear-gradient(90deg, color-mix(in srgb, ${result.counted === result.expected ? 'var(--ok)' : 'var(--bad)'} 14%, var(--surface)), var(--surface) 85%)` }}>
                   <IconChip size="lg" solid icon={result.counted === result.expected ? CheckCircle2 : AlertOctagon} color={result.counted === result.expected ? 'var(--ok)' : 'var(--bad)'} />
-                  <div className="min-w-0"><div className="t-lg font-semibold">{result.counted === result.expected ? 'Delivered in full' : `${result.expected - result.counted} bundle${result.expected - result.counted === 1 ? '' : 's'} short`}</div><div className="t-sm text-[var(--text-2)]">{result.counted} of {result.expected} bundles counted by {receiver}{signed ? ', signed' : ', not signed'}.</div></div>
+                  <div className="min-w-0"><div className="t-lg font-semibold">{result.counted === result.expected ? 'Delivered in full' : `${result.expected - result.counted} bundle${result.expected - result.counted === 1 ? '' : 's'} short`}</div><div className="t-sm text-[var(--text-2)]">{result.counted} of {result.expected} bundles counted by {receiver}{signedNow ? ', signed' : ', not signed'}.</div></div>
                 </div>
                 {result.counted !== result.expected && <div className="px-3 py-2 border-t border-[var(--line)] t-sm">Gate weight matched the manifest, so the bundles left the factory. An exception went to the CEO with the driver, vehicle and receiver on it.</div>}
               </div>
@@ -110,13 +126,16 @@ export function Deliveries() {
                   <QtyPad value={counted} onChange={setCounted} unit="bundles" max={9999} />
                   {counted !== '' && countedN !== expected && <Note tone="bad" className="mt-2">{expected - countedN > 0 ? `${expected - countedN} bundle${expected - countedN === 1 ? '' : 's'} short of the ${expected} that passed the gate.` : `${countedN - expected} more than the ${expected} that passed the gate.`} Confirming raises an exception for the CEO.</Note>}
                 </FormRow>
-                <FormRow label="Signature"><CaptureTile kind="signature" done={signed} onDone={() => setSigned(true)} label={`Receiver signature · ${receiver || 'receiver'}`} /></FormRow>
+                {real ? <>
+                  <FormRow label="Signature" required><SignaturePad label={`Receiver signature · ${receiver || 'receiver'}`} onHash={setSigHash} /></FormRow>
+                  <FormRow label="Photo"><PhotoPick label="Take or choose a photo" onHash={setPhotoHash} /></FormRow>
+                </> : <FormRow label="Signature"><CaptureTile kind="signature" done={signed} onDone={() => setSigned(true)} label={`Receiver signature · ${receiver || 'receiver'}`} /></FormRow>}
               </section>
             ) : open.pod ? (
               <Note tone={open.pod.bundlesCounted === open.pod.bundlesExpected ? 'ok' : 'bad'}>Received by <b>{open.pod.receiverName}</b> on {fmtDateTime(open.pod.deliveredAt)} · {open.pod.bundlesCounted} of {open.pod.bundlesExpected} bundles{open.pod.hasSignature ? ' · signed' : ''}.</Note>
             ) : <Note tone={open.gateStatus === 'hold' ? 'bad' : 'warn'}>{open.gateStatus === 'hold' ? 'This lorry is held at the gate. Proof of delivery opens once it passes or is overridden.' : 'Still loading. Proof of delivery opens after the gate pass.'}</Note>}
             <section><div className="t-label mb-2 flex items-center gap-1.5"><Route className="size-3.5" />Shipment</div><ShipmentStepper dispatch={open} vertical /></section>
-            <section><div className="t-label mb-2 flex items-center gap-1.5"><FileText className="size-3.5" />Delivery note</div><DeliveryNoteCard dispatch={open} /></section>
+            <section><div className="t-label mb-2 flex items-center gap-1.5"><FileText className="size-3.5" />Delivery note</div><DeliveryNoteCard dispatch={open} />{(open.gateStatus === 'pass' || open.gateStatus === 'overridden') && <div className="mt-2"><ServerDocumentButton kind="delivery_note" id={open.id} label="Print delivery note" /></div>}</section>
           </div>
         )}
       </Sheet>

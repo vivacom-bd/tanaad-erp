@@ -7,7 +7,8 @@ import { useSite, useGo, useRefList, useSiteSettings } from '@/app/hooks';
 import { Badge, Button, ChipGroup, Combobox, DataGrid, Empty, FormRow, Gauge, Input, KpiStrip, Note, PageHeader, Panel, Stat, useHotkey, useIsTouch, type Column } from '@/components/ui';
 import { CountUp } from '@/components/charts';
 import { ScaleWidget } from '@/components/ScaleWidget';
-import { fmtDateTime, fmtKg, fmtNum, fmtPct, fmtTime } from '@/data/format';
+import { fmtDateTime, fmtKg, fmtNum, fmtPct, fmtTime, kampalaDay } from '@/data/format';
+import { isReal } from '@/data/api/sync';
 import { VarianceBadge, pressUseReading, useBeep } from './shared';
 import { Bench, KV, QtyPad, SetupHint, Step, dayOf, packWord, plural } from './kit';
 
@@ -27,7 +28,7 @@ export function Receive() {
 
   /* ---- what has been received so far (events of this site) */
   const receipts = useMemo(() => (s.events.filter((e) => e.type === 'StockMoved' && e.siteId === site.id && (e.payload as StockMovement).kind === 'receive') as Receipt[]).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)), [s.events, site.id]);
-  const realToday = new Date().toISOString().slice(0, 10);
+  const realToday = kampalaDay(new Date().toISOString());
   const todays = receipts.filter((e) => dayOf(e.occurredAt) === realToday || dayOf(e.occurredAt) === s.today);
   const refFor = (label: string) => materials.find((m) => m.label === label);
   const declaredKg = (m: StockMovement) => { const ref = refFor(readReason(m.reason).material); return ref ? m.qtyUnits * (ref.value ?? 1) : undefined; };
@@ -75,6 +76,19 @@ export function Receive() {
   };
   useHotkey('mod+enter', () => { if (!pressUseReading(scaleRef.current)) readScale(); }, { label: 'Read the scale, then use the stable reading', enabled: reading === null && expectedKg > 0, allowInInput: true });
   useHotkey('w', readScale, { label: 'Read the gate scale' });
+
+  const waiting = s.purchases.filter((p) => p.siteId === site.id && p.status !== 'received').length;
+  if (isReal()) return (
+    <div>
+      <PageHeader eyebrow={`${site.name} · Stock`} title="Receive at the gate" subtitle="Raw material received at the gate cannot be booked from this screen yet." />
+      <Note tone="info" className="mb-[var(--gap)]"><b>Receiving raw material:</b> open Purchases, choose the order, and enter the kilos the scale showed. {waiting > 0 ? `${waiting} order${waiting === 1 ? ' is' : 's are'} still waiting to be received.` : 'No order is waiting to be received.'}{' '}<button className="underline" onClick={() => go.site('purchases')}>Go to Purchases</button></Note>
+      <Panel icon={PackageOpen} title="What the server can book today">
+        <Empty icon={Scale} title="Gate receiving by material is not available"
+          hint="The server books stock for catalogue products only: a product, a zone and a quantity in bundles. Raw materials are not products, so a delivery weighed by material cannot be recorded here. To record what was ordered and what arrived, with its landed cost per kg, use Purchases. Finished goods move in and out through Tagging and Movements."
+          action={<><Button variant="primary" icon={PackageCheck} onClick={() => go.site('purchases')}>Open Purchases</Button><Button icon={ArrowRightLeft} onClick={() => go.site('stock/movements')}>Movements</Button></>} />
+      </Panel>
+    </div>
+  );
 
   if (site.id === 'recycling') return (
     <div>

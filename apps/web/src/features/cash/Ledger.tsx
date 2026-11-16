@@ -152,7 +152,7 @@ export function LineSheet({ row, onClose, machines, users, fx, canCorrect = fals
   const m = e?.machineId ? machines.find((x) => x.id === e.machineId) : undefined;
   const Item = ({ label, children }: { label: string; children: ReactNode }) => <div className="flex items-center justify-between gap-4 row-h border-b border-[var(--line)] last:border-b-0"><dt className="t-sm font-medium text-[var(--text-2)] shrink-0">{label}</dt><dd className="t-base text-right min-w-0 truncate">{children}</dd></div>;
   return (
-    <Sheet open={!!e} onClose={onClose} title={e ? title(e, categoryLabel) : ''} sub={e ? `${e.direction === 'in' ? 'Money in' : 'Money out'} · ${timeOf(e.at)}` : undefined} width={420} footer={<>{canCorrect && isReal() && e && e.category !== 'payout' && !fixing && <Button onClick={() => { setFixing(true); setAmount(String(e.amount)); setPayee(e.payee ?? ''); setNote(e.note ?? ''); setReason(''); }}>Correct entry</Button>}<Button onClick={onClose}>Close</Button></>}>
+    <Sheet open={!!e} onClose={onClose} title={e ? title(e, categoryLabel) : ''} sub={e ? `${e.direction === 'in' ? 'Money in' : 'Money out'} · ${timeOf(e.at)}` : undefined} width={420} footer={<>{canCorrect && isReal() && e && e.category !== 'payout' && !e.payoutId && !fixing && <Button onClick={() => { setFixing(true); setAmount(String(e.amount)); setPayee(e.payee ?? ''); setNote(e.note ?? ''); setReason(''); }}>Correct entry</Button>}<Button onClick={onClose}>Close</Button></>}>
       {e && row && fixing && (
         <div className="flex flex-col gap-3">
           <Field label="Amount"><Input type="number" min={0} step="0.01" value={amount} onChange={(x) => setAmount(x.target.value)} /></Field>

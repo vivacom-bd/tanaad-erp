@@ -9,6 +9,10 @@ export class ApiError extends Error {
   }
 }
 
+/** Called when the server answers 401 to a signed-in request: the token was revoked or has expired. Set once at start-up. */
+let sessionExpired: (() => void) | null = null;
+export const setSessionExpiredHandler = (fn: (() => void) | null) => { sessionExpired = fn; };
+
 export interface RequestOptions { method?: string; body?: unknown; token?: string | null }
 
 export async function api<T>(path: string, { method = 'GET', body, token }: RequestOptions = {}): Promise<T> {
@@ -25,6 +29,7 @@ export async function api<T>(path: string, { method = 'GET', body, token }: Requ
   const text = await res.text();
   const json: unknown = text ? JSON.parse(text) : undefined;
   if (!res.ok) {
+    if (res.status === 401 && token && !path.startsWith('/auth/')) sessionExpired?.();
     const p = (json ?? {}) as { code?: ProblemCode; detail?: string; title?: string; details?: Record<string, unknown> };
     throw new ApiError(res.status, p.code ?? 'unknown', p.detail ?? p.title ?? res.statusText, p.details);
   }

@@ -6,7 +6,10 @@ import { useSite, useQueryParam } from '@/app/hooks';
 import { Avatar, Badge, Button, DataGrid, Empty, Input, Kbd, Note, PageHeader, Panel, Row, Split, StackedBar, cn, useHotkey, type Column, type Tone } from '@/components/ui';
 import { Sticker } from '@/components/Sticker';
 import { labelHistory } from '@/data/selectors';
-import { fmtDayLong, fmtDayShort, fmtDateTime, fmtKg, fmtNum, fmtTime } from '@/data/format';
+import { isReal, siteCodeOf } from '@/data/api/sync';
+import { fetchLabelHistory } from '@/data/api/production';
+import { labelFromRow, trailFromHistory, type LabelHistory } from '@/data/api/productionMap';
+import { fmtDayLong, fmtDayShort, fmtDateTime, fmtKg, fmtNum, fmtTime, kampalaDay } from '@/data/format';
 import { cap } from './shared';
 import { IconChip, Swatch } from './parts';
 
@@ -30,16 +33,27 @@ export function ScanAnything() {
   const [unknown, setUnknown] = useState<string | null>(null);
   const [recent, setRecent] = useState<string[]>([]);
   const input = useRef<HTMLInputElement>(null);
+  const [served, setServed] = useState<{ id: string; h: LabelHistory } | null>(null); // real mode: the server's history of the scanned label
   // A hand scanner types into whatever has focus, so the field takes it back after every result.
   useEffect(() => { input.current?.focus(); }, [current, unknown]);
   const label = useMemo(() => s.labels.find((l) => l.id === current), [s.labels, current]);
   const h = label ? labelHistory(s, label) : undefined;
+  useEffect(() => {
+    setServed(null);
+    if (!isReal() || !label) return;
+    let live = true;
+    fetchLabelHistory(label.code).then((r) => { if (live) setServed({ id: label.id, h: r }); }).catch(() => undefined);
+    return () => { live = false; };
+  }, [label?.id, label?.code, label?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const lookup = (raw: string) => {
     const q = raw.trim().toUpperCase(); if (!q) return;
     const found = s.labels.find((l) => l.code.toUpperCase() === q || l.id.toUpperCase() === q);
     if (found) { setCurrent(found.id); setUnknown(null); setRecent((r) => [found.id, ...r.filter((x) => x !== found.id)].slice(0, 10)); }
-    else { setUnknown(q); setCurrent(null); }
+    else if (isReal()) {
+      // Not on this device: ask the server, which knows every site's labels.
+      fetchLabelHistory(q).then((r) => { const l = labelFromRow(r.label, siteCodeOf); useStore.setState((st) => ({ labels: st.labels.some((x) => x.id === l.id) ? st.labels : [...st.labels, l] })); setCurrent(l.id); setUnknown(null); setRecent((x) => [l.id, ...x.filter((y) => y !== l.id)].slice(0, 10)); }).catch(() => { setUnknown(q); setCurrent(null); });
+    } else { setUnknown(q); setCurrent(null); }
     setCode('');
   };
   // The command palette deep-links here with ?q=<code>.
@@ -56,6 +70,10 @@ export function ScanAnything() {
   // Event trail: real store events when this session created them, otherwise the seed's shift times.
   const trail = useMemo(() => {
     if (!label) return [];
+    if (served && served.id === label.id && served.h.history.length) {
+      const out: TrailEvent[] = served.h.history.map((it) => { const t = trailFromHistory(it); return { ...t, icon: it.type === 'created' ? Printer : it.type === 'consumed' ? GitBranch : Boxes, detail: it.type === 'created' ? `${h?.machine?.code ?? 'No machine'}${h?.operator ? ` · ${h.operator.fullName}` : ''}` : t.detail }; });
+      return out.sort((a, b) => a.at.localeCompare(b.at));
+    }
     const ev = s.events.filter((e) => { const p = e.payload as { id?: string; labelId?: string } | undefined; return p?.id === label.id || p?.labelId === label.id; });
     const created = ev.find((e) => e.type === 'LabelCreated')?.occurredAt ?? `${label.day}T${label.shiftId?.endsWith('night') ? '22:40' : '14:20'}:00+03:00`;
     const out: TrailEvent[] = [{ at: created, title: 'Created and printed', detail: `${h?.machine?.code ?? 'No machine'}${h?.operator ? ` · ${h.operator.fullName}` : ''}`, tone: 'neutral', icon: Printer, approx: !ev.length }];
@@ -69,7 +87,7 @@ export function ScanAnything() {
     if (label.status === 'consumed') { const child = s.labels.find((l) => l.parentIds.includes(label.id)); out.push({ at: ev.find((e) => e.type === 'LabelConsumed')?.occurredAt ?? `${label.day}T19:05:00+03:00`, title: 'Consumed by the next stage', detail: child ? `Became part of ${child.code}` : 'Used in production', tone: 'neutral', icon: GitBranch, approx: !ev.length }); }
     if (label.status === 'scrapped') out.push({ at: ev.find((e) => e.type === 'StockMoved')?.occurredAt ?? created, title: 'Scrapped', tone: 'bad', icon: Trash2 });
     return out.sort((a, b) => a.at.localeCompare(b.at));
-  }, [label, s.events, s.zones, s.labels, h]);
+  }, [label, s.events, s.zones, s.labels, h, served]);
 
   const order = h?.dispatch ? s.orders.find((o) => o.id === h.dispatch!.orderId) : undefined; const client = order ? s.clients.find((c) => c.id === order.clientId) : undefined;
   const mine = useMemo(() => s.labels.filter((l) => l.siteId === site.id), [s.labels, site.id]);
@@ -169,7 +187,7 @@ export function ScanAnything() {
                       {i < trail.length - 1 && <span className="absolute left-[13px] top-7 bottom-0 w-px bg-[var(--line-2)]" />}
                       <IconChip icon={e.icon} color={toneColor[e.tone] ?? 'var(--text-3)'} />
                       <div className="min-w-0 flex-1 pt-0.5">
-                        <div className="flex flex-wrap items-baseline justify-between gap-x-3"><span className="t-base font-medium">{e.title}</span><span className="num t-sm text-[var(--text-3)] whitespace-nowrap">{fmtDayShort(e.at.slice(0, 10))} {fmtTime(e.at)}{e.approx ? ' ≈' : ''}</span></div>
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-3"><span className="t-base font-medium">{e.title}</span><span className="num t-sm text-[var(--text-3)] whitespace-nowrap">{fmtDayShort(kampalaDay(e.at))} {fmtTime(e.at)}{e.approx ? ' ≈' : ''}</span></div>
                         {e.detail && <div className="t-sm text-[var(--text-2)]">{e.detail}</div>}
                       </div>
                     </li>

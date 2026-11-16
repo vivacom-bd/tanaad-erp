@@ -5,13 +5,15 @@ import { useStore } from '@/data/store';
 import { dailySeries, lastWorkingDays } from '@/data/selectors';
 import { useRefList } from '@/app/hooks';
 import { perUnit, sectorForStage } from '../production/shared';
-import { SetupHint } from '../production/parts';
+import { SetupHint, useFreshLabel } from '../production/parts';
 import { Avatar, Badge, Button, ChipGroup, DataGrid, Empty, FormRow, Input, Meter, NumberPad, PageHeader, Panel, Stat, useIsTouch, type Column } from '@/components/ui';
 import { CountUp } from '@/components/charts';
 import { PersonPicker } from '@/components/PersonPicker';
 import { Sticker } from '@/components/Sticker';
 import { printer } from '@/devices';
 import { fmtKg, fmtNum } from '@/data/format';
+import { isReal } from '@/data/api/sync';
+import { recordBatch } from '@/data/api/productionActions';
 import { addProduction, useColours, ColourDot, colourChip, draftLabel, focusFirstField, FormSection, onModEnter, StickerStage, TabThrough, useShift, Workbench } from './kit';
 
 /** M1 · The mixer batch: bags of pellets plus the masterbatch, weights from master data. One batch, one sticker; the batch label is the first link in the mass balance. */
@@ -32,6 +34,7 @@ export function Mixer() {
   const [lot, setLot] = useState(''); const [operator, setOperator] = useState<string | null>(null);
   /** The sticker on show: the one just printed, or one picked from today's list. Null shows the live preview of the next batch. */
   const [shown, setShown] = useState<{ label: Label; fresh: boolean } | null>(null); const [printing, setPrinting] = useState(false); const [run, setRun] = useState(0);
+  const shownLabel = useFreshLabel(shown?.label);
   const form = useRef<HTMLDivElement>(null);
   useEffect(() => { if (!touch) focusFirstField(form.current); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, []);
 
@@ -54,6 +57,8 @@ export function Mixer() {
     if (!ready || !colour || !operator || !mixer) return;
     const label = s.createLabel({ siteId: site.id, kind: 'batch', stageCode: 'mixer', machineId: mixer.id, operatorId: operator, shiftId: shift, day: today, qtyUnits: 1, qtyKg: totalKg, colour, grade: [sourceLabel, lot ? `lot ${lot}` : ''].filter(Boolean).join(' · ') || undefined, parentIds: [] });
     addProduction({ siteId: site.id, stageCode: 'mixer', machineId: mixer.id, shiftId: shift, day: today, operatorId: operator, goodUnits: 1, inputKg: totalKg, outputKg: totalKg });
+    if (isReal()) void recordBatch({ site: site.id, day: today, kind, machineId: mixer.id, outputKg: totalKg, labelCode: undefined, note: [sourceLabel, lot ? `lot ${lot}` : '', colour].filter(Boolean).join(' · ') || undefined,
+      lines: [{ material: pellet?.label ?? 'Pellet', kg: pelletKg }, ...(masterbatch ? [{ material: masterbatch.label, kg: masterbatchKg }] : [])] });
     setPrinting(true); setShown({ label, fresh: true }); setRun((r) => r + 1);
     await printer.print({ code: label.code, lines: [`BATCH ${colour}`, `${totalKg} kg`] });
     setPrinting(false);
@@ -64,13 +69,14 @@ export function Mixer() {
   const reprint = async () => {
     if (!shown || printing) return;
     setPrinting(true); setRun((r) => r + 1);
-    await printer.print({ code: shown.label.code, lines: [`BATCH ${shown.label.colour ?? ''}`, `${shown.label.qtyKg} kg`] });
+    const cur = shownLabel ?? shown.label;
+    await printer.print({ code: cur.code, lines: [`BATCH ${cur.colour ?? ''}`, `${cur.qtyKg} kg`] });
     setPrinting(false);
-    useStore.getState().toast({ kind: 'info', title: `Sticker ${shown.label.code} printed again`, detail: `${shown.label.colour ?? 'Batch'} · ${fmtKg(shown.label.qtyKg)}` });
+    useStore.getState().toast({ kind: 'info', title: `Sticker ${cur.code} printed again`, detail: `${shown.label.colour ?? 'Batch'} · ${fmtKg(shown.label.qtyKg)}` });
   };
 
   const preview = draftLabel(s.labels.length, { siteId: site.id, kind: 'batch', stageCode: 'mixer', machineId: mixer?.id, operatorId: operator ?? undefined, shiftId: shift, day: today, qtyUnits: 1, qtyKg: totalKg, colour: colour ?? undefined, parentIds: [] });
-  const sticker = shown?.label ?? preview;
+  const sticker = shownLabel ?? preview;
 
   const columns: Column<Label>[] = [
     { key: 'code', header: 'Sticker', sort: (l) => l.code, cell: (l) => <span className="code font-medium">{l.code}</span> },

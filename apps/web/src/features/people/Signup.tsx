@@ -43,7 +43,7 @@ function SignupDesk({ onRestart }: { onRestart: () => void }) {
 
   const register = () => {
     if (!ready || !sector) return;
-    const person = s.registerCasual({ siteId: site.id, fullName: name.trim(), phoneMomo: phone, sector, rate: rateN, idNumber: idNumber || 'to be read' });
+    const person = s.registerCasual({ siteId: site.id, fullName: name.trim(), phoneMomo: phone, sector, rate: rateN, idNumber: idNumber.trim() });
     setDone({ person });
     say({ kind: 'ok', title: `${person.fullName} signed up`, detail: `${sector} · ${fmtUGX(rateN)} per day` });
   };
@@ -97,7 +97,7 @@ function SignupDesk({ onRestart }: { onRestart: () => void }) {
               </div>
             </div>
             <dl className="grid sm:grid-cols-2 gap-x-8 px-[var(--pad)] py-2">
-              {([['ID number', <span className="code">{done.person.idNumber}</span>], ['Mobile money', <span className="num">{done.person.phoneMomo}</span>], ['Sector', done.person.sector], ['Daily rate', <span className="num">{fmtUGX(rateN)}</span>], ['Engagement', <EngTag type="casual" />], ['Settlement', 'Weekly, with the casual run'], ['Joined', fmtDayShort(done.person.joinedOn)], ['Capture', 'ID card and face · no images stored']] as [string, ReactNode][]).map(([k, v]) => (
+              {([['Worker number', <span className="code" data-testid="person-number">{s.people.find((x) => x.id === done.person.id)?.number ?? 'Assigned when synced'}</span>], ['ID number', done.person.idNumber ? <span className="code">{done.person.idNumber}</span> : <span className="text-[var(--text-3)]">Not recorded</span>], ['Mobile money', <span className="num">{done.person.phoneMomo}</span>], ['Sector', done.person.sector], ['Daily rate', <span className="num">{fmtUGX(rateN)}</span>], ['Engagement', <EngTag type="casual" />], ['Settlement', 'Weekly, with the casual run'], ['Joined', fmtDayShort(done.person.joinedOn)], ['Capture', 'ID card and face · no images stored']] as [string, ReactNode][]).map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between gap-3 h-[var(--row-h)] border-b border-[var(--line)] t-base"><dt className="text-[var(--text-2)]">{k}</dt><dd className="font-medium m-0 text-right truncate">{v}</dd></div>
               ))}
             </dl>

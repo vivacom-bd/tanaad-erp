@@ -6,7 +6,7 @@ import { useRefList, useSite, useSession, useGo } from '@/app/hooks';
 import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Empty, Kbd, KpiStrip, Meter, Note, PageHeader, Panel, Stat, Status, Tabs, cn, useHotkey, type Column } from '@/components/ui';
 import { ColumnChart, CountUp, Delta, Legend, LineChart, Sparkline } from '@/components/charts';
 import { currentShiftKind, lastWorkingDays, machineWall, shiftId, type MachineTile, type ProductionEntry } from '@/data/selectors';
-import { fmtDayLong, fmtDayShort, fmtKg, fmtNum, fmtTime } from '@/data/format';
+import { fmtDayLong, fmtDayShort, fmtKg, fmtNum, fmtTime, kampalaDay } from '@/data/format';
 import { ShiftEntrySheet } from './ShiftEntrySheet';
 import { NOW_LABEL, REASON_AFTER_MIN, perUnit, byProduct, cap, codeKey, downtimeByReason, hourOf, shiftHistory, shiftWindow, wallConfig, wallTotals, type WallConfig } from './shared';
 import { IconChip, Quiet, STATE, Swatch } from './parts';
@@ -112,7 +112,7 @@ function ShiftReplay({ wall, kind, day, cfg }: { wall: MachineTile[]; kind: Shif
           const e = t.entry; const logAt = e ? Math.max(0, Math.min(span, (hourOf(e.at) - start + 24) % 24)) : undefined;
           const end = logAt === undefined ? 0 : Math.min(logAt, nowH); const downH = e ? Math.min(end, e.downtimeMin / 60) : 0;
           const bd = t.state === 'down' ? breakdowns.find((b) => b.machineId === t.machine.id && !b.resolvedAt) : undefined;
-          const downFrom = bd && bd.startedAt.slice(0, 10) === day ? Math.max(0, Math.min(nowH, (hourOf(bd.startedAt) - start + 24) % 24)) : 0;
+          const downFrom = bd && kampalaDay(bd.startedAt) === day ? Math.max(0, Math.min(nowH, (hourOf(bd.startedAt) - start + 24) % 24)) : 0;
           const title = `${t.machine.code} · ${STATE[t.state].label}${e ? ` · logged ${fmtTime(e.at)}` : ''}${e?.downtimeMin ? ` · ${e.downtimeMin} min downtime${e.downtimeReason ? ` (${e.downtimeReason})` : ''}` : ''}`;
           return (
             <div key={t.machine.id} title={title} className="grid grid-cols-[var(--lab)_minmax(0,1fr)_var(--sum)] gap-x-3 items-center rounded-[4px] hover:bg-[var(--hover)]">
@@ -174,7 +174,7 @@ export function MachineWall() {
   const shown = running.filter((t) => matches(t, filter)); const few = running.length <= 4; const hasBench = running.some((t) => t.pct !== undefined);
   const lastByMachine = useMemo(() => {
     const sh = shiftId(site.id, day, kind); const m = new Map<string, { entry: ProductionEntry; operator?: string }>();
-    for (const p of s.production) { if (p.siteId !== site.id || p.stageCode !== cfg.stage || p.shiftId === sh) continue; const c = m.get(p.machineId); if (!c || p.day > c.entry.day || (p.day === c.entry.day && p.at > c.entry.at)) m.set(p.machineId, { entry: p, operator: s.people.find((x) => x.id === p.operatorId)?.fullName }); }
+    for (const p of s.production) { if (p.siteId !== site.id || p.stageCode !== cfg.stage || p.shiftId === sh) continue; const c = m.get(p.machineId); if (!c || p.day > c.entry.day || (p.day === c.entry.day && Date.parse(p.at) > Date.parse(c.entry.at))) m.set(p.machineId, { entry: p, operator: s.people.find((x) => x.id === p.operatorId)?.fullName }); }
     return m;
   }, [s.production, s.people, site.id, cfg.stage, day, kind]);
   const causeOf = (id: string) => s.breakdowns.find((b) => b.machineId === id && !b.resolvedAt)?.cause;

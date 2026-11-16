@@ -7,6 +7,9 @@ import { useSite, useGo, useQueryParam, useRefList, useSiteSettings } from '@/ap
 import { Avatar, Badge, Button, ChipGroup, Combobox, DataGrid, Empty, FormRow, Input, PageHeader, Panel, SearchInput, Sheet, StackedBar, Tabs, Toolbar, cn, useHotkey, useIsTouch, useMedia, type Column } from '@/components/ui';
 import { fmtDateTime, fmtKg, fmtNum, fmtPct, fmtTime } from '@/data/format';
 import { CargoBuilder, ManifestTable, manifestLines, type CargoActions } from './CargoBuilder';
+import { isReal } from '@/data/api/sync';
+import { startDispatchOnline } from '@/data/api/dispatch';
+import { DN_PENDING } from '@/data/api/dispatchMap';
 import { SetupHint } from './kit';
 import { DeliveryNoteCard, GATE_META, GateBadge, IconChip, ProductName, ShipmentStepper, StockStyles, VarianceBadge, gatePassNo, nextDeliveryNoteNo } from './shared';
 
@@ -37,7 +40,9 @@ export function Dispatch() {
   const order = s.orders.find((o) => o.id === orderId); const dispatch = s.dispatches.find((d) => d.id === dispatchId);
   const client = s.clients.find((c) => c.id === order?.clientId);
   const history = s.dispatches.filter((d) => d.siteId === site.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
-  const nextNo = nextDeliveryNoteNo(s, site.id, site.deliveryNoteSeriesStart);
+  const real = isReal(); const [starting, setStarting] = useState(false);
+  // Real mode: the server allocates the delivery note number when the gate passes; nothing is previewed.
+  const nextNo = real ? DN_PENDING : nextDeliveryNoteNo(s, site.id, site.deliveryNoteSeriesStart);
   const tol = settings?.gateTolerancePct ?? site.thresholds.gateTolerancePct;
   // Drivers who have carried a load from this site before: suggestions only, nothing is prefilled.
   const pastDrivers = [...new Set(history.map((d) => d.driver).filter(Boolean))].slice(0, 12);
@@ -45,10 +50,15 @@ export function Dispatch() {
   // The order that just left stays on the list until the next one is picked.
   const listed = order && !orders.some((o) => o.id === order.id) ? [order, ...orders] : orders;
 
-  const start = () => {
-    if (!order || dispatch) return;
+  const start = async () => {
+    if (!order || dispatch || starting) return;
     if (!driver.trim()) { toast({ kind: 'warn', title: 'Who is driving?', detail: 'Enter the driver before loading starts. The name prints on the delivery note.' }); driverRef.current?.focus(); return; }
     if (!vehicle || !lorryReady) { toast({ kind: 'warn', title: 'Which vehicle?', detail: vehicles.length ? 'Choose the vehicle for this load.' : 'Add the site vehicles in Settings → Master data first.' }); vehicleBox.current?.querySelector<HTMLElement>('[role="radio"][tabindex="0"], input')?.focus(); return; }
+    if (real) {
+      setStarting(true); const r = await startDispatchOnline(order, driver.trim(), vehicle); setStarting(false);
+      if (!r.ok || !r.dispatch) { toast({ kind: 'error', title: 'Loading not started', detail: r.message }); return; }
+      setDispatchId(r.dispatch.id); toast({ kind: 'ok', title: 'Loading started', detail: `Pick list for ${client?.name}. Start scanning. The delivery note number is set at the gate.` }); return;
+    }
     const d = startDispatch(order.id, driver.trim(), vehicle); setDispatchId(d.id); toast({ kind: 'ok', title: `${d.deliveryNoteNo} opened`, detail: `Pick list for ${client?.name}. Start scanning.` });
   };
   const loadNext = () => { setDispatchId(null); setOrderId(null); setDriver(''); setVehicle(null); setTab('build'); };
@@ -110,7 +120,7 @@ export function Dispatch() {
 
       <PageHeader title="Load lorry" meta={status}
         subtitle={order
-          ? <><span className="code">{order.number}</span> to {client?.name}, {client?.country} · delivery note <span className="code">{dispatch?.deliveryNoteNo ?? nextNo}</span>{dispatch ? <> · <span className="code">{dispatch.vehicle}</span>, {dispatch.driver}</> : ' (next in the series)'} · {scanned} of {ordered} bundles scanned · expected {fmtKg(Math.round(expectedKg))} ±{tol}%{weighed ? <> · gate {fmtKg(dispatch!.gateKg!)}{dispatch!.variancePct !== undefined ? ` (${fmtPct(dispatch!.variancePct, true)})` : ''}{dispatch!.gatePassedAt ? `, passed ${fmtTime(dispatch!.gatePassedAt)}` : ''}</> : ''}</>
+          ? <><span className="code">{order.number}</span> to {[client?.name, client?.country].filter(Boolean).join(', ')} · delivery note <span className="code">{dispatch?.deliveryNoteNo ?? nextNo}</span>{dispatch ? <> · <span className="code">{dispatch.vehicle}</span>, {dispatch.driver}</> : (isReal() ? ' (set at the gate)' : ' (next in the series)')} · {scanned} of {ordered} bundles scanned · expected {fmtKg(Math.round(expectedKg))} ±{tol}%{weighed ? <> · gate {fmtKg(dispatch!.gateKg!)}{dispatch!.variancePct !== undefined ? ` (${fmtPct(dispatch!.variancePct, true)})` : ''}{dispatch!.gatePassedAt ? `, passed ${fmtTime(dispatch!.gatePassedAt)}` : ''}</> : ''}</>
           : 'No order is waiting to load. Scan every bundle onto the lorry, weigh out, and the gate pass is issued.'}
         actions={<>
           {!order && <Button icon={ShoppingCart} onClick={() => go.site('sales/orders')}>Open orders</Button>}
@@ -120,7 +130,7 @@ export function Dispatch() {
 
       <div className="border-b border-[var(--line)] flex items-end justify-between gap-4 -mt-1">
         <Tabs variant="underline" value={tab} onChange={setTab} tabs={[{ value: 'build', label: 'Cargo builder', count: orders.length }, { value: 'history', label: 'History', count: history.length }]} />
-        <div className="hidden md:block t-sm text-[var(--text-3)] pb-2 whitespace-nowrap">Gate tolerance ±{tol}% · next delivery note <span className="code text-[var(--text-2)]">{nextNo}</span></div>
+        <div className="hidden md:block t-sm text-[var(--text-3)] pb-2 whitespace-nowrap">Gate tolerance ±{tol}%{real ? ' · delivery note number is set at the gate' : <> · next delivery note <span className="code text-[var(--text-2)]">{nextNo}</span></>}</div>
       </div>
 
       {tab === 'history' ? (
@@ -152,7 +162,7 @@ export function Dispatch() {
                       <span className="min-w-0 flex-1">
                         <span className="flex items-center gap-1.5 min-w-0"><span className="code font-medium whitespace-nowrap shrink-0">{o.number}</span><span className="t-base truncate">{c?.name}</span></span>
                         <span className="block t-sm text-[var(--text-3)] truncate">{o.lines.map((l) => `${l.bundles} ${s.products.find((p) => p.id === l.productId)?.internalName}`).join(' + ')}</span>
-                        <span className="block t-xs text-[var(--text-3)] num truncate">{c?.country} · {bundles} bundles · {fmtKg(Math.round(kg))}{d ? ` · ${d.deliveryNoteNo}` : ''}</span>
+                        <span className="block t-xs text-[var(--text-3)] num truncate">{c?.country ? `${c.country} · ` : ''}{bundles} bundles · {fmtKg(Math.round(kg))}{d ? ` · ${d.deliveryNoteNo}` : ''}</span>
                       </span>
                       {d ? <GateBadge status={d.gateStatus} /> : <Badge tone="accent" dot>{o.status === 'picking' ? 'Picking' : 'Approved'}</Badge>}
                     </button>
@@ -186,7 +196,7 @@ export function Dispatch() {
               </div>
             ) : !dispatch ? (<>
                 <Panel icon={ClipboardList} title="Step 1 · Assign Lorry & Start Loading" sub={`${order.number} · ${ordered} bundles · ${fmtKg(Math.round(expectedKg))}`} pad={false} actions={<Badge tone="accent" dot className="mr-1.5">Ready to start</Badge>}
-                  footer={<span>Delivery note <span className="code text-[var(--text)]">{nextNo}</span> continues the {site.shortName} series. Standard bundle weights are illustrative until measured.</span>}>
+                  footer={real ? <span>The delivery note number is allocated by the server when the gate passes, continuing the {site.shortName} series.</span> : <span>Delivery note <span className="code text-[var(--text)]">{nextNo}</span> continues the {site.shortName} series. Standard bundle weights are illustrative until measured.</span>}>
                   <ManifestTable lines={lines} mode="plan" />
                   <div className="px-[var(--pad)] py-3 border-t border-[var(--line)]">
                     <div className="t-label mb-1.5">Choose driver and vehicle for this load</div>
@@ -214,9 +224,9 @@ export function Dispatch() {
                             : <ChipGroup ariaLabel="Vehicle" options={vehicles.map((v) => ({ value: v.label, label: <span className="code">{v.label}</span> }))} value={vehicle} onChange={setVehicle} />}
                       </div>
                     </FormRow>
-                    <FormRow label="Destination"><div className="t-base compact:sm:pt-[7px]">{client?.name}, {client?.country}<span className="text-[var(--text-3)]"> · {order.notes ?? 'No notes on the order'}</span></div></FormRow>
+                    <FormRow label="Destination"><div className="t-base compact:sm:pt-[7px]">{[client?.name, client?.country].filter(Boolean).join(', ')}<span className="text-[var(--text-3)]"> · {order.notes ?? 'No notes on the order'}</span></div></FormRow>
                     <div className="mt-3 flex flex-wrap items-center gap-3">
-                      <Button variant="primary" size="lg" icon={Play} onClick={start}>Start loading · {nextNo}</Button>
+                      <Button variant="primary" size="lg" icon={Play} disabled={starting} onClick={start}>{real ? (starting ? 'Starting…' : 'Start loading') : `Start loading · ${nextNo}`}</Button>
                       {!lorryReady && <span className="t-xs text-[var(--text-3)]">Pick or type the driver name and choose a vehicle above to start scanning bundles.</span>}
                     </div>
                   </div>

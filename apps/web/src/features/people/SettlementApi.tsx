@@ -1,13 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Ban, Check, HandCoins, Lock, PenLine, Plus, Wallet } from 'lucide-react';
 import { useStore } from '@/data/store';
 import { useSite } from '@/app/hooks';
-import { Badge, Button, DataGrid, Empty, Field, Input, Note, PageHeader, Panel, Sheet, Tabs, cn, type Column } from '@/components/ui';
+import { Badge, Button, DataGrid, useMedia, Empty, Field, Input, Note, PageHeader, Panel, Sheet, Tabs, cn, type Column } from '@/components/ui';
 import { addDays, dow } from '@/data/selectors';
 import { fmtDayShort, fmtNum, fmtUGX } from '@/data/format';
 import { dismissRejected, useSync } from '@/data/api/sync';
+import { ServerDocumentButton } from '@/features/documents/ServerDocument';
+import { usePeopleAccess } from './access';
 import {
-  advanceEnvelope, approveEnvelope, cancelEnvelope, canCancel, createRunEnvelope, isSettlementType, lineSettled, loadSettlement, payoutEnvelope, submitSettlement, useSettlement,
+  advanceEnvelope, approveEnvelope, cancelEnvelope, refusalText, canCancel, createRunEnvelope, isSettlementType, lineSettled, loadSettlement, payoutEnvelope, submitSettlement, useSettlement,
   type Bonus, type PayMethod, type RunKind, type SettlementLineRow, type SettlementRunRow,
 } from '@/data/api/settlement';
 
@@ -28,7 +30,7 @@ function defaultPeriod(kind: RunKind, today: string): { from: string; to: string
 
 /** Real-mode Settlement: the server computes, approves and pays the runs; this screen sends the commands and shows what came back. */
 export function SettlementApi() {
-  const s = useStore(); const site = useSite();
+  const s = useStore(); const site = useSite(); const access = usePeopleAccess();
   const { runs: allRuns, advances: allAdvances, queued, error } = useSettlement();
   const rejected = useSync((x) => x.rejected);
   const [kind, setKind] = useState<RunKind>('weekly_casual');
@@ -39,19 +41,19 @@ export function SettlementApi() {
   useEffect(() => { void loadSettlement([site.id]); }, [site.id]);
 
   const runs = useMemo(() => allRuns.filter((r) => r.siteCode === site.id && r.kind === kind), [allRuns, site.id, kind]);
-  const run = runs.find((r) => r.id === runId) ?? runs[0] ?? null;
-  const advances = useMemo(() => [...queued.advances.filter((a) => a.siteCode === site.id), ...allAdvances.filter((a) => a.siteCode === site.id)], [queued, allAdvances, site.id]);
+  const run = runs.find((r) => r.id === runId) ?? runs.find((r) => r.status !== 'cancelled') ?? runs[0] ?? null; // a cancelled run does not hide the live one for the same period
+  const advances = useMemo(() => { const onServer = new Set(allAdvances.map((a) => a.id)); return [...queued.advances.filter((a) => a.siteCode === site.id && !onServer.has(a.id)), ...allAdvances.filter((a) => a.siteCode === site.id)]; }, [queued, allAdvances, site.id]); // an advance the server already has is no longer "waiting to sync"
   const nameOf = (id: string) => s.people.find((p) => p.id === id)?.fullName ?? 'Unknown person';
   const issues = rejected.filter((r) => r.siteCode === site.id && isSettlementType(r.envelope.type));
   const approving = !!run && queued.approved.includes(run.id);
   const cancelling = !!run && queued.cancelled.includes(run.id);
   const payQueued = (l: SettlementLineRow) => queued.payouts.includes(`${l.runId}|${l.personId}`);
-  const cancellable = !!run && canCancel(run, queued);
+  const cancellable = !!run && access.approveRun && canCancel(run, queued);
   const outstanding = advances.reduce((t, a) => t + a.balance, 0);
 
   const send = async (env: Parameters<typeof submitSettlement>[1], title: string, detail?: string) => { await submitSettlement(site.id, env); say({ kind: 'info', title, detail }); };
 
-  const columns: Column<SettlementLineRow>[] = [
+  const allColumns: Column<SettlementLineRow>[] = [
     { key: 'name', header: 'Name', sticky: true, sort: (l) => nameOf(l.personId), cell: (l) => <span className="font-medium">{nameOf(l.personId)}</span> },
     { key: 'period', header: 'Period', cell: (l) => <span className="text-[var(--text-2)]">{fmtDayShort(l.periodFrom)} – {fmtDayShort(l.periodTo)}</span> },
     { key: 'rate', header: 'Rate', align: 'right', mono: true, cell: (l) => <>{fmtNum(l.rate)}<span className="t-sm text-[var(--text-3)]"> /{l.rateBasis}</span></> },
@@ -62,15 +64,20 @@ export function SettlementApi() {
     { key: 'bonus', header: 'Bonus', align: 'right', mono: true, cell: (l) => (l.bonus ? fmtNum(l.bonus) : '–') },
     { key: 'adv', header: 'Advances', align: 'right', mono: true, cell: (l) => (l.advances ? `−${fmtNum(l.advances)}` : '–') },
     { key: 'net', header: 'Net', align: 'right', mono: true, sort: (l) => l.net, cell: (l) => <span className="font-semibold">{fmtNum(l.net)}</span> },
-    { key: 'pay', header: 'Payout', align: 'right', cell: (l) => {
+    { key: 'slip', header: '', align: 'right', cell: (l) => <ServerDocumentButton kind="payslip" id={l.id} label="Payslip" /> },
+    { key: 'pay', header: 'Payout', align: 'right', stickyRight: true, cell: (l) => {
       if (l.status === 'paid') return <Badge tone="ok"><Check className="size-3" strokeWidth={3} />Paid</Badge>;
       if (lineSettled(l)) return <Badge tone="neutral"><Check className="size-3" strokeWidth={3} />Settled · nothing to pay</Badge>;
       if (payQueued(l)) return <Badge tone="warn" dot>Waiting to sync</Badge>;
       if (run?.status !== 'approved') return <span className="t-sm text-[var(--text-4)]">{run?.status === 'created' ? 'Approve first' : '–'}</span>;
+      if (!access.pay) return <span className="t-sm text-[var(--text-4)]">Approved</span>;
       return <Button size="sm" icon={Wallet} disabled={l.net <= 0} onClick={() => setPayLine(l)}>Pay out</Button>;
     } },
   ];
 
+  // A phone has room for who, what they get and the payout; the detail columns come back from a tablet up.
+  const phone = useMedia('(max-width: 639px)'); const narrow = useMedia('(max-width: 1535px)');
+  const columns = allColumns.filter((c) => !phone || ['name', 'net', 'pay'].includes(c.key)).filter((c) => phone || !narrow || !['period', 'ot', 'overtime', 'bonus'].includes(c.key));
   const lines = run?.lines ?? [];
   const paid = lines.filter(lineSettled);
   return (
@@ -79,16 +86,16 @@ export function SettlementApi() {
         meta={run ? <Badge tone={STATUS[run.status].tone} dot>{STATUS[run.status].label}</Badge> : undefined}
         subtitle={run ? `Period ${fmtDayShort(run.from)} – ${fmtDayShort(run.to)}. Computed by the server from attendance and advances.` : 'Runs are computed by the server from attendance and advances.'}
         actions={<>
-          <Button icon={HandCoins} onClick={() => setSheet('advance')}>Give advance</Button>
+          {access.pay && <Button icon={HandCoins} onClick={() => setSheet('advance')}>Give advance</Button>}
           {cancellable && <Button icon={Ban} onClick={() => setSheet('cancel')}>Cancel run</Button>}
-          {run?.status === 'created' && <Button variant="primary" icon={PenLine} disabled={approving} onClick={() => void send(approveEnvelope(run.id), 'Approval queued', 'Sent to the server to sign off')}>{approving ? 'Approval waiting to sync' : 'Approve run'}</Button>}
-          <Button variant={run ? 'secondary' : 'primary'} icon={Plus} onClick={() => setSheet('new')}>New run</Button>
+          {run?.status === 'created' && access.approveRun && <Button variant="primary" icon={PenLine} disabled={approving} onClick={() => void send(approveEnvelope(run.id), 'Approval queued', 'Sent to the server to sign off')}>{approving ? 'Approval waiting to sync' : 'Approve run'}</Button>}
+          {access.createRun && <Button variant={run ? 'secondary' : 'primary'} icon={Plus} onClick={() => setSheet('new')}>New run</Button>}
         </>}
         tabs={<Tabs variant="underline" value={kind} onChange={(k) => { setKind(k); setRunId(null); }} tabs={(Object.keys(KIND_LABEL) as RunKind[]).map((k) => ({ value: k, label: KIND_LABEL[k], count: allRuns.filter((r) => r.siteCode === site.id && r.kind === k && r.status !== 'cancelled').length }))} />} />
 
       {error && <Note tone="warn" className="mb-[var(--gap)]">Could not refresh from the server: {error}. Showing the last loaded data.</Note>}
       {issues.map((r) => (
-        <Note key={r.key} tone="warn" className="mb-[var(--gap)]"><b>Not accepted:</b> {r.reason ?? r.code}{' '}
+        <Note key={r.key} tone="warn" className="mb-[var(--gap)]"><b>Not accepted:</b> {refusalText(r, s.engagements, s.people) || r.code}{' '}
           <button className="underline" onClick={() => void dismissRejected(r.key!)}>Dismiss</button></Note>
       ))}
       {queued.creates > 0 && <Note tone="neutral" className="mb-[var(--gap)]">{queued.creates} new run{queued.creates === 1 ? '' : 's'} waiting to sync. The lines appear once the server has computed them.</Note>}
@@ -111,10 +118,13 @@ export function SettlementApi() {
           {run.status === 'approved' && <Note tone="ok" icon={Lock} className="mb-[var(--gap)]"><b>Approved.</b> Lines are fixed; attendance changes do not alter them.</Note>}
           <DataGrid rows={lines} columns={columns} rowKey={(l) => l.id} dense maxHeight="max(340px, calc(100dvh - 449px))"
             empty={<Empty icon={Wallet} title="No lines" />}
-            footer={lines.length ? <tr><td colSpan={5}>Total · {lines.length} worker{lines.length === 1 ? '' : 's'}</td><td className="text-right num">{fmtNum(run.totalGross)}</td><td /><td /><td className="text-right num">{run.totalAdvances ? `−${fmtNum(run.totalAdvances)}` : '–'}</td><td className="text-right num">{fmtNum(run.totalNet)}</td><td className="text-right t-sm font-normal text-[var(--text-2)] num">{paid.length}/{lines.length} paid</td></tr> : undefined} />
+            footer={lines.length ? <tr>{columns.map((c) => {
+              const cell: Record<string, ReactNode> = { name: `Total · ${lines.length} worker${lines.length === 1 ? '' : 's'}`, gross: fmtNum(run.totalGross), adv: run.totalAdvances ? `−${fmtNum(run.totalAdvances)}` : '–', net: fmtNum(run.totalNet), pay: <span className="t-sm font-normal text-[var(--text-2)]">{paid.length}/{lines.length} paid</span> };
+              return <td key={c.key} className={cn(c.key !== 'name' && 'text-right num', c.key === 'name' && 'sticky left-0', c.stickyRight && 'sticky right-0')}>{cell[c.key]}</td>;
+            })}</tr> : undefined} />
         </>
       ) : (
-        <Empty icon={Wallet} title={`No ${KIND_LABEL[kind].toLowerCase()} run yet`} hint="Create a run for a period. The server works out each line from attendance and deducts outstanding advances." action={<Button variant="primary" icon={Plus} onClick={() => setSheet('new')}>New run</Button>} />
+        <Empty icon={Wallet} title={`No ${KIND_LABEL[kind].toLowerCase()} run yet`} hint="Create a run for a period. The server works out each line from attendance and deducts outstanding advances." action={access.createRun ? <Button variant="primary" icon={Plus} onClick={() => setSheet('new')}>New run</Button> : undefined} />
       )}
 
       <Panel className="mt-[var(--gap)]" icon={HandCoins} title="Advances" sub={`${fmtUGX(outstanding)} outstanding`} pad={false}>

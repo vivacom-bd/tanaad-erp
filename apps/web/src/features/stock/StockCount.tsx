@@ -7,13 +7,15 @@ import { useSite, useGo } from '@/app/hooks';
 import { Avatar, Badge, Button, ChipGroup, Combobox, DataGrid, Empty, Input, Note, NumberPad, PageHeader, Panel, Ring, Sheet, Tabs, useIsTouch, useMedia, type Column } from '@/components/ui';
 import { stockByProduct } from '@/data/selectors';
 import { fmtDay, fmtDayShort, fmtNum, fmtTime } from '@/data/format';
+import { isReal } from '@/data/api/sync';
+import { StockError, recordCountOnline, reopenCountOnline } from '@/data/api/stockActions';
 import { takePresetZone } from './shared';
 import { Bench, KV, ProductName, Step, Swatch, Variance, plural, signed, unitWords } from './kit';
 
 interface Line { product: Product; system: number; extra?: boolean }
 interface Result { zone: string; rows: { product: Product; counted: number; system: number }[] }
 
-/** Stock count by zone against the current demo balance. */
+/** Stock count by zone against the recorded balance. */
 export function StockCount() {
   const s = useStore(); const site = useSite(); const go = useGo(); const touch = useIsTouch();
   const recordStockCount = useStore((x) => x.recordStockCount); const toast = useStore((x) => x.toast);
@@ -24,6 +26,8 @@ export function StockCount() {
   const [editing, setEditing] = useState<string | null>(null); const [pad, setPad] = useState('');
   const [result, setResult] = useState<Result | null>(null);
   const [scope, setScope] = useState<'all' | 'zone'>('all');
+  // Real mode: the server reads the system figure when it records the count, and a difference needs a reason.
+  const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false); const [fails, setFails] = useState<{ product: Product; message: string; locked: boolean }[]>([]);
   const sheet = useRef<HTMLDivElement>(null); const phone = useMedia('(max-width: 639px)');
   const words = unitWords(site.id); const unit = words.many;
 
@@ -68,8 +72,34 @@ export function StockCount() {
     const todo = lines.find((x) => x.product.id !== editing && (next[x.product.id] === undefined || next[x.product.id] === ''));
     if (todo) { setEditing(todo.product.id); setPad(''); } else setEditing(null);
   };
+  const needReason = isReal() && diffs.some((v) => v !== 0); const reasonOk = !needReason || reason.trim().length >= 3;
+  const canReopen = s.session?.role === 'site_manager';
+  const recordReal = async () => {
+    setBusy(true); setFails([]);
+    const rows: Result['rows'] = []; const failed: typeof fails = [];
+    for (const x of entered) {
+      try {
+        const r = await recordCountOnline(site.id, { zoneId, productId: x.product.id, counted: valueOf(x.product.id)!, day: s.today, reason });
+        rows.push({ product: x.product, counted: r.countedBundles, system: r.systemBundles });
+      } catch (e) { failed.push({ product: x.product, message: e instanceof Error ? e.message : 'The count could not be saved.', locked: e instanceof StockError && e.code === 'day_locked' }); }
+    }
+    setBusy(false); setFails(failed);
+    if (rows.length) {
+      const varRows = rows.filter((o) => o.counted !== o.system).length;
+      toast(varRows ? { kind: 'warn', title: `Count recorded · ${varRows} variance${varRows > 1 ? 's' : ''}`, detail: 'The server adjusted the books and flagged it for the Site Manager.' } : { kind: 'ok', title: 'Count recorded · everything matches' });
+      setResult({ zone: zoneName, rows }); setReason('');
+      const ok = new Set(rows.map((r) => r.product.id)); setCounted((c) => Object.fromEntries(Object.entries(c).filter(([k]) => !ok.has(k)))); setExtra((x) => x.filter((id) => !ok.has(id)));
+    }
+  };
+  const reopen = async (product: Product) => {
+    setBusy(true);
+    try { await reopenCountOnline(site.id, { zoneId, productId: product.id, day: s.today, reason }); setFails((f) => f.filter((x) => x.product.id !== product.id)); toast({ kind: 'ok', title: `Count reopened · ${product.internalName}`, detail: 'Record the count again.' }); }
+    catch (e) { toast({ kind: 'error', title: 'Could not reopen the count', detail: e instanceof Error ? e.message : undefined }); }
+    setBusy(false);
+  };
   const record = () => {
     if (!zoneId || entered.length === 0) return;
+    if (isReal()) { void recordReal(); return; }
     const rows = entered.map((x) => ({ product: x.product, counted: valueOf(x.product.id)!, system: x.system }));
     for (const r of rows) recordStockCount({ siteId: site.id, zoneId, day: s.today, productId: r.product.id, countedBundles: r.counted, systemBundles: r.system });
     const varRows = rows.filter((o) => o.counted !== o.system).length;
@@ -136,7 +166,7 @@ export function StockCount() {
           actions={<Button size="sm" variant="ghost" icon={Eraser} disabled={entered.length === 0 && extra.length === 0} onClick={() => { setCounted({}); setExtra([]); if (!touch) focusCell(0); }}>Clear</Button>}
           footer={<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
             <span><span className="num font-medium text-[var(--text)]">{entered.length} of {lines.length}</span> counted · {short.length + over.length} with a difference. Only the products you enter are recorded.</span>
-            <Button data-record="" variant="primary" icon={Save} hotkey="mod+enter" hotkeyLabel="Record count" disabled={entered.length === 0} onClick={record}>Record count</Button>
+            <Button data-record="" variant="primary" icon={Save} hotkey="mod+enter" hotkeyLabel="Record count" disabled={entered.length === 0 || busy || !reasonOk} onClick={record}>{busy ? 'Recording…' : 'Record count'}</Button>
           </div>}>
           <Step n={1} title="Zone" hint="labelled units the system expects">
             <ChipGroup ariaLabel="Zone" value={zoneId} onChange={changeZone} options={zones.map((z) => ({ value: z.id, label: <>{z.name}<span className="num t-sm font-normal opacity-70">{fmtNum(systemIn(z.id))}</span></> }))} />
@@ -148,6 +178,22 @@ export function StockCount() {
                 : <DataGrid rows={lines} columns={phone ? [{ key: 'p', header: 'Product', wrap: true, cell: (x: Line) => <div className="py-0.5 min-w-0"><ProductName product={x.product} />{x.extra && <Badge tone="info" className="ml-1.5">Added</Badge>}<div className="t-sm text-[var(--text-3)] num">system {fmtNum(x.system)}</div></div> }, ...sheetCols.filter((c) => c.key === 'cnt' || c.key === 'var').map((c) => ({ ...c, width: undefined }))] : sheetCols} rowKey={(x) => x.product.id} className="shadow-none" rowClassName={(x) => (x.product.id === editing ? 'bg-[var(--selected)]' : undefined)}
                     footer={<tr><td>Total{phone && <span className="font-normal text-[var(--text-3)] num"> · system {fmtNum(lines.reduce((t, x) => t + x.system, 0))}</span>}</td>{!phone && <td className="text-right num">{fmtNum(lines.reduce((t, x) => t + x.system, 0))}</td>}<td className="text-right num pr-[22px]">{entered.length ? fmtNum(entered.reduce((t, x) => t + valueOf(x.product.id)!, 0)) : '—'}</td><td className="num">{entered.length ? <span className={net === 0 ? 'text-[var(--ok)]' : 'text-[var(--bad)]'}>{net === 0 ? 'No net variance' : `${signed(net)} net`}</span> : ''}</td>{!phone && <td />}</tr>} />}
             </div>
+            {isReal() && needReason && (
+              <div className="mt-3 max-w-[520px]">
+                <div className="t-sm font-medium text-[var(--text-2)] mb-1">Why do the counts differ? <span className="text-[var(--bad)]">required</span></div>
+                <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="For example: 2 bundles damaged in the rain" aria-label="Reason for the difference" />
+                <div className="t-xs text-[var(--text-3)] mt-1">At least three characters. It is written on the adjustment the server makes.</div>
+              </div>
+            )}
+            {fails.map((f) => (
+              <Note key={f.product.id} tone="bad" className="mt-3 max-w-[620px]">
+                <strong>{f.product.internalName}:</strong> {f.message}
+                {f.locked && canReopen && <div className="mt-1.5"><Button size="sm" disabled={busy || reason.trim().length < 3} onClick={() => void reopen(f.product)}>Reopen this count</Button><span className="t-xs text-[var(--text-3)] ml-2">uses the reason typed above (3 or more characters)</span></div>}
+              </Note>
+            ))}
+            {isReal() && fails.some((f) => f.locked) && canReopen && !needReason && (
+              <div className="mt-2 max-w-[520px]"><Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason for reopening" aria-label="Reason for reopening" /></div>
+            )}
             {addable.length > 0 && (
               <div className="flex flex-wrap items-center gap-2 mt-2.5">
                 <span className="t-sm text-[var(--text-2)] inline-flex items-center gap-1.5"><Plus className="size-3.5 text-[var(--text-3)]" />Found something that is not on the sheet?</span>

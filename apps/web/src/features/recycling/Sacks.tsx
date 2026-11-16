@@ -9,6 +9,7 @@ import { Donut } from '@/components/charts';
 import { Sticker } from '@/components/Sticker';
 import { fmtDayShort, fmtKg, fmtNum, fmtPct } from '@/data/format';
 import { addProduction, BarCell, Calc, PrintRun, SettingsEmpty, Step, Swatch, dash, useFirstField, useShift, Workbench } from './kit';
+import { useFreshLabel, useFreshLabels } from '../production/parts';
 
 const MAX_ANIM = 10;
 const tonnes = (kg: number) => `${kg / 1000} t`;
@@ -21,7 +22,7 @@ export function Sacks() {
   /** Pellet products are store data (Settings → Products). The grade chip narrows the list and is printed on the sticker. */
   const pellets = useMemo(() => s.products.filter((p) => p.siteId === 'recycling' && p.kind === 'pellet' && p.active !== false), [s.products]);
   const [lineId, setLineId] = useState<string | null>(null); const [gradeId, setGradeId] = useState<string | null>(null); const [productId, setProductId] = useState<string | null>(null); const [kg, setKg] = useState(''); const [count, setCount] = useState('');
-  const [run, setRun] = useState<Label[]>([]); const [printing, setPrinting] = useState(false); const [printedInfo, setPrintedInfo] = useState<{ n: number; kg: number } | null>(null);
+  const [runHeld, setRun] = useState<Label[]>([]); const run = useFreshLabels(runHeld); const [printing, setPrinting] = useState(false); const [printedInfo, setPrintedInfo] = useState<{ n: number; kg: number } | null>(null);
   const [formRef, focusFirst] = useFirstField<HTMLDivElement>();
   useEffect(() => { if (!lines.some((m) => m.id === lineId)) setLineId(lines.find((m) => m.status !== 'down')?.id ?? lines[0]?.id ?? null); }, [lines, lineId]);
   useEffect(() => { if (!grades.some((g) => g.id === gradeId)) setGradeId(grades[0]?.id ?? null); }, [grades, gradeId]);

@@ -8,7 +8,8 @@ import { Badge, Bar, Button, ChipGroup, Combobox, DataGrid, FormRow, Input, Mete
 import { CountUp } from '@/components/charts';
 import { Sticker } from '@/components/Sticker';
 import { fmtDayShort, fmtKg, fmtNum, fmtPct } from '@/data/format';
-import { addProduction, BarCell, Calc, dash, FormSection, PrintRun, SettingsEmpty, shortCode, Swatch, useFirstField, useShift, WIDE, Workbench } from './kit';
+import { addProduction, BarCell, Calc, dash, FormSection, PrintRun, SettingsEmpty, useSiteZone, shortCode, Swatch, useFirstField, useShift, WIDE, Workbench } from './kit';
+import { useFreshLabel, useFreshLabels } from '../production/parts';
 
 /** Labels animated on screen per run; the rest print in the background. */
 const MAX_PRINT = 12;
@@ -23,12 +24,13 @@ export function Conversion() {
   const [sizeId, setSizeId] = useState(ALL); const [colourId, setColourId] = useState(ALL); const [productId, setProductId] = useState<string | null>(null); const [brandId, setBrandId] = useState<string | null>(null);
   useEffect(() => { if (!brands.some((b) => b.id === brandId)) setBrandId(brands[0]?.id ?? null); }, [brands, brandId]);
   /** Pack products are store data (Settings → Products). The size and colour chips only narrow the list; they never make up a product. */
+  const { zoneId: packZone, picker: zonePicker } = useSiteZone('bags', 'z_bags_b');
   const packProducts = useMemo(() => s.products.filter((p) => p.siteId === 'bags' && p.kind === 'bag_pack' && p.active !== false), [s.products]);
   const size = sizes.find((x) => x.id === sizeId); const colour = colours.find((x) => x.id === colourId); const brand = brands.find((b) => b.id === brandId)?.label;
   const matches = useMemo(() => { const has = (name: string, label: string) => ` ${name.toLowerCase()} `.includes(` ${label.toLowerCase()} `); return packProducts.filter((p) => (!size || has(p.internalName, size.label)) && (!colour || has(p.internalName, colour.label) || (!!colour.color && p.colour?.toLowerCase() === colour.color.toLowerCase()))); }, [packProducts, size, colour]);
   useEffect(() => { if (matches.length === 1) setProductId(matches[0].id); else if (productId && !matches.some((p) => p.id === productId)) setProductId(null); }, [matches]); // eslint-disable-line react-hooks/exhaustive-deps
   const [packs, setPacks] = useState(''); const [rejects, setRejects] = useState('');
-  const [run, setRun] = useState<Label[]>([]); const [printing, setPrinting] = useState(false); const [lastYield, setLastYield] = useState<{ inKg: number; outKg: number } | null>(null);
+  const [runHeld, setRun] = useState<Label[]>([]); const run = useFreshLabels(runHeld); const [printing, setPrinting] = useState(false); const [lastYield, setLastYield] = useState<{ inKg: number; outKg: number } | null>(null);
   const [formRef, focusFirst] = useFirstField<HTMLDivElement>();
 
   const rolls = useMemo(() => s.labels.filter((l) => l.siteId === 'bags' && l.kind === 'roll' && l.status === 'in_stock').sort((a, b) => a.day.localeCompare(b.day) || a.code.localeCompare(b.code)), [s.labels]);
@@ -40,7 +42,7 @@ export function Conversion() {
   const converter = converters.find((m) => m.id === converterId);
   const ready = !!converter && !!product && nPacks > 0 && !printing;
   const missing = [!converter && 'a converter', !product && 'a product', nPacks <= 0 && 'the number of packs'].filter((x): x is string => !!x);
-  const preview: Label = useMemo(() => ({ id: 'preview', code: 'BAG-PAC-······', siteId: 'bags', kind: 'pack', productId: product?.id, stageCode: 'convert', machineId: converterId ?? undefined, shiftId: shift, day: today, qtyUnits: packPieces, qtyKg: product?.stdBundleWeightKg ?? 0, status: 'created', zoneId: 'z_bags_b', parentIds: [], grade: brand }), [product, converterId, shift, today, brand]);
+  const preview: Label = useMemo(() => ({ id: 'preview', code: 'BAG-PAC-······', siteId: 'bags', kind: 'pack', productId: product?.id, stageCode: 'convert', machineId: converterId ?? undefined, shiftId: shift, day: today, qtyUnits: packPieces, qtyKg: product?.stdBundleWeightKg ?? 0, status: 'created', zoneId: packZone, parentIds: [], grade: brand }), [product, converterId, shift, today, brand, packZone]);
 
   const rollName = (r: Label) => s.products.find((p) => p.id === r.productId)?.internalName ?? '—';
   const toggle = (id: string) => setSelected((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]));
@@ -64,7 +66,7 @@ export function Conversion() {
     if (!ready || !converter || !product) return;
     for (const id of selected) s.consumeLabel(id);
     const labels: Label[] = [];
-    for (let i = 0; i < Math.min(nPacks, MAX_PRINT); i++) labels.push(s.createLabel({ siteId: 'bags', kind: 'pack', productId: product.id, stageCode: 'convert', machineId: converter.id, shiftId: shift, day: today, qtyUnits: product.bundlePieces, qtyKg: product.stdBundleWeightKg, zoneId: 'z_bags_b', parentIds: selected, grade: brand }));
+    for (let i = 0; i < Math.min(nPacks, MAX_PRINT); i++) labels.push(s.createLabel({ siteId: 'bags', kind: 'pack', productId: product.id, stageCode: 'convert', machineId: converter.id, shiftId: shift, day: today, qtyUnits: product.bundlePieces, qtyKg: product.stdBundleWeightKg, zoneId: packZone, parentIds: selected, grade: brand }));
     addProduction({ siteId: 'bags', stageCode: 'convert', machineId: converter.id, shiftId: shift, day: today, productId: product.id, goodUnits: nPacks, rejectUnits: nRejects, inputKg: inKg, outputKg: outKg });
     setLastYield({ inKg, outKg }); setRun(labels); setPrinting(true); setSelected([]); setPacks(''); setRejects(''); focusFirst();
   };
@@ -126,6 +128,7 @@ export function Conversion() {
             </FormSection>
             <FormSection n={2} done={!!converter && !!product} title="Output" hint={product ? `${product.internalName}${brand ? ` · ${brand}` : ''}` : 'converter, product and brand'}>
               <FormRow label="Converter">{converters.length === 0 ? <SettingsEmpty what="converters" where="Machines" icon={Scissors} /> : <ChipGroup ariaLabel="Converter" options={converters.map((m) => ({ value: m.id, label: m.code, disabled: m.status === 'down' }))} value={converterId} onChange={setConverterId} />}</FormRow>
+              {zonePicker}
               {packProducts.length === 0 ? <SettingsEmpty className="my-1.5" what="pack products" where="Products (kind: bag pack)" icon={Boxes} /> : <>
                 <FormRow label="Size" hint={sizes.length ? undefined : 'No bag sizes yet. Add them in Settings → Master data to narrow the product list.'}>
                   {sizes.length > 0 && <ChipGroup ariaLabel="Size" options={[{ value: ALL, label: 'Any' }, ...sizes.map((x) => ({ value: x.id, label: x.label }))]} value={sizeId} onChange={setSizeId} />}

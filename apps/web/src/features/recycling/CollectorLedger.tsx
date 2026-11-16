@@ -9,6 +9,8 @@ import { ColumnChart, CountUp, Donut } from '@/components/charts';
 import { compact, fmtDayShort, fmtKg, fmtNum, fmtUGX } from '@/data/format';
 import { amountOf, BarCell, collectorColours, useShift, voucherNo } from './kit';
 import { fmtTime } from './kit';
+import { isReal, pullAll } from '@/data/api/sync';
+import { isConfirmed, ledgerTotals, loadCollectorLedger, payCollectorOnline, payErrorMessage, useCollectorLedger } from '@/data/api/recycling';
 
 interface LedgerRow { collector: string; deliveries: CollectorDelivery[]; n: number; gross: number; net: number; avgDed: number; amount: number; paid: number; unpaid: number; unpaidCount: number; last: string }
 type StatusFilter = 'all' | 'unpaid' | 'paid';
@@ -18,8 +20,8 @@ export function CollectorLedger() {
   const s = useStore(); const go = useGo(); const { today, site } = useShift();
   const q0 = useQueryParam('q'); const [q, setQ] = useState(q0 ?? ''); const [status, setStatus] = useState<StatusFilter>('all'); const [openRow, setOpenRow] = useState<string | null>(null);
   useEffect(() => { if (q0 !== undefined) setQ(q0); }, [q0]);
-  const all = s.collectorDeliveries; const dedOptions = useRefList('deduction_option');
-  const rows = useMemo<LedgerRow[]>(() => { const m = new Map<string, CollectorDelivery[]>(); for (const d of all) m.set(d.collector, [...(m.get(d.collector) ?? []), d]); return [...m.entries()].map(([collector, ds]) => { const gross = ds.reduce((t, d) => t + d.grossKg, 0); const net = ds.reduce((t, d) => t + d.netKg, 0); const amount = ds.reduce((t, d) => t + amountOf(d), 0); const paid = ds.filter((d) => d.paid).reduce((t, d) => t + amountOf(d), 0); const deliveries = [...ds].sort((a, b) => b.at.localeCompare(a.at)); return { collector, deliveries, n: ds.length, gross, net, avgDed: Math.round((ds.reduce((t, d) => t + d.deductionPct, 0) / ds.length) * 10) / 10, amount, paid, unpaid: amount - paid, unpaidCount: ds.filter((d) => !d.paid).length, last: deliveries[0].at }; }).sort((a, b) => b.net - a.net); }, [all]);
+  const all = s.collectorDeliveries; const serverLedger = useCollectorLedger((x) => x.rows); const dedOptions = useRefList('deduction_option');
+  const rows = useMemo<LedgerRow[]>(() => { const m = new Map<string, CollectorDelivery[]>(); for (const d of all) m.set(d.collector, [...(m.get(d.collector) ?? []), d]); return [...m.entries()].map(([collector, ds]) => { const gross = ds.reduce((t, d) => t + d.grossKg, 0); const net = ds.reduce((t, d) => t + d.netKg, 0); const amount = ds.reduce((t, d) => t + amountOf(d), 0); const paid = ds.filter((d) => d.paid).reduce((t, d) => t + amountOf(d), 0); const deliveries = [...ds].sort((a, b) => b.at.localeCompare(a.at)); const srv = isReal() ? ledgerTotals(ds, serverLedger.find((x) => x.collector === collector), amountOf) : null; /* real mode: the server's totals win, plus anything still waiting to sync */ return { collector, deliveries, n: ds.length, gross, net, avgDed: Math.round((ds.reduce((t, d) => t + d.deductionPct, 0) / ds.length) * 10) / 10, amount: srv?.amount ?? amount, paid: srv?.paid ?? paid, unpaid: srv?.unpaid ?? amount - paid, unpaidCount: srv?.unpaidCount ?? ds.filter((d) => !d.paid).length, last: deliveries[0].at }; }).sort((a, b) => b.net - a.net); }, [all, serverLedger]);
   const shown = rows.filter((r) => r.collector.toLowerCase().includes(q.trim().toLowerCase()) && (status === 'all' || (status === 'unpaid' ? r.unpaid > 0 : r.unpaid === 0)));
   const names = new Set(shown.map((r) => r.collector)); const colourOf = useMemo(() => collectorColours(rows.map((r) => r.collector)), [rows]);
   const days = lastWorkingDays('recycling', today, 10);
@@ -37,7 +39,12 @@ export function CollectorLedger() {
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); const a = document.createElement('a'); a.href = url; a.download = `collector-ledger-${tag.replace(/\s+/g, '-').toLowerCase()}-${today}.csv`; a.click(); URL.revokeObjectURL(url);
     useStore.getState().toast({ kind: 'ok', title: `CSV exported · ${lines.length} deliveries` });
   };
-  const pay = (d: CollectorDelivery) => { s.payCollector(d.id); useStore.getState().toast({ kind: 'ok', title: `${fmtUGX(amountOf(d))} paid to ${d.collector}`, detail: 'Posted to today’s cash book' }); };
+  const pay = (d: CollectorDelivery) => {
+    const toast = useStore.getState().toast;
+    if (!isReal()) { s.payCollector(d.id); toast({ kind: 'ok', title: `${fmtUGX(amountOf(d))} paid to ${d.collector}`, detail: 'Posted to today’s cash book' }); return; }
+    if (!isConfirmed(d)) return toast({ kind: 'warn', title: 'Waiting to sync', detail: 'Pay this voucher once the server has confirmed it.' });
+    payCollectorOnline(d.id).then(async () => { await pullAll(); await loadCollectorLedger(); toast({ kind: 'ok', title: `${fmtUGX(amountOf(d))} paid to ${d.collector}`, detail: 'Posted to today’s cash book' }); }).catch((e) => toast({ kind: 'warn', title: 'Payment not recorded', detail: payErrorMessage(e) }));
+  };
 
   const cols: Column<LedgerRow>[] = [
     { key: 'c', header: 'Collector', sort: (r) => r.collector, cell: (r) => <span className="inline-flex items-center gap-2"><Avatar name={r.collector} size={22} /><span className="font-medium">{r.collector}</span></span> },

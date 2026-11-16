@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { buildSeed, TODAY } from './build';
-import { DEMO_HOUR } from '../selectors';
 
-const NOW = `${TODAY}T${String(DEMO_HOUR).padStart(2, '0')}:20`;
+// The seed is authored against a fixed 13:20 demo time. Do not derive this from DEMO_HOUR: that follows the device clock in a production-mode build.
+const NOW = `${TODAY}T13:20`;
 
 /** Every ISO timestamp anywhere in the seed, with the record collection it came from. */
 function timestamps() {

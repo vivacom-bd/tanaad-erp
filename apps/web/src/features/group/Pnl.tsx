@@ -13,6 +13,8 @@ import { addDays, lastWorkingDays, unitCost } from '@/data/selectors';
 import { compact, fmtDayShort, fmtNum, fmtUGX } from '@/data/format';
 import { DivergingBar, IconChip, ShareBar, SiteMark, SiteTag, downloadCsv, signed, siteLabel, usd0, type SiteOrGroup } from './kit';
 import { unitName } from './shared';
+import { isReal } from '@/data/api/sync';
+import { ServerPnl } from './CostingViews';
 
 type Period = '1' | '3' | '7';
 const PERIODS: { value: Period; label: string; long: string }[] = [
@@ -36,7 +38,7 @@ const marginTone = (pct: number): Tone => (pct < 0 ? 'bad' : pct < 15 ? 'warn' :
 const marginWord = (pct: number) => (pct < 0 ? 'Loss' : pct < 15 ? 'Thin' : 'Healthy');
 
 /** Group finance view: per-site P&L from the cash pages, consolidated in USD, plus unit cost per product. */
-export function Pnl() {
+function DemoPnl() {
   const s = useStore(); const toast = useStore((x) => x.toast);
   const [period, setPeriod] = useState<Period>('7'); const n = Number(period);
   const [costSite, setCostSite] = useState<SiteOrGroup>('group');
@@ -253,3 +255,6 @@ export function Pnl() {
     </div>
   );
 }
+
+/** Real mode reads the server's costing (provisional while a period is open); demo mode keeps the local cash-page view. */
+export function Pnl() { return isReal() ? <ServerPnl /> : <DemoPnl />; }

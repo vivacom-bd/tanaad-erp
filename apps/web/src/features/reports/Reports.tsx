@@ -6,6 +6,8 @@ import { useSite } from '@/app/hooks';
 import { DEMO_HOUR, addDays, dailySeries, dow, lastWorkingDays } from '@/data/selectors';
 import { fmtDay, fmtDayShort, fmtNum, fmtPct } from '@/data/format';
 import { Button, DataGrid, Empty, Note, PageHeader, Panel, Tabs, useHotkey, useMedia, type Column } from '@/components/ui';
+import { isReal } from '@/data/api/sync';
+import { SiteCosting } from '@/features/group/CostingViews';
 import { PRINT_CSS, downloadCsv, spanLabel, useExpenseCategories } from '@/features/cash/categories';
 
 type Range = 'today' | 'week' | 'last7' | 'month';
@@ -155,6 +157,7 @@ export function Reports() {
             { key: 's', header: 'Gate', sort: (r) => r.d.gateStatus, cell: (r) => <span className={r.d.gateStatus === 'hold' ? 'text-[var(--bad)]' : r.d.gateStatus === 'overridden' ? 'text-[var(--warn)]' : undefined}>{GATE_LABEL[r.d.gateStatus] ?? r.d.gateStatus}</span> },
           ]} />}
       </Panel>
+      {isReal() && <div className="no-print"><SiteCosting site={site.id} /></div>}
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import type { SiteCode } from '@tanaad/domain';
 import { CalendarDays, Camera, CheckCircle2, ChevronLeft, ChevronRight, Download, LineChart as LineChartIcon, Lock, Plus, Printer, Receipt, ScrollText, ShieldCheck, Unlock, Wallet } from 'lucide-react';
@@ -11,7 +11,10 @@ import { compact, fmtDay, fmtDayLong, fmtDayShort, fmtNum, fmtUGX, fmtUSD } from
 import { PRINT_CSS, SITE_MANAGER_PIN, downloadCsv, stampOf, timeOf, useExpenseCategories } from './categories';
 import { CloseDaySheet, varianceTone } from './CloseDaySheet';
 import { isReal, useSync } from '@/data/api/sync';
-import { userLabel } from '@/data/api/names';
+import { userLabel, useDirectory, loadDirectory } from '@/data/api/names';
+import { loadSession } from '@/data/api/auth';
+import { pullSite } from '@/data/api/sync';
+import { isSiteManagerAt, readExpectedOpening, reopenApprovalMessage, reopenWithApproval, siteManagers } from '@/data/api/cashDay';
 import { LedgerTable, LineSheet, type LedgerGroup } from './Ledger';
 
 type Overlay = 'none' | 'close' | 'reopen' | 'receipt';
@@ -24,6 +27,8 @@ export function CashPage() {
   const [panel, setPanel] = useState<Overlay>('none');
   const [lineId, setLineId] = useState<string | null>(null);
   const closePanel = useCallback(() => setPanel('none'), []);
+  // The server lets only the Cashier and the Site Manager write the cash book; everyone else who may open it reads.
+  const role = s.session?.role; const canWrite = role === 'cashier' || role === 'site_manager';
   const idle = panel === 'none' && !lineId;
   const key = (k: string) => (idle ? k : undefined);
 
@@ -37,6 +42,9 @@ export function CashPage() {
   const pick = (d: string) => { setDay(d); setLineId(null); };
   const cd = cashDayFor(s, site.id, day);
   const sum = cd ? cashSummary(s, cd.id) : undefined;
+  // A day nobody has opened yet: the server says what it will open with.
+  const [carried, setCarried] = useState<number | undefined>();
+  useEffect(() => { setCarried(undefined); if (cd || !isReal()) return; let live = true; void readExpectedOpening(site.id, day).then((n) => { if (live) setCarried(n); }); return () => { live = false; }; }, [cd, site.id, day]);
   const me = s.users.find((u) => u.id === s.session?.userId); const cashierName = me?.name ?? 'Cashier';
   const signerUser = cd?.signedBy ? s.users.find((u) => u.id === cd.signedBy) : undefined;
   const signer = cd?.signedBy ? userLabel(cd.signedBy, s.users, undefined, s.people) : undefined;
@@ -102,7 +110,7 @@ export function CashPage() {
     : cd.status === 'reopened' ? <Badge tone="warn" dot>Reopened · sign again</Badge>
     : <Badge tone="accent" dot>Open · {entries.length} {entries.length === 1 ? 'line' : 'lines'}</Badge>;
   const figures: { label: string; value?: number; sub: ReactNode; strong?: boolean }[] = [
-    { label: 'Opening balance', value: cd?.opening, sub: 'Carried forward from the last signed close' },
+    { label: 'Opening balance', value: cd?.opening ?? carried, sub: cd ? 'Carried forward from the last signed close' : carried !== undefined ? 'Expected from the last counted close' : 'Carried forward from the last signed close' },
     { label: 'Money in', value: sum ? moneyIn : undefined, sub: sum ? `Sales ${compact(sum.sales)} · receipts ${compact(sum.receipts)}` : 'No page for this day' },
     { label: 'Money out', value: sum ? moneyOut : undefined, sub: sum ? `Expenses ${compact(sum.expenses)} · wages ${compact(sum.wages)}` : 'No page for this day' },
     { label: 'Expected closing', value: sum?.expectedClosing, strong: true, sub: cd?.countedClosing !== undefined && sum?.variance !== undefined ? `Counted ${fmtNum(cd.countedClosing)} · ${sum.variance === 0 ? 'balanced' : `${sum.variance > 0 ? 'over' : 'short'} ${fmtNum(Math.abs(sum.variance))}`}` : 'What the drawer should hold now' },
@@ -120,10 +128,10 @@ export function CashPage() {
             <div className="w-[204px]"><Combobox options={dayOptions} value={day} onChange={(v) => { if (v) pick(v); }} placeholder="Pick a day" /></div>
             <Button icon={ChevronRight} aria-label="Next day" title="Next day" hotkey={key(']')} hotkeyLabel="Next day" disabled={idx < 0 || idx >= days.length - 1} onClick={() => pick(days[idx + 1])} />
             {day !== s.today && <Button hotkey={key('t')} hotkeyLabel="Back to today" onClick={() => pick(s.today)}>Today</Button>}
-            <Button variant="secondary" icon={Plus} hotkey={key('r')} hotkeyLabel="Add receipt" disabled={!isOpen} onClick={() => setPanel('receipt')}>Add receipt</Button>
-            <Button variant="secondary" icon={Receipt} hotkey={key('n')} hotkeyLabel="Record expense" onClick={() => go.site('cash/expense')}>Record expense</Button>
-            {cd && isOpen && <Button variant="primary" icon={Lock} hotkey={key('c')} hotkeyLabel="Close day" onClick={() => setPanel('close')}>Count and close day</Button>}
-            {cd && !isOpen && <Button icon={Unlock} hotkey={key('o')} hotkeyLabel="Reopen day" onClick={() => setPanel('reopen')}>Reopen day</Button>}
+            {canWrite && <Button variant="secondary" icon={Plus} hotkey={key('r')} hotkeyLabel="Add receipt" disabled={!isOpen} onClick={() => setPanel('receipt')}>Add receipt</Button>}
+            {canWrite && <Button variant="secondary" icon={Receipt} hotkey={key('n')} hotkeyLabel="Record expense" onClick={() => go.site('cash/expense')}>Record expense</Button>}
+            {canWrite && cd && isOpen && <Button variant="primary" icon={Lock} hotkey={key('c')} hotkeyLabel="Close day" onClick={() => setPanel('close')}>Count and close day</Button>}
+            {canWrite && cd && !isOpen && <Button icon={Unlock} hotkey={key('o')} hotkeyLabel="Reopen day" onClick={() => setPanel('reopen')}>Reopen day</Button>}
           </>} />
         <div className="surface grid grid-cols-2 xl:grid-cols-4 divide-x divide-[var(--line)] max-xl:[&>*:nth-child(3)]:border-l-0 max-xl:[&>*:nth-child(n+3)]:border-t max-xl:[&>*:nth-child(n+3)]:border-[var(--line)]">
           {figures.map((f) => (
@@ -137,11 +145,12 @@ export function CashPage() {
         {mtd.total > 0 && <p className="t-sm text-[var(--text-2)] mt-2">Month to date: {fmtUGX(mtd.total)} paid out over {mtd.days} {mtd.days === 1 ? 'day' : 'days'} to {fmtDayShort(day)}.</p>}
       </div>
 
+      {!canWrite && <Note tone="neutral" icon={ShieldCheck} className="no-print">You can read the cash book. Only the Cashier and the Site Manager of this site add to it, close it or reopen it.</Note>}
       {!isOpen && cd && (
         <Note tone="ok" icon={Lock} className="items-center no-print">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="flex-1 min-w-[240px]"><strong>Closed and signed</strong> by {signer} at {cd.closedAt ? timeOf(cd.closedAt) : '—'}. The page is locked: {fmtUGX(cd.countedClosing ?? 0)} carried forward{sum?.variance !== undefined && sum.variance !== 0 && <>, variance <span className={cn('num font-semibold', vTone === 'bad' ? 'text-[var(--bad)]' : 'text-[var(--warn)]')}>{sum.variance > 0 ? '+' : '−'}{fmtNum(Math.abs(sum.variance))}</span></>}.</span>
-            <Button size="sm" icon={Unlock} onClick={() => setPanel('reopen')}>Reopen with Site Manager PIN</Button>
+            {canWrite && <Button size="sm" icon={Unlock} onClick={() => setPanel('reopen')}>Reopen with Site Manager PIN</Button>}
           </div>
         </Note>
       )}
@@ -149,11 +158,11 @@ export function CashPage() {
 
       <div className="grid gap-[var(--gap)] xl:grid-cols-[minmax(0,1fr)_360px] items-start">
         <div className="flex flex-col gap-[var(--gap)] min-w-0">
-          {isReal() && day <= s.today && cd?.status !== 'closed' && entries.length === 0 && <OpeningControl siteId={site.id} day={day} current={cd?.opening ?? 0} />}
+          {isReal() && (canWrite || s.session?.role === 'ceo') && day <= s.today && cd?.status !== 'closed' && entries.length === 0 && <OpeningControl siteId={site.id} day={day} current={cd?.opening ?? 0} />}
           {!cd || !sum ? (
             <Panel icon={ScrollText} title="Ledger" sub={fmtDay(day)}>
               <Empty icon={Wallet} title={`No page for ${fmtDay(day)}`} hint={day > s.today ? 'This day has not happened yet.' : 'Record the first receipt or expense and the page opens with the carried-forward balance.'}
-                action={day <= s.today ? <div className="flex flex-wrap justify-center gap-2"><Button icon={Plus} onClick={() => setPanel('receipt')}>Add receipt</Button><Button icon={Receipt} variant="primary" onClick={() => go.site('cash/expense')}>New expense</Button></div> : undefined} />
+                action={day <= s.today && canWrite ? <div className="flex flex-wrap justify-center gap-2"><Button icon={Plus} onClick={() => setPanel('receipt')}>Add receipt</Button><Button icon={Receipt} variant="primary" onClick={() => go.site('cash/expense')}>New expense</Button></div> : undefined} />
             </Panel>
           ) : (
             <Panel icon={ScrollText} title="Ledger" sub={`${entries.length} ${entries.length === 1 ? 'line' : 'lines'} · UGX`} pad={false} className="print-area"
@@ -179,7 +188,7 @@ export function CashPage() {
                   <div className="flex items-center justify-between h-6 t-sm"><span className="text-[var(--text-2)]">Variance</span><Badge tone={vTone} dot>{!sum?.variance ? 'Balanced' : `${sum.variance > 0 ? 'Over' : 'Short'} ${fmtNum(Math.abs(sum.variance))}`}</Badge></div>
                   <div className="flex items-center justify-between h-6 t-sm"><span className="text-[var(--text-2)]">Tolerance</span><span className="num text-[var(--text-3)]">± {fmtNum(threshold)}</span></div>
                 </div>
-                <Button block icon={Unlock} onClick={() => setPanel('reopen')}>Reopen · Site Manager PIN</Button>
+                {canWrite && <Button block icon={Unlock} onClick={() => setPanel('reopen')}>Reopen · Site Manager PIN</Button>}
               </div>
             ) : (
               <div className="flex flex-col gap-2.5">
@@ -188,7 +197,7 @@ export function CashPage() {
                   <div className="flex items-center justify-between h-6 t-sm"><span className="text-[var(--text-2)]">Expected in drawer</span><span className="num font-medium">{fmtUGX(sum?.expectedClosing ?? 0)}</span></div>
                   <div className="flex items-center justify-between h-6 t-sm"><span className="text-[var(--text-2)]">Tolerance</span><span className="num text-[var(--text-3)]">± {fmtNum(threshold)}</span></div>
                 </div>
-                <Button block variant="primary" icon={Lock} onClick={() => setPanel('close')}>Count and close the day</Button>
+                {canWrite && <Button block variant="primary" icon={Lock} onClick={() => setPanel('close')}>Count and close the day</Button>}
               </div>
             )}
           </Panel>
@@ -201,20 +210,35 @@ export function CashPage() {
       </div>
 
       {cd && sum && <CloseDaySheet open={panel === 'close'} onClose={closePanel} expected={sum.expectedClosing} threshold={threshold} cashierName={cashierName} dayLabel={fmtDay(day)} onConfirm={onClose} />}
-      <ReopenSheet open={panel === 'reopen'} dayLabel={fmtDay(day)} onClose={closePanel} onReopen={(reason) => { if (!cd) return; reopenCashDay(cd.id, reason); setPanel('none'); toast({ kind: 'warn', title: `${fmtDay(day)} reopened`, detail: reason }); }} />
+      <ReopenSheet open={panel === 'reopen'} dayLabel={fmtDay(day)} siteCode={site.id} day={day} onClose={closePanel} onApproved={() => { setPanel('none'); toast({ kind: 'warn', title: `${fmtDay(day)} reopened`, detail: 'Approved by the Site Manager' }); }} onReopen={(reason) => { if (!cd) return; reopenCashDay(cd.id, reason); setPanel('none'); toast({ kind: 'warn', title: `${fmtDay(day)} reopened`, detail: reason }); }} />
       <ReceiptSheet open={panel === 'receipt'} dayLabel={fmtDay(day)} onClose={closePanel} onSave={(amount, payee) => { addCashEntry({ siteId: site.id, day, direction: 'in', category: 'receipt', amount, payee, hasReceiptPhoto: false }); setPanel('none'); toast({ kind: 'ok', title: `Receipt ${fmtUGX(amount)} recorded`, detail: payee }); }} />
-      <LineSheet row={line} canCorrect={cd?.status !== 'closed'} onClose={() => setLineId(null)} machines={s.machines} users={s.users} fx={s.fx} />
+      <LineSheet row={line} canCorrect={canWrite && cd?.status !== 'closed'} onClose={() => setLineId(null)} machines={s.machines} users={s.users} fx={s.fx} />
     </div>
   );
 }
 
 /* ------------------------------------------------------------------ Reopen (reason, then PIN) */
-function ReopenSheet({ open, onClose, onReopen, dayLabel }: { open: boolean; onClose: () => void; onReopen: (reason: string) => void; dayLabel: string }) {
+function ReopenSheet({ open, onClose, onReopen, onApproved, dayLabel, siteCode, day }: { open: boolean; onClose: () => void; onReopen: (reason: string) => void; onApproved: () => void; dayLabel: string; siteCode: string; day: string }) {
   const [reason, setReason] = useState(''); const [wrong, setWrong] = useState(false); const [step, setStep] = useState<'reason' | 'pin'>('reason');
-  const toast = useStore((x) => x.toast);
+  const [manager, setManager] = useState<string | null>(null); const [problem, setProblem] = useState<string | undefined>(); const [busy, setBusy] = useState(false);
+  const toast = useStore((x) => x.toast); const online = useStore((x) => x.online);
+  const dir = useDirectory((x) => x.byId);
+  // Real mode on a shared cashier device: a Site Manager approves with their own PIN, checked by the server. A manager's own session needs no second person.
+  const approval = isReal() && !isSiteManagerAt(siteCode);
+  const managers = useMemo(() => siteManagers(Object.values(dir), siteCode), [dir, siteCode]);
+  useEffect(() => { if (open && approval) { const t = loadSession()?.token; if (t) void loadDirectory(t); } }, [open, approval]);
+  useEffect(() => { if (managers.length === 1 && !manager) setManager(managers[0].id); }, [managers, manager]);
   const ready = reason.trim().length >= 4;
-  const leave = () => { setReason(''); setWrong(false); setStep('reason'); };
+  const leave = () => { setReason(''); setWrong(false); setStep('reason'); setManager(null); setProblem(undefined); setBusy(false); };
   const submit = useCallback((pin: string) => { if (pin === SITE_MANAGER_PIN) { onReopen(reason.trim()); leave(); } else { setWrong(true); toast({ kind: 'error', title: 'Wrong PIN', detail: 'Only the Site Manager can reopen a signed day.' }); } }, [reason, onReopen, toast]);
+  const submitApproved = useCallback(async (pin: string) => {
+    if (!manager || busy) return;
+    if (!online) { setProblem('Reopening needs a connection.'); return; }
+    setBusy(true); setProblem(undefined);
+    try { await reopenWithApproval(siteCode, day, reason.trim(), manager, pin); await pullSite(siteCode as SiteCode); onApproved(); leave(); }
+    catch (e) { setProblem(reopenApprovalMessage(e)); setBusy(false); }
+  }, [manager, busy, online, siteCode, day, reason, onApproved]);
+  const managerOptions = managers.map((m) => ({ value: m.id, label: m.name }));
   return (
     <Sheet open={open} onClose={() => { leave(); onClose(); }} title="Reopen a signed day" sub={dayLabel} width={440}>
       <Note tone="warn" className="mb-3">Reopening is logged in the audit trail with your reason. The day must be closed and signed again afterwards.</Note>
@@ -223,8 +247,9 @@ function ReopenSheet({ open, onClose, onReopen, dayLabel }: { open: boolean; onC
       </Field>
       <div className="mt-4 pt-4 border-t border-[var(--line)]">
         <div className="t-sm font-medium text-[var(--text-2)] mb-2">2 · Site Manager PIN</div>
-        {step === 'pin' && ready ? <PinPad title="Site Manager PIN" error={wrong ? 'Wrong PIN. Try again.' : undefined} onSubmit={submit} />
-          : <div className="flex flex-col items-center gap-2 py-3"><div className="t-sm text-[var(--text-3)] text-center">{ready ? 'Hand the keyboard to the Site Manager.' : 'Give a reason first.'}</div><Button variant="primary" icon={ShieldCheck} disabled={!ready} onClick={() => setStep('pin')}>Enter the PIN</Button></div>}
+        {approval && <Field label="Site Manager" className="mb-3" hint={managers.length ? undefined : 'No Site Manager is listed for this site yet.'}><Combobox options={managerOptions} value={manager} onChange={(v) => { setManager(v); setProblem(undefined); }} placeholder="Choose the Site Manager" emptyText="No Site Manager found" /></Field>}
+        {step === 'pin' && ready && (!approval || manager) ? <PinPad title="Site Manager PIN" error={approval ? problem : wrong ? 'Wrong PIN. Try again.' : undefined} onSubmit={approval ? (pin) => void submitApproved(pin) : submit} />
+          : <div className="flex flex-col items-center gap-2 py-3"><div className="t-sm text-[var(--text-3)] text-center">{!ready ? 'Give a reason first.' : approval && !manager ? 'Choose the Site Manager first.' : 'Hand the keyboard to the Site Manager.'}</div><Button variant="primary" icon={ShieldCheck} disabled={!ready || (approval && !manager)} onClick={() => setStep('pin')}>Enter the PIN</Button></div>}
       </div>
     </Sheet>
   );

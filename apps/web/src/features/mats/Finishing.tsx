@@ -11,7 +11,7 @@ import { ScaleWidget } from '@/components/ScaleWidget';
 import { Sticker } from '@/components/Sticker';
 import { fmtKg, fmtNum, fmtPct } from '@/data/format';
 import { sectorForStage } from '../production/shared';
-import { SetupHint } from '../production/parts';
+import { SetupHint, useFreshLabels } from '../production/parts';
 import { addProduction, draftLabel, Figure, focusFirstField, FormSection, onModEnter, PrintRun, ScaleFrame, StickerStage, TabThrough, useShift, Workbench } from './kit';
 
 interface Sample { n: number; productId: string; kg: number; at: string }
@@ -28,7 +28,7 @@ export function Finishing() {
   const zones = useMemo(() => { const all = s.zones.filter((z) => z.siteId === site.id); const used = new Set(s.labels.filter((l) => l.siteId === site.id && l.kind === 'bundle' && l.zoneId).map((l) => l.zoneId)); const fin = all.filter((z) => used.has(z.id)); return fin.length ? fin : all; }, [s.zones, s.labels, site.id]);
   const [productId, setProductId] = useState<string | null>(null); const [loomId, setLoomId] = useState<string | null>(null); const [finisher, setFinisher] = useState<string | null>(null);
   const [zoneId, setZoneId] = useState<string>(zones[0]?.id ?? ''); const [pieces, setPieces] = useState('');
-  const [run, setRun] = useState<Label[]>([]); const [printing, setPrinting] = useState(false);
+  const [runHeld, setRun] = useState<Label[]>([]); const run = useFreshLabels(runHeld); const [printing, setPrinting] = useState(false);
   const [samples, setSamples] = useState<Sample[]>([]); const [scaleRound, setScaleRound] = useState(0);
   const [loose, setLoose] = useState<Record<string, number>>({});
   const form = useRef<HTMLDivElement>(null);

@@ -4,6 +4,8 @@ import { AlarmClock, Download, Gauge as GaugeIcon, HandCoins, Landmark, PieChart
 import type { Client, Currency } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { useGo, useQueryParam, useRefList, useSite } from '@/app/hooks';
+import { isReal } from '@/data/api/sync';
+import { reasonOf, saveClientReal } from '@/data/api/salesActions';
 import { addDays, clientBalance, orderTotal } from '@/data/selectors';
 import { fmtDayShort, fmtMoney, fmtNum } from '@/data/format';
 import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, FormRow, Input, KpiStrip, Note, NumberPad, PageHeader, Panel, SearchInput, Sheet, StackedBar, Stat, Tabs, Toolbar, useIsTouch, useMedia, type Column } from '@/components/ui';
@@ -121,13 +123,15 @@ export function Clients() {
       </div>
 
       {open && <ClientInspector key={open.id} client={open} onClose={() => setOpenId(null)} onNewOrder={() => newOrder(open.id)} />}
-      {adding && <NewClientSheet defaultChannel={tab === 'export' ? 'export' : 'local'} onClose={() => setAdding(false)} onSave={(draft) => { const c = useStore.getState().saveClient(draft); setTab('all'); setQ(''); setAdding(false); setOpenId(c.id); useStore.getState().toast({ kind: 'ok', title: `${c.name} added`, detail: c.channel === 'export' ? `Credit ${fmtMoney(c.creditLimit, c.currencyPref)} · ${c.creditDays} days` : 'Cash before delivery' }); }} />}
+      {adding && <NewClientSheet defaultChannel={tab === 'export' ? 'export' : 'local'} onClose={() => setAdding(false)} onSave={(draft) => { const done = (c: Client) => { setTab('all'); setQ(''); setAdding(false); setOpenId(c.id); useStore.getState().toast({ kind: 'ok', title: `${c.name} added`, detail: c.channel === 'export' ? `Credit ${fmtMoney(c.creditLimit, c.currencyPref)} · ${c.creditDays} days` : 'Cash before delivery' }); }; if (!isReal()) return done(useStore.getState().saveClient(draft)); saveClientReal(site.id, draft).then(done).catch((e) => useStore.getState().toast({ kind: 'error', title: `${draft.name} was not saved`, detail: reasonOf(e, 'The client could not be saved.') })); }} />}
     </div>
   );
 }
 
 function NewClientSheet({ defaultChannel, onClose, onSave }: { defaultChannel: Channel; onClose: () => void; onSave: (c: Omit<Client, 'id'>) => void }) {
   const touch = useIsTouch();
+  // Only the CEO or group admin sets credit terms (the server refuses anyone else); others register a cash buyer.
+  const role = useStore((x) => x.session?.role); const canTerms = !isReal() || role === 'ceo' || role === 'group_admin';
   // Markets and credit terms are master data (Settings → Master data: `market`, `credit_term`).
   const go = useGo(); const clients = useStore((x) => x.clients);
   const markets = useRefList('market'); const terms = useRefList('credit_term');
@@ -137,7 +141,7 @@ function NewClientSheet({ defaultChannel, onClose, onSave }: { defaultChannel: C
   const home = most(clients.filter((c) => c.channel === 'local' && countries.includes(c.country)).map((c) => c.country)) ?? countries[0];
   const abroad = countries.find((c) => c !== home) ?? home;
   const termOptions = useMemo(() => terms.filter((t) => typeof t.value === 'number' && t.value > 0).map((t) => ({ days: t.value as number, label: t.label })), [terms]);
-  const [name, setName] = useState(''); const [contact, setContact] = useState(''); const [country, setCountry] = useState<Country | undefined>(defaultChannel === 'export' ? abroad : home); const [channel, setChannel] = useState<Channel>(defaultChannel);
+  const dc: Channel = canTerms ? defaultChannel : 'local'; const [name, setName] = useState(''); const [contact, setContact] = useState(''); const [country, setCountry] = useState<Country | undefined>(dc === 'export' ? abroad : home); const [channel, setChannel] = useState<Channel>(dc);
   const [whatsapp, setWhatsapp] = useState(''); const [currency, setCurrency] = useState<Currency>(defaultChannel === 'export' ? 'USD' : 'UGX'); const [limit, setLimit] = useState(''); const [days, setDays] = useState(termOptions[0] ? String(termOptions[0].days) : '');
   const pickChannel = (c: Channel) => { setChannel(c); setCurrency(c === 'export' ? 'USD' : 'UGX'); if (c === 'export' && country === home) setCountry(abroad); if (c === 'local') setCountry(home); };
   const missing = [name.trim().length < 2 && 'a business name', whatsapp.replace(/\D/g, '').length < 9 && 'a WhatsApp number', !country && 'a country', channel === 'export' && !(Number(limit) > 0) && 'a credit limit', channel === 'export' && !(Number(days) > 0) && 'credit days'].filter(Boolean) as string[];
@@ -159,7 +163,7 @@ function NewClientSheet({ defaultChannel, onClose, onSave }: { defaultChannel: C
         </section>
         <section>
           <StepTitle n={2}>Terms</StepTitle>
-          <FormRow label="Channel"><ChipGroup ariaLabel="Channel" options={[{ value: 'local', label: 'Local · cash before delivery' }, { value: 'export', label: 'Export · credit' }]} value={channel} onChange={pickChannel} /></FormRow>
+          <FormRow label="Channel"><ChipGroup ariaLabel="Channel" options={[{ value: 'local', label: 'Local · cash before delivery' }, { value: 'export', label: 'Export · credit', disabled: !canTerms }]} value={channel} onChange={pickChannel} />{!canTerms && <div className="t-sm text-[var(--text-3)] mt-1">Credit terms are set by the CEO or group admin.</div>}</FormRow>
           <FormRow label="Country">{countries.length ? <ChipGroup ariaLabel="Country" options={countries.map((c) => ({ value: c, label: c }))} value={country} onChange={setCountry} /> : <span className="t-sm text-[var(--text-3)]">No markets set up. <button type="button" className="underline underline-offset-2 hover:text-[var(--text)]" onClick={() => go.site('settings')}>Add markets in Settings → Master data</button></span>}</FormRow>
           <FormRow label="Invoice currency"><ChipGroup ariaLabel="Invoice currency" options={[{ value: 'UGX', label: 'UGX' }, { value: 'USD', label: 'USD' }]} value={currency} onChange={setCurrency} /></FormRow>
           {channel === 'export' && <>

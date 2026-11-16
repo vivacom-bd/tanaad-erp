@@ -1,7 +1,11 @@
+import { kampalaDay } from './format';
 import type { AppState } from './store';
 import type { Attendance, CashEntry, Label, Machine, Product, ProductionEntry, RefItem, RefList, Site, SiteCode, ShiftKind } from '@tanaad/domain';
 import { contractState, massBalance } from '@tanaad/domain';
 import { SITES } from '@/config/sites';
+import { DEMO } from './api/env';
+import { stockLinesFromRows } from './api/stockMap';
+import { dayKey, emptyMass, wallKey, wallTilesFromServer } from './api/productionMap';
 
 export const addDays = (day: string, n: number) => { const d = new Date(day + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
 export const dow = (day: string) => new Date(day + 'T00:00:00Z').getUTCDay();
@@ -9,7 +13,7 @@ export const lastWorkingDays = (site: SiteCode, today: string, n: number) => { c
 
 export const shiftId = (site: SiteCode, day: string, kind: ShiftKind) => `sh_${site}_${day}_${kind}`;
 /** Demo clock: the seed describes 10 Oct 2026 at ~13:20, day shift in progress. Production derives this from the device clock and the site's shift table. */
-export const DEMO_HOUR = 13;
+export const DEMO_HOUR = import.meta.env.PROD && !DEMO ? new Date().getHours() : 13; // the pinned demo clock only exists outside real production builds
 /** Fraction of a 12 h shift elapsed. 1 for any shift that is not the one in progress today. */
 export const shiftProgress = (today: string, day: string, kind: ShiftKind) => (day === today && kind === currentShiftKind() ? Math.max(0.1, Math.min(1, (DEMO_HOUR - (kind === 'day' ? 7 : 19)) / 12)) : 1);
 export const currentShiftKind = (): ShiftKind => (DEMO_HOUR >= 7 && DEMO_HOUR < 19 ? 'day' : 'night');
@@ -50,10 +54,19 @@ export function cashInSafe(s: AppState, site: SiteCode) { const open = s.cashDay
 
 export const machinesOf = (s: AppState, site: SiteCode, stage?: string) => s.machines.filter((m) => m.siteId === site && (!stage || m.stageCode === stage));
 export const benchmarkFor = (s: AppState, machineId: string, productId?: string) => (productId ? s.benchmarks.find((b) => b.machineId === machineId && b.productId === productId)?.unitsPerShift : undefined);
-export function machineWall(s: AppState, site: SiteCode, day: string, kind: ShiftKind) {
+/** Demo mode computes the wall locally. Real mode shows the server's own wall (percent and state), except a machine whose newer local entry has not synced yet. */
+export function machineWall(s: AppState, site: SiteCode, day: string, kind: ShiftKind): ReturnType<typeof localWall> {
+  if (!s.serverViews) return localWall(s, site, day, kind);
+  const w = s.serverViews.wall[wallKey(site, day, kind)];
+  if (!w) return [];
+  const server = wallTilesFromServer(w, site, day, kind, s.machines, s.products, s.people);
+  const local = localWall(s, site, day, kind);
+  return server.map((t) => { const mine = local.find((l) => l.machine.id === t.machine.id)?.entry; return mine && (!t.entry || Date.parse(mine.at) > Date.parse(t.entry.at)) ? local.find((l) => l.machine.id === t.machine.id)! : t; });
+}
+function localWall(s: AppState, site: SiteCode, day: string, kind: ShiftKind) {
   const sh = shiftId(site, day, kind); const wallStage = site === 'mats' ? 'weave' : site === 'bags' ? 'extrude' : 'pelletise';
   return machinesOf(s, site, wallStage).map((m) => {
-    const entry = s.production.find((p) => p.machineId === m.id && p.shiftId === sh);
+    const entry = s.production.find((p) => p.machineId === m.id && p.shiftId === sh && p.stageCode === wallStage);
     const product = entry?.productId ? s.products.find((p) => p.id === entry.productId) : undefined;
     const bench = entry ? benchmarkFor(s, m.id, entry.productId) : undefined;
     const operator = entry?.operatorId ? s.people.find((p) => p.id === entry.operatorId) : undefined;
@@ -64,7 +77,11 @@ export function machineWall(s: AppState, site: SiteCode, day: string, kind: Shif
     return { machine: m, entry, product, benchmark: bench, expectedSoFar, progress, operator, pct, state };
   });
 }
-export function massBalanceDay(s: AppState, site: SiteCode, day: string) {
+/** Real mode returns the server's mass balance for the day, so the figures can never differ from the ledger. */
+export function massBalanceDay(s: AppState, site: SiteCode, day: string): ReturnType<typeof localMassBalance> {
+  return s.serverViews ? (s.serverViews.mass[dayKey(site, day)] ?? emptyMass) : localMassBalance(s, site, day);
+}
+function localMassBalance(s: AppState, site: SiteCode, day: string) {
   const entries = s.production.filter((p) => p.siteId === site && p.day === day);
   const firstStage = site === 'mats' ? 'mixer' : site === 'bags' ? 'extrude' : 'pelletise';
   const kgIn = entries.filter((e) => e.stageCode === firstStage).reduce((t, e) => t + e.inputKg, 0);
@@ -75,7 +92,11 @@ export function massBalanceDay(s: AppState, site: SiteCode, day: string) {
   const wipDeltaKg = site === 'mats' ? s.labels.filter((l) => l.siteId === site && l.kind === 'rack' && l.day === day && l.status === 'in_stock').reduce((t, l) => t + l.qtyKg, 0) : 0;
   return { kgIn, kgOut, wasteKg, wipDeltaKg, ...massBalance({ kgIn, kgOut, wipDeltaKg, wasteKg, allowedLossPct: s.siteSettings?.[site]?.massGapPct ?? SITES[site].thresholds.massGapPct }) };
 }
-export function outputToday(s: AppState, site: SiteCode, day: string) {
+export function outputToday(s: AppState, site: SiteCode, day: string): ReturnType<typeof localOutput> {
+  if (!s.serverViews) return localOutput(s, site, day);
+  return (s.serverViews.output[dayKey(site, day)]?.byProduct ?? []).map((r) => ({ product: s.products.find((p) => p.id === r.productId), units: Number(r.units ?? 0), kg: Number(r.kg ?? 0), target: Number(r.target ?? 0) }));
+}
+function localOutput(s: AppState, site: SiteCode, day: string) {
   const wallStage = site === 'mats' ? 'weave' : site === 'bags' ? 'convert' : 'pelletise';
   const entries = s.production.filter((p) => p.siteId === site && p.day === day && p.stageCode === wallStage);
   const by = new Map<string, { product?: Product; units: number; kg: number; target: number }>();
@@ -84,6 +105,16 @@ export function outputToday(s: AppState, site: SiteCode, day: string) {
 }
 
 export function stockByProduct(s: AppState, site: SiteCode) {
+  if (s.serverStock) { // real mode: the server's on-hand figures, plus labels made on this device that have not synced yet
+    const lines = stockLinesFromRows(s.serverStock, site, s.products);
+    for (const l of s.labels) {
+      if (l.siteId !== site || l.status !== 'in_stock' || !l.productId || !l.code.startsWith('PENDING-')) continue;
+      const p = s.products.find((x) => x.id === l.productId); if (!p) continue;
+      const cur = lines.find((x) => x.product.id === p.id) ?? (lines.push({ product: p, bundles: 0, pieces: 0, kg: 0, zones: new Map() }), lines[lines.length - 1]);
+      cur.bundles += 1; cur.pieces += l.qtyUnits; cur.kg += l.qtyKg; if (l.zoneId) cur.zones.set(l.zoneId, (cur.zones.get(l.zoneId) ?? 0) + 1);
+    }
+    return lines.sort((a, b) => b.bundles - a.bundles);
+  }
   const inStock = s.labels.filter((l) => l.siteId === site && l.status === 'in_stock' && l.productId);
   const by = new Map<string, { product: Product; bundles: number; pieces: number; kg: number; zones: Map<string, number> }>();
   for (const l of inStock) { const p = s.products.find((x) => x.id === l.productId)!; const cur = by.get(p.id) ?? { product: p, bundles: 0, pieces: 0, kg: 0, zones: new Map() }; cur.bundles += 1; cur.pieces += l.qtyUnits; cur.kg += l.qtyKg; if (l.zoneId) cur.zones.set(l.zoneId, (cur.zones.get(l.zoneId) ?? 0) + 1); by.set(p.id, cur); }
@@ -93,10 +124,12 @@ export const labelHistory = (s: AppState, label: Label) => ({ label, product: s.
 
 export function clientBalance(s: AppState, clientId: string) {
   const invoiced = s.invoices.filter((i) => s.orders.find((o) => o.id === i.orderId)?.clientId === clientId).reduce((t, i) => t + i.total, 0);
-  const paid = s.payments.filter((p) => p.clientId === clientId).reduce((t, p) => t + p.amount, 0);
-  const openInvoices = s.invoices.filter((i) => { const o = s.orders.find((x) => x.id === i.orderId); return o?.clientId === clientId && o.status !== 'paid'; });
+  const mine = s.invoices.filter((i) => s.orders.find((o) => o.id === i.orderId)?.clientId === clientId);
+  // Real mode: the server tracks what each invoice has received (cash taken before delivery has no payment row), so its figure is the paid one.
+  const paid = mine.some((i) => i.paid !== undefined) ? mine.reduce((t, i) => t + (i.paid ?? 0), 0) : s.payments.filter((p) => p.clientId === clientId).reduce((t, p) => t + p.amount, 0);
+  const openInvoices = s.invoices.filter((i) => { const o = s.orders.find((x) => x.id === i.orderId); return o?.clientId === clientId && o.status !== 'paid' && (i.balance === undefined || i.balance > 0); });
   const oldest = openInvoices.sort((a, b) => a.issuedAt.localeCompare(b.issuedAt))[0];
-  const ageDays = oldest ? Math.round((new Date(s.today).getTime() - new Date(oldest.issuedAt.slice(0, 10)).getTime()) / 86400000) : 0;
+  const ageDays = oldest ? Math.round((new Date(s.today).getTime() - new Date(kampalaDay(oldest.issuedAt)).getTime()) / 86400000) : 0;
   const lastPayment = s.payments.filter((p) => p.clientId === clientId).sort((a, b) => b.at.localeCompare(a.at))[0];
   return { invoiced, paid, balance: invoiced - paid, openInvoices, ageDays, lastPayment };
 }
@@ -107,7 +140,14 @@ export const openExceptions = (s: AppState, site?: SiteCode) => s.exceptions.fil
 export const lowStockParts = (s: AppState, site: SiteCode) => s.parts.filter((p) => p.siteId === site && p.onHand < p.minLevel);
 export const machinesDown = (s: AppState, site: SiteCode) => s.machines.filter((m) => m.siteId === site && m.status === 'down');
 
-export function yieldByLine(s: AppState, day: string) {
+export function yieldByLine(s: AppState, day: string): ReturnType<typeof localYield> {
+  if (!s.serverViews) return localYield(s, day);
+  return (s.serverViews.output[dayKey('recycling', day)]?.yieldByLine ?? []).flatMap((r) => {
+    const machine = s.machines.find((m) => m.id === r.machineId); if (!machine) return [];
+    return [{ machine, inKg: Number(r.inKg ?? 0), outKg: Number(r.outKg ?? 0), yieldPct: Number(r.yieldPct ?? 0), capacityKg: Number(r.capacityKg ?? 0) }];
+  });
+}
+function localYield(s: AppState, day: string) {
   // Lines are whatever machines sit at the pelletising stage; capacity is the machine's own rated figure (Settings).
   return s.machines.filter((m) => m.siteId === 'recycling' && m.stageCode === 'pelletise' && m.status !== 'retired').map((machine) => { const es = s.production.filter((p) => p.machineId === machine.id && p.day === day); const inKg = es.reduce((t, e) => t + e.inputKg, 0); const outKg = es.reduce((t, e) => t + e.outputKg, 0); return { machine, inKg, outKg, yieldPct: inKg ? Math.round((outKg / inKg) * 1000) / 10 : 0, capacityKg: machine.capacityKgPerDay ?? 0 }; });
 }

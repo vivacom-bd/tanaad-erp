@@ -1,3 +1,5 @@
+import { settingsAccess } from './access';
+import { isReal } from '@/data/api/sync';
 import { useMemo, useState } from 'react';
 import { useParams } from '@tanstack/react-router';
 import { Boxes, Cog, Factory, Landmark, ListChecks, MapPin, Plus, Ruler, ShieldCheck, Users } from 'lucide-react';
@@ -10,6 +12,7 @@ import { Avatar, Badge, Button, ChipGroup, DataGrid, Field, Input, Note, PageHea
 import { LISTS } from './lists';
 import { RefEditor } from './RefEditor';
 import { MachinesEditor, ProductsEditor } from './Catalog';
+import { change } from './change';
 
 type Section = 'lists' | 'company' | 'products' | 'machines' | 'zones' | 'rules' | 'access' | 'sites';
 const SECTIONS: { key: Section; label: string; icon: typeof Cog; hint: string }[] = [
@@ -38,9 +41,8 @@ const RULES: { key: keyof SiteSettings; label: string; unit: string; help: strin
  */
 export function Settings() {
   const s = useStore(); const params = useParams({ strict: false }) as { site?: SiteCode };
-  const role = s.session?.role ?? 'site_manager'; const admin = role === 'group_admin' || role === 'ceo';
+  const role = s.session?.role ?? 'site_manager'; const { admin, canEdit, companyEdit, lockedSite } = settingsAccess(role, isReal());
   const [section, setSection] = useState<Section>('lists'); const [site, setSite] = useState<SiteCode>(params.site ?? s.session?.siteId ?? 'mats');
-  const lockedSite = !admin; const canEdit = admin || role === 'site_manager';
   const [listKey, setListKey] = useState(LISTS[0].key); const [zone, setZone] = useState(''); const [fx, setFx] = useState(String(s.fx));
   const groups = useMemo(() => { const m = new Map<string, typeof LISTS>(); for (const l of LISTS) m.set(l.group, [...(m.get(l.group) ?? []), l]); return [...m.entries()]; }, []);
   const meta = LISTS.find((l) => l.key === listKey)!;
@@ -81,7 +83,7 @@ export function Settings() {
               </div>
             </div>
           )}
-          {section === 'company' && (() => { const cp = s.companyProfiles[site]; const missing = (['address', 'tin', 'phone', 'bankDetails'] as const).filter((k) => !cp[k]).length; const F = ({ k, label, hint, wide }: { k: 'address' | 'phone' | 'email' | 'tin' | 'bankDetails' | 'mobileMoney'; label: string; hint?: string; wide?: boolean }) => <Field label={label} hint={hint} className={wide ? 'sm:col-span-2' : ''}><Input key={site + k} disabled={!canEdit} defaultValue={cp[k]} placeholder="Not provided yet" onBlur={(e) => { const v = e.target.value.trim(); if (v !== cp[k]) { s.updateCompanyProfile(site, { [k]: v }); s.toast({ kind: 'ok', title: `${label} saved` }); } }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /></Field>; return (
+          {section === 'company' && (() => { const cp = s.companyProfiles[site]; const missing = (['address', 'tin', 'phone', 'bankDetails'] as const).filter((k) => !cp[k]).length; const F = ({ k, label, hint, wide }: { k: 'address' | 'phone' | 'email' | 'tin' | 'bankDetails' | 'mobileMoney'; label: string; hint?: string; wide?: boolean }) => <Field label={label} hint={hint} className={wide ? 'sm:col-span-2' : ''}><Input key={site + k} disabled={!companyEdit} defaultValue={cp[k]} placeholder="Not provided yet" onBlur={(e) => { const v = e.target.value.trim(); if (v !== cp[k]) { void change.company(site, { [k]: v }, { title: `${label} saved` }); } }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /></Field>; return (
             <div className="grid gap-[var(--gap)] xl:grid-cols-[minmax(0,1fr)_340px] items-start">
               <Panel title="Company details" sub={SITES[site].legalName} icon={Landmark}>
                 {missing > 0 && <Note tone="warn" className="mb-3">{missing} detail{missing === 1 ? ' is' : 's are'} still blank. Documents print "to be provided" in their place until they are filled in.</Note>}
@@ -89,7 +91,7 @@ export function Settings() {
                   <F k="address" label="Registered address" wide /><F k="phone" label="Phone" /><F k="email" label="Email" />
                   <F k="tin" label="TIN" hint="Uganda Revenue Authority taxpayer number." /><F k="mobileMoney" label="Mobile money merchant" />
                   <F k="bankDetails" label="Bank details for invoices" wide />
-                  <Field label="VAT rate (%)" hint="Leave at 0 if this company does not charge VAT."><Input key={site + 'vat'} disabled={!canEdit} className="num max-w-[140px]" inputMode="decimal" defaultValue={cp.vatRatePct} onBlur={(e) => { const v = Number(e.target.value.replace(/[^0-9.]/g, '')) || 0; if (v !== cp.vatRatePct) { s.updateCompanyProfile(site, { vatRatePct: v }); s.toast({ kind: 'ok', title: `VAT rate set to ${v}%` }); } }} /></Field>
+                  <Field label="VAT rate (%)" hint="Leave at 0 if this company does not charge VAT."><Input key={site + 'vat'} disabled={!companyEdit} className="num max-w-[140px]" inputMode="decimal" defaultValue={cp.vatRatePct} onBlur={(e) => { const v = Number(e.target.value.replace(/[^0-9.]/g, '')) || 0; if (v !== cp.vatRatePct) { void change.company(site, { vatRatePct: v }, { title: `VAT rate set to ${v}%` }); } }} /></Field>
                 </div>
               </Panel>
               <Panel title="URA EFRIS" sub="fiscal invoicing"><div className="flex items-center gap-2 mb-2"><Badge tone="neutral" dot>{cp.efrisConnected ? 'Marked connected' : 'Not connected'}</Badge></div><p className="t-sm text-[var(--text-2)]">This build does not connect to URA or send invoices. No Fiscal Document Number or verification QR is generated. The status shown here is a company profile flag only.</p></Panel>
@@ -98,8 +100,8 @@ export function Settings() {
           {section === 'machines' && <MachinesEditor site={site} canEdit={canEdit} />}
           {section === 'zones' && (
             <Panel title="Store zones" sub={SITES[site].name} pad={false}>
-              {canEdit && <form onSubmit={(e) => { e.preventDefault(); if (!zone.trim()) return; s.saveZone({ siteId: site, name: zone.trim() }); s.toast({ kind: 'ok', title: `${zone.trim()} added` }); setZone(''); }} className="flex gap-2 px-[var(--pad)] py-2.5 border-b border-[var(--line)] bg-[var(--surface-2)]"><Input value={zone} onChange={(e) => setZone(e.target.value)} placeholder="New zone, e.g. a room, a bay or a rack" className="max-w-[320px]" /><Button type="submit" variant="primary" icon={Plus} disabled={!zone.trim()}>Add</Button></form>}
-              {s.zones.filter((z) => z.siteId === site).map((z) => <div key={z.id} className="flex items-center gap-3 px-[var(--pad)] min-h-[var(--row-h)] border-b border-[var(--line)] last:border-b-0"><MapPin className="size-4 text-[var(--text-3)]" /><input disabled={!canEdit} defaultValue={z.name} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== z.name) { s.saveZone({ id: z.id, siteId: site, name: v }); s.toast({ kind: 'ok', title: 'Zone renamed' }); } }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className="flex-1 h-7 px-2 -mx-2 rounded border border-transparent hover:border-[var(--line-2)] focus:border-[var(--focus)] bg-transparent outline-none t-base font-medium" /><span className="num t-sm text-[var(--text-3)]">{s.labels.filter((l) => l.zoneId === z.id && l.status === 'in_stock').length} in stock</span></div>)}
+              {canEdit && <form onSubmit={(e) => { e.preventDefault(); if (!zone.trim()) return; const n = zone.trim(); void change.zone(site, { name: n }, { title: `${n} added` }).then((ok) => { if (ok) setZone(''); }); }} className="flex gap-2 px-[var(--pad)] py-2.5 border-b border-[var(--line)] bg-[var(--surface-2)]"><Input value={zone} onChange={(e) => setZone(e.target.value)} placeholder="New zone, e.g. a room, a bay or a rack" className="max-w-[320px]" /><Button type="submit" variant="primary" icon={Plus} disabled={!zone.trim()}>Add</Button></form>}
+              {s.zones.filter((z) => z.siteId === site).map((z) => <div key={z.id} className="flex items-center gap-3 px-[var(--pad)] min-h-[var(--row-h)] border-b border-[var(--line)] last:border-b-0"><MapPin className="size-4 text-[var(--text-3)]" /><input disabled={!canEdit} defaultValue={z.name} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== z.name) { void change.zone(site, { id: z.id, name: v }, { title: 'Zone renamed' }); } }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className="flex-1 h-7 px-2 -mx-2 rounded border border-transparent hover:border-[var(--line-2)] focus:border-[var(--focus)] bg-transparent outline-none t-base font-medium" /><span className="num t-sm text-[var(--text-3)]">{s.labels.filter((l) => l.zoneId === z.id && l.status === 'in_stock').length} in stock</span></div>)}
             </Panel>
           )}
           {section === 'rules' && (
@@ -108,13 +110,13 @@ export function Settings() {
                 {RULES.map((r) => (
                   <div key={r.key} className="flex items-center gap-3 px-[var(--pad)] py-2 border-b border-[var(--line)] last:border-b-0">
                     <div className="min-w-0 flex-1"><div className="t-base font-medium">{r.label}</div><div className="t-xs text-[var(--text-3)]">{r.help}</div></div>
-                    <div className="relative w-[190px] shrink-0"><Input key={site + r.key} disabled={!canEdit} className="num pr-[92px] text-right" inputMode="decimal" defaultValue={settings[r.key]} onBlur={(e) => { const v = Number(e.target.value.replace(/[^0-9.]/g, '')); if (!isNaN(v) && v !== settings[r.key]) { s.updateSiteSettings(site, { [r.key]: v }); s.toast({ kind: 'ok', title: `${r.label} set to ${v.toLocaleString()}` }); } }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /><span className="absolute right-2.5 top-1/2 -translate-y-1/2 t-xs text-[var(--text-3)] pointer-events-none">{r.unit}</span></div>
+                    <div className="relative w-[190px] shrink-0"><Input key={site + r.key} disabled={!canEdit} className="num pr-[92px] text-right" inputMode="decimal" defaultValue={settings[r.key]} onBlur={(e) => { const v = Number(e.target.value.replace(/[^0-9.]/g, '')); if (!isNaN(v) && v !== settings[r.key]) { void change.siteSettings(site, { [r.key]: v }, { title: `${r.label} set to ${v.toLocaleString()}` }); } }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} /><span className="absolute right-2.5 top-1/2 -translate-y-1/2 t-xs text-[var(--text-3)] pointer-events-none">{r.unit}</span></div>
                   </div>
                 ))}
               </Panel>
               <Panel title="Exchange reference" sub="group-wide" icon={Landmark}>
                 <Field label="UGX per 1 USD" hint="Stamped on every transaction made after you change it. Earlier records keep the rate they were made at.">
-                  <div className="flex gap-2"><Input disabled={!admin} className="num max-w-[180px]" inputMode="decimal" value={fx} onChange={(e) => setFx(e.target.value.replace(/[^0-9.]/g, ''))} /><Button variant="primary" disabled={!admin || !fx || Number(fx) === s.fx} onClick={() => { s.setFx(Number(fx)); s.toast({ kind: 'ok', title: `Exchange reference set to UGX ${Number(fx).toLocaleString()}` }); }}>Set</Button></div>
+                  <div className="flex gap-2"><Input disabled={!admin} className="num max-w-[180px]" inputMode="decimal" value={fx} onChange={(e) => setFx(e.target.value.replace(/[^0-9.]/g, ''))} /><Button variant="primary" disabled={!admin || !fx || Number(fx) === s.fx} onClick={() => { void change.fx(site, Number(fx), { title: `Exchange reference set to UGX ${Number(fx).toLocaleString()}` }); }}>Set</Button></div>
                 </Field>
                 {!admin && <Note tone="neutral" className="mt-3">Only a Group Admin can change the exchange reference.</Note>}
               </Panel>

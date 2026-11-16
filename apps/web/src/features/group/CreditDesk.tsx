@@ -9,6 +9,8 @@ import { WhatsAppPreview } from '@/components/WhatsAppPreview';
 import { SITES } from '@/config/sites';
 import { addDays, clientBalance, orderTotal } from '@/data/selectors';
 import { compact, fmtDateTime, fmtDayShort, fmtMoney, fmtNum, fmtUSD } from '@/data/format';
+import { isReal, syncNow } from '@/data/api/sync';
+import { decideOrderOnServer, writeError } from '@/data/api/group';
 import { CountryTag, KV, SiteBadge, Wrap, agoLabel, downloadCsv, plural, takePresetSelection, useListKeys } from './shared';
 
 type Verdict = 'approved' | 'held';
@@ -70,6 +72,15 @@ export function CreditDesk() {
   const confirm = () => {
     if (!selected || !armed || !pending) return;
     const next = awaiting[awaiting.indexOf(selected) + 1] ?? awaiting[awaiting.indexOf(selected) - 1]; const why = reason.trim() || undefined;
+    if (isReal()) {
+      // Online-only: the server checks the credit and records the decision; the order list is re-read afterwards.
+      if (armed === 'held' && !why) { toast({ kind: 'warn', title: 'Add a short note', detail: 'A hold needs a reason.' }); return; }
+      const verdict = armed; const order = selected;
+      void decideOrderOnServer(order.siteId, order.id, verdict, why)
+        .then(() => { toast(verdict === 'approved' ? { kind: 'ok', title: `${order.number} approved`, detail: `${clientOf(order).name} · ${fmtMoney(orderTotal(order), order.currency)}` } : { kind: 'warn', title: `${order.number} on hold`, detail: why }); return syncNow(); })
+        .catch((e) => toast({ kind: 'warn', title: `${order.number} not decided`, detail: writeError(e) }));
+      setArmed(null); setReason(''); reasonRef.current?.blur(); return;
+    }
     decideOrder(selected.id, armed, why);
     if (armed === 'approved') toast({ kind: 'ok', title: `${selected.number} approved`, detail: `${clientOf(selected).name} · ${fmtMoney(orderTotal(selected), selected.currency)}. The store can start picking.` });
     else toast({ kind: 'warn', title: `${selected.number} on hold`, detail: why ?? 'No reason given' });
@@ -204,7 +215,7 @@ export function CreditDesk() {
                       onKeyDown={(e) => { if (e.key === 'Enter' && armed) { e.preventDefault(); confirm(); } else if (e.key === 'Escape' && armed) { e.stopPropagation(); disarm(); } }} />
                     {armed ? <>
                       <Button variant="ghost" onClick={disarm}>Cancel</Button>
-                      <Button variant={armed === 'approved' ? 'ok' : 'primary'} icon={armed === 'approved' ? Check : Pause} hotkey="mod+enter" onClick={confirm}>{armed === 'approved' ? `Confirm approve ${selected.number}` : `Put ${selected.number} on hold`}</Button>
+                      <Button variant={armed === 'approved' ? 'ok' : 'primary'} icon={armed === 'approved' ? Check : Pause} hotkey="mod+enter" disabled={isReal() && armed === 'held' && !reason.trim()} onClick={confirm}>{armed === 'approved' ? `Confirm approve ${selected.number}` : `Put ${selected.number} on hold`}</Button>
                     </> : <>
                       <Button variant="ok" icon={Check} hotkey="a" hotkeyLabel="Approve the selected order" onClick={() => arm('approved')}>Approve</Button>
                       <Button variant="secondary" icon={Pause} hotkey="h" hotkeyLabel="Hold the selected order" onClick={() => arm('held')}>Hold</Button>

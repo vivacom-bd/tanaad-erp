@@ -23,7 +23,9 @@ export const ORDER_STATUS: Record<OrderStatus, { label: string; tone: Tone; next
   paid: { label: 'Paid', tone: 'ok', next: 'Complete' },
   held: { label: 'Held', tone: 'bad', next: 'CEO to release' },
 };
-export const StatusBadge = ({ status }: { status: OrderStatus }) => <Badge tone={ORDER_STATUS[status].tone} dot>{ORDER_STATUS[status].label}</Badge>;
+/** An order can be invoiced before the lorry leaves; its status stays "approved"/"picking", so say that plainly instead of "Ready to pick". */
+export const statusLabel = (status: OrderStatus, invoiced = false) => (invoiced && (status === 'approved' || status === 'picking') ? 'Invoiced, not yet loaded' : ORDER_STATUS[status].label);
+export const StatusBadge = ({ status, invoiced }: { status: OrderStatus; invoiced?: boolean }) => <Badge tone={ORDER_STATUS[status].tone} dot>{statusLabel(status, invoiced)}</Badge>;
 
 export type StageKey = 'cash' | 'approval' | 'load' | 'toInvoice' | 'unpaid' | 'paid' | 'held';
 /** The order pipeline, in the order work flows. Each stage keeps one series colour everywhere it is drawn. */

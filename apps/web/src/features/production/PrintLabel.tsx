@@ -7,6 +7,7 @@ import { Badge, Bar, Button, ChipGroup, Combobox, DataGrid, Empty, FormRow, Icon
 import { PersonPicker } from '@/components/PersonPicker';
 import { Sticker } from '@/components/Sticker';
 import { printer } from '@/devices';
+import { isReal } from '@/data/api/sync';
 import { currentShiftKind, shiftId } from '@/data/selectors';
 import { fmtDayShort, fmtKg, fmtNum } from '@/data/format';
 import { productKindsForLabel, sectorForStage } from './shared';
@@ -50,7 +51,7 @@ export function PrintLabel() {
   useEffect(() => { if (!touch) form.current?.querySelector<HTMLElement>('[role="radio"][tabindex="0"]')?.focus(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const shiftKind = currentShiftKind(); const sid = shiftId(site.id, s.today, shiftKind);
-  const draft: Label = { id: 'preview', code: `${site.id.toUpperCase().slice(0, 3)}-${kind.toUpperCase().slice(0, 3)}-${String(s.labels.length + 1).padStart(6, '0')}`, siteId: site.id, kind, productId: productId ?? undefined, stageCode, machineId: machineId ?? undefined, operatorId: operatorId ?? undefined, shiftId: sid, day: s.today, qtyUnits: parseFloat(units) || 0, qtyKg: parseFloat(kg) || 0, status: 'in_stock', parentIds: [], colour, grade };
+  const draft: Label = { id: 'preview', code: `${site.id.toUpperCase().slice(0, 3)}-${kind.toUpperCase().slice(0, 3)}-${(isReal() ? '······' : String(s.labels.length + 1).padStart(6, '0'))}`, siteId: site.id, kind, productId: productId ?? undefined, stageCode, machineId: machineId ?? undefined, operatorId: operatorId ?? undefined, shiftId: sid, day: s.today, qtyUnits: parseFloat(units) || 0, qtyKg: parseFloat(kg) || 0, status: 'in_stock', parentIds: [], colour, grade };
   const machine = s.machines.find((m) => m.id === machineId); const operator = s.people.find((p) => p.id === operatorId);
   const missing: string[] = []; if (hasProduct && !productId) missing.push('product'); if (hasColour && !colour) missing.push('colour'); if (!(parseFloat(kg) > 0)) missing.push('kg'); if (perLabel && !(parseFloat(units) > 0)) missing.push('pieces'); if (machines.length && !machineId) missing.push('machine');
   const canPrint = missing.length === 0 && !printing;

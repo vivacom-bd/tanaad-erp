@@ -5,6 +5,7 @@ import { useStore } from '@/data/store';
 import { refList } from '@/data/selectors';
 import { Badge, Button, Empty, IconButton, Input, Panel, Select, cn } from '@/components/ui';
 import type { ListMeta } from './lists';
+import { change } from './change';
 
 /** One editor for every option list: add, rename, set value and colour, reorder, deactivate. Nothing is ever deleted. */
 export function RefEditor({ meta, site, canEdit }: { meta: ListMeta; site?: SiteCode; canEdit: boolean }) {
@@ -19,10 +20,10 @@ export function RefEditor({ meta, site, canEdit }: { meta: ListMeta; site?: Site
     const l = label.trim(); if (!l) return;
     if (items.some((i) => i.label.toLowerCase() === l.toLowerCase() && i.parentId === (parent || undefined))) { s.toast({ kind: 'warn', title: `"${l}" is already in this list` }); return; }
     if (meta.parent && !parent) { s.toast({ kind: 'warn', title: 'Choose what it belongs to first' }); return; }
-    s.addRef({ list: meta.key, siteId: scopeSite, label: l, value: meta.value && value !== '' ? Number(value) : undefined, unit: meta.value?.unit, color: meta.color ? color : undefined, parentId: parent || undefined });
-    s.toast({ kind: 'ok', title: `${l} added to ${meta.title.toLowerCase()}` }); setLabel(''); setValue(''); first.current?.focus();
+    void change.addRef(site ?? 'mats', { list: meta.key, siteId: scopeSite, label: l, value: meta.value && value !== '' ? Number(value) : undefined, unit: meta.value?.unit, color: meta.color ? color : undefined, parentId: parent || undefined }, { title: `${l} added to ${meta.title.toLowerCase()}` })
+      .then((ok) => { if (ok) { setLabel(''); setValue(''); first.current?.focus(); } });
   };
-  const save = (id: string) => { if (!draft.label?.trim()) return; s.updateRef(id, { label: draft.label.trim(), value: draft.value, color: draft.color, parentId: draft.parentId }); setEditing(null); s.toast({ kind: 'ok', title: 'Saved' }); };
+  const save = (id: string) => { if (!draft.label?.trim()) return; void change.updateRef(site ?? 'mats', id, { label: draft.label.trim(), value: draft.value, color: draft.color, parentId: draft.parentId }, { title: 'Saved' }).then((ok) => { if (ok) setEditing(null); }); };
   return (
     <Panel title={meta.title} sub={meta.help} pad={false} actions={<><Badge tone="neutral">{items.filter((i) => i.active).length} active</Badge>{items.some((i) => i.example) && <Badge tone="warn">has examples to confirm</Badge>}</>}>
       {canEdit && !system && (
@@ -57,10 +58,10 @@ export function RefEditor({ meta, site, canEdit }: { meta: ListMeta; site?: Site
                   {!it.active && <Badge tone="neutral">inactive</Badge>}
                   <span className="flex-1" />
                   {canEdit && <span className="flex items-center">
-                    <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} onClick={() => s.moveRef(it.id, -1)} />
-                    <IconButton icon={ArrowDown} label="Move down" disabled={i === items.length - 1} onClick={() => s.moveRef(it.id, 1)} />
+                    <IconButton icon={ArrowUp} label="Move up" disabled={i === 0} onClick={() => void change.moveRef(site ?? 'mats', it.id, -1)} />
+                    <IconButton icon={ArrowDown} label="Move down" disabled={i === items.length - 1} onClick={() => void change.moveRef(site ?? 'mats', it.id, 1)} />
                     <IconButton icon={Pencil} label="Edit" onClick={() => { setEditing(it.id); setDraft({ label: it.label, value: it.value, color: it.color, parentId: it.parentId }); }} />
-                    {!it.system && <IconButton icon={Power} label={it.active ? 'Deactivate' : 'Reactivate'} onClick={() => s.updateRef(it.id, { active: !it.active })} />}
+                    {!it.system && <IconButton icon={Power} label={it.active ? 'Deactivate' : 'Reactivate'} onClick={() => void change.updateRef(site ?? 'mats', it.id, { active: !it.active })} />}
                   </span>}
                 </>}
               </div>

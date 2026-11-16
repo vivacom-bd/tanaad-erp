@@ -10,7 +10,9 @@ import { Sticker } from '@/components/Sticker';
 import { printer } from '@/devices';
 import { fmtDayShort, fmtKg, fmtNum } from '@/data/format';
 import { useRefList } from '@/app/hooks';
-import { SetupHint } from '../production/parts';
+import { isReal } from '@/data/api/sync';
+import { SetupHint, useFreshLabel } from '../production/parts';
+import { WasteWeigh } from './WasteWeigh';
 import { addProduction, focusFirstField, pressScale, ScaleFrame, useShift } from './kit';
 
 const rnd = (a: number, b: number) => a + Math.floor(Math.random() * (b - a + 1));
@@ -45,7 +47,7 @@ export function Waste() {
   const source = wasteSources.find((x) => x.label === sourcePick)?.label ?? wasteSources[0]?.label ?? ''; const dest = zones.find((z) => z.id === destPick)?.id ?? homeZone;
   const [trimTarget, setTrimTarget] = useState(() => rnd(40, 90)); const [pelletTarget, setPelletTarget] = useState(() => rnd(50, 110));
   const [trimRound, setTrimRound] = useState(0); const [pelletRound, setPelletRound] = useState(0);
-  const [lastTrim, setLastTrim] = useState<Label | null>(null); const [lastPellet, setLastPellet] = useState<Label | null>(null); const [printing, setPrinting] = useState<Flow | null>(null);
+  const [lastTrimHeld, setLastTrim] = useState<Label | null>(null); const [lastPelletHeld, setLastPellet] = useState<Label | null>(null); const lastTrim = useFreshLabel(lastTrimHeld); const lastPellet = useFreshLabel(lastPelletHeld); const [printing, setPrinting] = useState<Flow | null>(null);
   const [sources, setSources] = useState<Record<string, string>>({});
   /** The side the keyboard is working on: Ctrl+Enter reads that scale, then uses the reading. */
   const [active, setActive] = useState<Flow>('trim');
@@ -110,6 +112,8 @@ export function Waste() {
         <Stat label="Crusher output today" icon={Recycle} accent="var(--series-3)" value={<><CountUp value={Math.round(pelletKg)} /><span className="t-base text-[var(--text-3)] font-medium"> kg</span></>} sub={`${todaysPellet.length} pellet sack${todaysPellet.length === 1 ? '' : 's'} labelled`} />
         <Stat label={`Sacks in ${zoneName(homeZone)}`} icon={Warehouse} accent="var(--series-1)" value={<CountUp value={rawSacks.length} />} sub={`${trimSacks.length} trim · ${fmtKg(trimSacks.reduce((t, l) => t + l.qtyKg, 0))} · ${pelletSacks.length} pellet · ${fmtKg(pelletSacks.reduce((t, l) => t + l.qtyKg, 0))}`} />
       </KpiStrip>
+
+      {isReal() && <WasteWeigh />}
 
       <div className="grid gap-[var(--gap)] min-[1240px]:grid-cols-2 items-start">
         <Panel icon={Scissors} title="1 · Weigh trim in" sub="trim and faulty string" actions={flowHead('trim', todaysTrim.length)} className={cn(active === 'trim' && 'compact:[&>header]:border-[var(--accent)]')}

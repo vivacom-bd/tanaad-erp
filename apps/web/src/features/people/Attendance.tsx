@@ -10,6 +10,7 @@ import { LineChart } from '@/components/charts';
 import { currentShiftKind, dailySeries, lastWorkingDays, rosterFor, shiftId } from '@/data/selectors';
 import { fmtDay, fmtDayLong, fmtDayShort } from '@/data/format';
 import { SITES } from '@/config/sites';
+import { usePeopleAccess } from './access';
 import { ContractNote, EngTag, IconChip, MARK, MARKS, MarkDot, MasterEmpty, RenewDialog, STANDARD_DAY_HOURS, contractStateFor, dayValue, downloadCsv, useContractTerms, usePeopleRules } from './kit';
 
 type RosterRow = ReturnType<typeof rosterFor>[number];
@@ -19,7 +20,7 @@ const say = (t: { kind: 'ok' | 'warn' | 'error' | 'info'; title: string; detail?
 
 /** The factory attendance sheet, digitised: six working days across, roster down, today editable from the keyboard. */
 export function Attendance() {
-  const s = useStore(); const site = useSite(); const go = useGo(); const touch = useIsTouch();
+  const s = useStore(); const site = useSite(); const go = useGo(); const touch = useIsTouch(); const access = usePeopleAccess();
   const rules = usePeopleRules(); const terms = useContractTerms();
   const [kind, setKind] = useState<ShiftKind>(() => currentShiftKind());
   const [sector, setSector] = useState<string>('all');
@@ -71,6 +72,7 @@ export function Attendance() {
     if (row.contractState === 'expired') { say({ kind: 'warn', title: 'Contract has ended', detail: `Renew ${row.person.fullName.split(' ')[0]}'s contract before marking.` }); return false; }
     const prev = recOf(row.person.id, s.today);
     const hours = status === 'absent' ? 0 : prev?.overtimeHours ?? 0;
+    if (prev && prev.status === status && prev.overtimeHours === hours) return true; // already marked that way: nothing to record (the server would refuse a repeat)
     if (isReal() && prev && prev.status !== status) { setFix({ row, status, hours, label: MARK[status].label.toLowerCase() }); setFixWhy(''); return false; }
     s.markAttendance({ shiftId: todayShift, personId: row.person.id, siteId: site.id, status, overtimeHours: hours });
     if (announce) say({ kind: 'ok', title: `${row.person.fullName.split(' ')[0]}: ${MARK[status].label.toLowerCase()}`, detail: `${kind} shift, ${fmtDayShort(s.today)}` });
@@ -119,7 +121,7 @@ export function Attendance() {
     setSector('all'); setQ('');
     setTimeout(() => { const j = all.findIndex((r) => r.person.id === personId); if (j >= 0) { setCur({ r: j, c: todayCol >= 0 ? todayCol : 0 }); reveal(j); grid.current?.focus({ preventScroll: true }); } }, 60);
   };
-  const keysOn = tab === 'sheet' && !roll && !renewId && !otId;
+  const keysOn = tab === 'sheet' && !roll && !renewId && !otId && access.mark;
   useHotkey('p', () => keyMark('present'), { label: 'Mark the active row present', enabled: keysOn });
   useHotkey('h', () => keyMark('half'), { label: 'Mark the active row half day', enabled: keysOn });
   useHotkey('a', () => keyMark('absent'), { label: 'Mark the active row absent', enabled: keysOn });
@@ -157,7 +159,7 @@ export function Attendance() {
         subtitle={<>{site.name} · {fmtDayLong(s.today)}{shift ? ` · ${shift.kind === 'day' ? 'Day' : 'Night'} shift ${shift.starts}–${shift.ends}` : ''}<br /><span className="num">{marked} of {roster.length} marked{sector !== 'all' ? ` in ${sector}` : ''} · {counts.present} present · {counts.half} half day · {counts.absent} absent</span></>}
         actions={<>
           <Tabs value={kind} onChange={setKind} tabs={site.shifts.map((sh) => ({ value: sh.kind, label: sh.kind === 'day' ? 'Day' : 'Night' }))} />
-          {unmarked.length > 0 && (
+          {unmarked.length > 0 && access.mark && (
             <Button icon={CheckCircle2} onClick={() => {
               unmarked.forEach((r) => mark(r, 'present', false));
               say({ kind: 'ok', title: `Marked ${unmarked.length} workers Present`, detail: `${kind} shift · ${fmtDayShort(s.today)}` });
@@ -165,7 +167,7 @@ export function Attendance() {
               Mark {unmarked.length} unmarked Present
             </Button>
           )}
-          <Button variant="primary" icon={ListChecks} hotkey="r" hotkeyLabel="Start roll call" onClick={() => { setTab('sheet'); setRoll(true); }} disabled={roster.length === 0 || roll}>Guided Roll Call</Button>
+          <Button variant="primary" icon={ListChecks} hotkey="r" hotkeyLabel="Start roll call" onClick={() => { setTab('sheet'); setRoll(true); }} disabled={roster.length === 0 || roll || !access.mark}>Guided Roll Call</Button>
         </>} />
 
       {fix && (
@@ -254,17 +256,17 @@ export function Attendance() {
                             {todayCol >= 0 && (
                               <td onMouseDown={() => setCur({ r: i, c: todayCol })} className={cn(TD, 'sticky right-0 z-[1] border-l !px-2 max-sm:!px-1.5', active ? 'bg-[color-mix(in_srgb,var(--accent)_12%,var(--hover))]' : 'bg-[color-mix(in_srgb,var(--accent)_6%,var(--surface))]', ring(todayCol))}>
                                 <div className="flex items-center justify-end gap-1.5 max-sm:gap-0.5">
-                                  {expired ? <Button size="sm" tabIndex={-1} onClick={() => setRenewId(r.person.id)}>Renew</Button> : <>
+                                  {expired ? (access.renew ? <Button size="sm" tabIndex={-1} onClick={() => setRenewId(r.person.id)}>Renew</Button> : <span className="t-sm text-[var(--text-3)]">Ended</span>) : <>
                                     <div role="radiogroup" aria-label={`${r.person.fullName} today`} className="hidden sm:inline-flex rounded-md border border-[var(--line-2)] bg-[var(--surface)] overflow-hidden">
                                       {MARKS.map((m) => (
-                                        <button key={m} type="button" tabIndex={-1} role="radio" aria-checked={st === m} title={MARK[m].label} onClick={() => mark(r, m)}
+                                        <button key={m} type="button" tabIndex={-1} role="radio" aria-checked={st === m} title={MARK[m].label} disabled={!access.mark} onClick={() => mark(r, m)}
                                           className={cn('px-2 h-[26px] touch:px-2.5 touch:h-9 grid place-items-center t-xs font-semibold border-r border-[var(--line-2)] last:border-r-0 transition-colors', st === m ? MARK[m].solid : 'text-[var(--text-2)] hover:bg-[var(--hover)] hover:text-[var(--text)]')}>
                                           {m === 'present' ? 'Present' : m === 'half' ? 'Half' : 'Absent'}
                                         </button>
                                       ))}
                                     </div>
-                                    <button type="button" tabIndex={-1} onClick={() => cycle(r)} aria-label={`${r.person.fullName}: ${st ?? 'not marked'}. Press to change.`} className={cn('sm:hidden px-2.5 h-9 rounded-md border grid place-items-center t-xs font-semibold', st ? MARK[st].solid : 'border-dashed border-[var(--line-2)] text-[var(--text-2)] bg-[var(--surface)]')}>{st ? (st === 'present' ? 'Present' : st === 'half' ? 'Half' : 'Absent') : 'Mark'}</button>
-                                    <button type="button" tabIndex={-1} onClick={() => setOtId(r.person.id)} title="Overtime hours" aria-label={`Overtime for ${r.person.fullName}`} className={cn('w-8 h-[26px] touch:w-10 touch:h-9 rounded-md grid place-items-center t-xs num font-semibold', today?.overtimeHours ? 'bg-[var(--info-bg)] text-[var(--info)]' : 'text-[var(--text-4)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]')}>{today?.overtimeHours ? `+${today.overtimeHours}h` : <Clock className="size-3.5" />}</button>
+                                    <button type="button" tabIndex={-1} disabled={!access.mark} onClick={() => cycle(r)} aria-label={`${r.person.fullName}: ${st ?? 'not marked'}. Press to change.`} className={cn('sm:hidden px-2.5 h-9 rounded-md border grid place-items-center t-xs font-semibold', st ? MARK[st].solid : 'border-dashed border-[var(--line-2)] text-[var(--text-2)] bg-[var(--surface)]')}>{st ? (st === 'present' ? 'Present' : st === 'half' ? 'Half' : 'Absent') : 'Mark'}</button>
+                                    <button type="button" tabIndex={-1} disabled={!access.mark} onClick={() => setOtId(r.person.id)} title="Overtime hours" aria-label={`Overtime for ${r.person.fullName}`} className={cn('w-8 h-[26px] touch:w-10 touch:h-9 rounded-md grid place-items-center t-xs num font-semibold', today?.overtimeHours ? 'bg-[var(--info-bg)] text-[var(--info)]' : 'text-[var(--text-4)] hover:bg-[var(--hover)] hover:text-[var(--text-2)]')}>{today?.overtimeHours ? `+${today.overtimeHours}h` : <Clock className="size-3.5" />}</button>
                                   </>}
                                 </div>
                               </td>
@@ -309,8 +311,8 @@ export function Attendance() {
                 <span className="t-base font-medium truncate">{r.person.fullName}</span>
               </button>
               <div className="flex items-center gap-1 shrink-0">
-                <button type="button" onClick={() => mark(r, 'present')} className="px-2 h-6 rounded bg-[var(--ok-bg)] text-[var(--ok)] t-xs font-semibold hover:brightness-95">Present</button>
-                <button type="button" onClick={() => mark(r, 'absent')} className="px-2 h-6 rounded bg-[var(--bad-bg)] text-[var(--bad)] t-xs font-semibold hover:brightness-95">Absent</button>
+                <button type="button" disabled={!access.mark} onClick={() => mark(r, 'present')} className="px-2 h-6 rounded bg-[var(--ok-bg)] text-[var(--ok)] t-xs font-semibold hover:brightness-95">Present</button>
+                <button type="button" disabled={!access.mark} onClick={() => mark(r, 'absent')} className="px-2 h-6 rounded bg-[var(--bad-bg)] text-[var(--bad)] t-xs font-semibold hover:brightness-95">Absent</button>
               </div>
             </div>
           ))}
@@ -321,7 +323,7 @@ export function Attendance() {
             <div key={r.person.id} className="flex items-center gap-2.5 px-[var(--pad)] py-2 border-b border-[var(--line)] last:border-b-0">
               <Avatar name={r.person.fullName} seed={r.person.avatarSeed} size={26} ring={r.contractState === 'expired' ? 'bad' : 'warn'} />
               <div className="min-w-0 flex-1"><div className="t-base font-medium truncate">{r.person.fullName}</div><div className="mt-0.5 flex items-center gap-1.5 t-sm text-[var(--text-3)]"><ContractNote endDate={r.engagement?.endDate} state={r.contractState} today={s.today} /><span className="truncate">{r.person.sector}</span></div></div>
-              <Button size="sm" onClick={() => setRenewId(r.person.id)}>Renew</Button>
+              {access.renew && <Button size="sm" onClick={() => setRenewId(r.person.id)}>Renew</Button>}
             </div>
           ))}
         </Panel>

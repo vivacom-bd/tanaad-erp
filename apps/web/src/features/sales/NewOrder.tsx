@@ -7,6 +7,8 @@ import { useSite } from '@/app/hooks';
 import { clientBalance } from '@/data/selectors';
 import { fmtKg, fmtMoney, fmtNum } from '@/data/format';
 import { Avatar, Badge, Button, Combobox, Empty, IconButton, Input, Meter, Note, NumberPad, Sheet, cn, useIsTouch } from '@/components/ui';
+import { isReal } from '@/data/api/sync';
+import { createOrderReal, reasonOf } from '@/data/api/salesActions';
 import { ComboEscGuard, FigureRow, StepTitle, Swatch, clientsForSite, fxLine, marketOf, plural, priceFor, termsOf } from './shared';
 
 interface Line { key: number; productId: string | null; bundles: string; price: string | null }
@@ -21,7 +23,7 @@ const cellBtn = 'ctl w-full rounded-md border border-[var(--line-2)] bg-[var(--s
  */
 export function NewOrderSheet({ initialClientId, onClose, onCreated }: { initialClientId?: string; onClose: () => void; onCreated: (o: Order) => void }) {
   const s = useStore(); const site = useSite(); const touch = useIsTouch(); const root = useRef<HTMLDivElement>(null);
-  const clients = clientsForSite(s, site.id); const products = s.products.filter((p) => p.siteId === site.id && p.prices.length > 0);
+  const real = isReal(); const clients = clientsForSite(s, site.id).filter((c) => c.active !== false); const products = s.products.filter((p) => p.siteId === site.id && p.prices.length > 0);
   const [clientId, setClientId] = useState<string | null>(initialClientId && clients.some((c) => c.id === initialClientId) ? initialClientId : null);
   const [lines, setLines] = useState<Line[]>(() => [blank()]); const [padFor, setPadFor] = useState<number | null>(null);
   const client = clients.find((c) => c.id === clientId); const cur = client?.currencyPref ?? site.currencyPrimary;
@@ -48,6 +50,12 @@ export function NewOrderSheet({ initialClientId, onClose, onCreated }: { initial
 
   const create = () => {
     if (!client || !active.length) return;
+    if (real) {
+      void createOrderReal({ siteId: site.id, clientId: client.id, currency: cur, lines: active.map((r) => ({ productId: r.p!.id, bundles: r.bundles, unitPrice: r.price })), notes: undefined }).then((o) => {
+        useStore.getState().toast({ kind: 'ok', title: 'Order saved', detail: 'The server sets the number and prices when it syncs.' }); onCreated(o);
+      }).catch((e) => useStore.getState().toast({ kind: 'error', title: 'Order not saved', detail: reasonOf(e, 'The order could not be saved.') }));
+      return;
+    }
     const o = useStore.getState().createOrder({ siteId: site.id, clientId: client.id, status: client.channel === 'local' ? 'awaiting_cash' : 'awaiting_approval', currency: cur, lines: active.map((r) => ({ productId: r.p!.id, bundles: r.bundles, unitPrice: r.price })), notes: anyBelow ? `Price below list on ${active.filter((r) => r.below).map((r) => r.p!.internalName).join(', ')}; needs approval.` : overLimit ? `Order takes the client to ${limitPct}% of the ${fmtMoney(client.creditLimit, cur)} limit.` : undefined });
     useStore.getState().toast({ kind: 'ok', title: `${o.number} created`, detail: client.channel === 'local' ? 'Waiting for the cashier to confirm cash.' : 'Sent to the CEO credit desk for approval.' });
     onCreated(o);
@@ -78,7 +86,7 @@ export function NewOrderSheet({ initialClientId, onClose, onCreated }: { initial
                   <span className="text-[var(--text-2)]">{client.contact} · <span className="num">{client.whatsapp}</span></span>
                   <span className="ml-auto text-[var(--text-3)]">Invoiced in <b className="text-[var(--text)]">{cur}</b></span>
                 </div>
-                {client.channel === 'export' && bal && <Meter label="Credit after this order" sub={`${fmtMoney(bal.balance, cur)} owed today`} value={bal.balance + total} max={client.creditLimit || 1} tone={limitPct > 100 ? 'bad' : limitPct > 80 ? 'warn' : 'series'} display={<>{fmtMoney(bal.balance + total, cur)}<span className="text-[var(--text-3)] font-normal"> of {fmtMoney(client.creditLimit, cur)} · {limitPct}%</span></>} />}
+                {client.channel === 'export' && bal && <Meter label={real ? 'Credit after this order (estimate)' : 'Credit after this order'} sub={`${fmtMoney(bal.balance, cur)} owed today`} value={bal.balance + total} max={client.creditLimit || 1} tone={limitPct > 100 ? 'bad' : limitPct > 80 ? 'warn' : 'series'} display={<>{fmtMoney(bal.balance + total, cur)}<span className="text-[var(--text-3)] font-normal"> of {fmtMoney(client.creditLimit, cur)} · {limitPct}%</span></>} />}
               </div>
             )}
           </section>
@@ -89,7 +97,7 @@ export function NewOrderSheet({ initialClientId, onClose, onCreated }: { initial
             {products.length === 0 ? <Empty title="No priced products at this site" hint="Add prices in Settings to sell from here." /> : (
               <div className="surface">
                 <div className={cn(GRID, 'hidden sm:grid px-3 h-8 border-b border-[var(--line)] bg-[var(--surface-2)] rounded-t-[9px] t-xs font-semibold uppercase tracking-[0.04em] text-[var(--text-3)]')}>
-                  <span>Product</span><span className="text-right">Bundles</span><span className="text-right">Per bundle ({cur})</span><span className="text-right">Amount</span><span />
+                  <span>Product</span><span className="text-right">Bundles</span><span className="text-right">{real ? `List est. (${cur})` : `Per bundle (${cur})`}</span><span className="text-right">{real ? 'Estimate' : 'Amount'}</span><span />
                 </div>
                 {rows.map((r, i) => (
                   <div key={r.l.key} className={cn('px-3 py-2 border-b border-[var(--line)] last:border-b-0', !r.p && 'bg-[var(--surface-2)] rounded-b-[9px]')}>
@@ -103,7 +111,7 @@ export function NewOrderSheet({ initialClientId, onClose, onCreated }: { initial
                         ? <button type="button" data-cell={`bundles-${r.l.key}`} disabled={!r.p} onClick={() => setPadFor(padFor === r.l.key ? null : r.l.key)} aria-label="Bundles" className={cn(cellBtn, padFor === r.l.key && 'border-[var(--focus)]', !r.l.bundles && 'text-[var(--text-4)]')}>{r.l.bundles ? fmtNum(Number(r.l.bundles)) : '0'}</button>
                         : <Input data-cell={`bundles-${r.l.key}`} aria-label="Bundles" inputMode="numeric" placeholder="0" disabled={!r.p} className="num text-right" value={r.l.bundles}
                             onChange={(e) => patch(r.l.key, { bundles: e.target.value.replace(/\D/g, '').replace(/^0+(?=\d)/, '') })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); nextLine(r.l.key); } }} />}
-                      <Input aria-label="Price per bundle" inputMode="decimal" disabled={!r.p} className={cn('num text-right', r.below && 'border-[var(--warn)]')} value={r.p ? r.l.price ?? String(r.lp!.perBundle) : ''} placeholder="—"
+                      <Input aria-label="Price per bundle" inputMode="decimal" disabled={!r.p || real} className={cn('num text-right', r.below && 'border-[var(--warn)]')} value={r.p ? r.l.price ?? String(r.lp!.perBundle) : ''} placeholder="—"
                         onChange={(e) => patch(r.l.key, { price: e.target.value.replace(/[^0-9.]/g, '') })} onKeyDown={(e) => { if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) { e.preventDefault(); nextLine(r.l.key); } }} />
                       <div className="hidden sm:block text-right num font-medium truncate">{r.p ? fmtMoney(r.amount, cur) : <span className="text-[var(--text-4)]">—</span>}</div>
                       {r.p ? <IconButton icon={Trash2} label={`Remove ${r.p.internalName}`} onClick={() => remove(r.l.key)} /> : <span />}
@@ -131,10 +139,11 @@ export function NewOrderSheet({ initialClientId, onClose, onCreated }: { initial
               { label: 'Lines', value: fmtNum(active.length) },
               { label: 'Bundles', value: fmtNum(totalBundles), sub: `${fmtNum(pieces)} pieces` },
               { label: 'Expected cargo', value: fmtKg(Math.round(cargoKg)), sub: unmeasured ? 'weights to be measured' : 'at standard weights' },
-              { label: `Total (${cur})`, value: fmtMoney(total, cur), sub: client ? (cur === 'USD' ? `≈ ${fmtMoney(total * s.fx, 'UGX')}` : `≈ ${fmtMoney(total / s.fx, 'USD')}`) : undefined },
+              { label: real ? `Estimate (${cur})` : `Total (${cur})`, value: fmtMoney(total, cur), sub: client ? (cur === 'USD' ? `≈ ${fmtMoney(total * s.fx, 'UGX')}` : `≈ ${fmtMoney(total / s.fx, 'USD')}`) : undefined },
             ]} className="max-sm:!grid-cols-2 max-sm:[&>div:nth-child(n+3)]:border-t max-sm:[&>div:nth-child(n+3)]:border-[var(--line)]" />
             <div className="flex flex-col gap-2 mt-2">
-              {anyBelow && <Note tone="warn">One or more lines are priced below the list. The order will carry a note and needs approval before dispatch.</Note>}
+              {real && <Note tone="neutral"><b>Prices are set by the server.</b> The figures here are an estimate from the current list; the order total, number and credit check come back when it syncs.</Note>}
+              {anyBelow && !real && <Note tone="warn">One or more lines are priced below the list. The order will carry a note and needs approval before dispatch.</Note>}
               {overLimit && client && <Note tone="warn"><b>Over credit limit.</b> This order takes {client.name} to {limitPct}% of {fmtMoney(client.creditLimit, cur)}. The CEO will see it at the credit desk.</Note>}
               {unmeasured && <Note tone="warn">Standard bundle weights for some products are still to be measured, so the expected cargo weight is indicative.</Note>}
               <Note tone="neutral">{!client ? 'Choose a client to see the price list and what happens next.' : client.channel === 'local' ? <><b>Next: cashier.</b> The order is created as awaiting cash. The warehouse stays locked until the cashier confirms {active.length ? fmtMoney(total, cur) : 'the cash'}.</> : <><b>Next: CEO credit desk.</b> Export orders are approved by the CEO before the warehouse can pick. {plural(active.length, 'line')} so far.</>}</Note>

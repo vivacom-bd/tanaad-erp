@@ -54,3 +54,18 @@ describe('queued state and cancel rules', () => {
     expect(canCancel(base, { ...emptyQueued(), cancelled: ['r1'] })).toBe(false);
   });
 });
+
+describe('refusalText', () => {
+  const env = { id: 'e', type: 'people.settlement_run_created', version: 1, occurred_at: 't', payload: { from: '2026-11-02', to: '2026-11-08' } };
+  const eng = [{ id: '11111111-1111-4111-8111-111111111111', personId: 'p1' }];
+  const people = [{ id: 'p1', fullName: 'Amina K' }];
+  it('names the person and period instead of the engagement id', async () => {
+    const { refusalText } = await import('./settlement');
+    const t = refusalText({ code: 'duplicate_fact', reason: 'Engagement 11111111-1111-4111-8111-111111111111 is already settled', envelope: env }, eng, people);
+    expect(t).toContain('Amina K'); expect(t).toContain('2026-11-02 to 2026-11-08'); expect(t).not.toMatch(/[0-9a-f]{8}-/);
+  });
+  it('never shows an id when the name is unknown', async () => {
+    const { refusalText } = await import('./settlement');
+    expect(refusalText({ code: 'duplicate_fact', reason: 'Engagement 22222222-2222-4222-8222-222222222222 already settled', envelope: env }, eng, people)).not.toMatch(/[0-9a-f]{8}-/);
+  });
+});

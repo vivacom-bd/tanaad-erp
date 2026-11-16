@@ -11,6 +11,10 @@ import { ScaleWidget } from '@/components/ScaleWidget';
 import { WhatsAppPreview } from '@/components/WhatsAppPreview';
 import { messaging } from '@/devices';
 import { fmtDayShort, fmtKg, fmtNum, fmtPct, fmtTime } from '@/data/format';
+import { isReal } from '@/data/api/sync';
+import { overrideOnline, scanOnline, unscanOnline, weighOnline } from '@/data/api/dispatch';
+import { gateResult } from '@/data/api/dispatchMap';
+import { takenLabelIds } from './loading';
 import { CaptureTile, Fact, IconChip, ProductName, gatePassNo, pressUseReading, useBeep } from './shared';
 
 /* ------------------------------------------------------------------ manifest */
@@ -18,7 +22,8 @@ export interface ManifestLine { product: Product; ordered: number; scanned: numb
 export function manifestLines(s: AppState, order: Order, dispatch?: Dispatch): ManifestLine[] {
   const scanned = new Set(dispatch?.scannedLabelIds ?? []);
   return order.lines.map((l) => {
-    const product = s.products.find((p) => p.id === l.productId)!;
+    // A product the server does not know (an order still on the prototype's catalogue) is shown as such, never invented.
+    const product = s.products.find((p) => p.id === l.productId) ?? { id: l.productId, siteId: order.siteId, internalName: 'Product not on the server', kind: 'mat', bundlePieces: 0, stdBundleWeightKg: 0, weightTolerancePct: 0, weightStatus: 'to_be_measured', prices: [], active: true } as Product;
     let have = 0, inStock = 0;
     for (const lab of s.labels) { if (lab.productId !== l.productId) continue; if (scanned.has(lab.id)) have++; if (lab.siteId === order.siteId && lab.status === 'in_stock') inStock++; }
     return { product, ordered: l.bundles, scanned: have, remaining: Math.max(0, l.bundles - have), std: product.stdBundleWeightKg, expectedKg: l.bundles * product.stdBundleWeightKg, inStock };
@@ -76,19 +81,20 @@ function CheckRow({ state, title, value }: { state: 'ok' | 'bad' | 'warn' | 'wai
   );
 }
 
-function OverrideForm({ dn, reason, setReason, onPin, error }: { dn: string; reason: string; setReason: (v: string) => void; onPin: (pin: string) => void; error: string | null }) {
+function OverrideForm({ dn, reason, setReason, onPin, error, real, busy }: { dn: string; reason: string; setReason: (v: string) => void; onPin: (pin: string) => void; error: string | null; real?: boolean; busy?: boolean }) {
   const input = useRef<HTMLInputElement>(null); const pinBox = useRef<HTMLDivElement>(null);
   // PinPad focuses itself on mount; the reason comes first, so take the focus back.
   useEffect(() => { input.current?.focus(); }, []);
   const toPin = () => pinBox.current?.querySelector<HTMLElement>('[tabindex]')?.focus();
   return (
     <div>
-      <Note tone="bad" className="mb-3">{dn} failed the simulated gate check. Record a reason for this override.</Note>
-      <Field label="Reason" required hint={<span className="touch:hidden">Enter moves on to the PIN.</span>}>
-        <Input ref={input} value={reason} onChange={(e) => setReason(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && reason.trim()) { e.preventDefault(); toPin(); } }} placeholder="What was checked, and why the lorry may leave" />
+      <Note tone="bad" className="mb-3">{dn} {real ? 'was held at the gate' : 'failed the simulated gate check'}. Record a reason for this override.</Note>
+      <Field label="Reason" required hint={real ? 'Only the Site Manager of this site can release a held lorry, under their own sign-in.' : <span className="touch:hidden">Enter moves on to the PIN.</span>}>
+        <Input ref={input} value={reason} onChange={(e) => setReason(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && reason.trim()) { e.preventDefault(); if (real) onPin(''); else toPin(); } }} placeholder="What was checked, and why the lorry may leave" />
       </Field>
       <div className="h-3" />
-      <div ref={pinBox} className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] py-3"><PinPad onSubmit={onPin} title="Site Manager PIN" error={error} /></div>
+      {real ? <div>{error && <Note tone="bad" className="mb-2">{error}</Note>}<Button variant="danger" block icon={KeyRound} disabled={busy || !reason.trim()} onClick={() => onPin('')}>{busy ? 'Releasing…' : 'Release the lorry'}</Button></div>
+        : <div ref={pinBox} className="rounded-lg border border-[var(--line)] bg-[var(--surface-2)] py-3"><PinPad onSubmit={onPin} title="Site Manager PIN" error={error} /></div>}
     </div>
   );
 }
@@ -98,7 +104,7 @@ export interface CargoActions { weigh?: () => void }
 
 /** The Cargo Builder: scan every bundle, weigh the lorry, let the arithmetic decide. */
 export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatch: Dispatch; order: Order; onLoadNext: () => void; actions?: MutableRefObject<CargoActions> }) {
-  const s = useStore(); const site = useSite(); const beep = useBeep(); const touch = useIsTouch();
+  const s = useStore(); const site = useSite(); const beep = useBeep(); const touch = useIsTouch(); const real = isReal(); const [busy, setBusy] = useState(false);
   const scanBundle = useStore((x) => x.scanBundle); const unscanLast = useStore((x) => x.unscanLast); const recordGateWeight = useStore((x) => x.recordGateWeight); const overrideGate = useStore((x) => x.overrideGate); const toast = useStore((x) => x.toast);
   const client = s.clients.find((c) => c.id === order.clientId);
   const ceos = s.users.filter((u) => u.roles.some((r) => r.role === 'ceo')).map((u) => u.name.split(' ')[0]);
@@ -117,7 +123,7 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
   const labelById = useMemo(() => new Map(s.labels.map((l) => [l.id, l])), [s.labels]);
   const scannedLabels = dispatch.scannedLabelIds.map((id) => labelById.get(id)).filter((l): l is NonNullable<typeof l> => !!l);
   const lines = manifestLines(s, order, dispatch);
-  const ordered = lines.reduce((t, l) => t + l.ordered, 0); const scanned = scannedLabels.length;
+  const ordered = lines.reduce((t, l) => t + l.ordered, 0); const scanned = real ? dispatch.scannedLabelIds.length : scannedLabels.length; // the server's count, even for a label this device has not pulled yet
   const scannedKg = scannedLabels.reduce((t, l) => t + l.qtyKg, 0);
   const complete = scanned === ordered && ordered > 0;
 
@@ -131,15 +137,17 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
   useEffect(() => () => window.clearTimeout(flashT.current), []);
   const push = (code: string, kind: FeedItem['kind'], msg: string) => setFeed((f) => [{ id: ++feedSeq.current, code, kind, msg, at: new Date().toISOString() }, ...f].slice(0, 200));
 
-  const doScan = useCallback((code: string) => {
-    const r = scanBundle(dispatch.id, code); push(code, r.ok ? 'ok' : 'bad', r.message); pulse(r.ok ? 'ok' : 'bad');
+  const doScan = useCallback(async (code: string) => {
+    const r = real ? await scanOnline(dispatch.id, code) : scanBundle(dispatch.id, code); push(code, r.ok ? 'ok' : 'bad', r.message); pulse(r.ok ? 'ok' : 'bad');
     if (!r.ok) toast({ kind: 'error', title: 'Scan rejected', detail: r.message });
     return r.ok;
-  }, [dispatch.id, scanBundle, pulse, toast]);
+  }, [dispatch.id, scanBundle, pulse, toast, real]);
 
   /** Next bundle physically in stock for a product still short on the manifest (simulates pointing the scanner at the pile). */
   const nextCode = (productId?: string) => {
-    const st = useStore.getState(); const d = st.dispatches.find((x) => x.id === dispatch.id)!; const taken = new Set(d.scannedLabelIds);
+    const st = useStore.getState(); const d = st.dispatches.find((x) => x.id === dispatch.id)!;
+    // A bundle already scanned onto any other open lorry is still "in stock" until that lorry passes the gate: never offer it again.
+    const taken = takenLabelIds(st.dispatches);
     for (const l of order.lines) {
       if (productId && l.productId !== productId) continue;
       const have = d.scannedLabelIds.filter((id) => st.labels.find((x) => x.id === id)?.productId === l.productId).length; if (have >= l.bundles) continue;
@@ -150,11 +158,27 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
     return undefined;
   };
   const scanNext = (productId?: string) => { refocus(); const code = nextCode(productId); if (!code) { const d = useStore.getState().dispatches.find((x) => x.id === dispatch.id)!; toast({ kind: 'warn', title: d.scannedLabelIds.length >= ordered ? 'Manifest complete' : 'No more bundles in stock for this order' }); pulse('bad'); return false; } return doScan(code); };
-  const undo = () => { refocus(); const last = scannedLabels.at(-1); if (!last) return; unscanLast(dispatch.id); push(last.code, 'undo', 'Removed from manifest'); toast({ kind: 'info', title: `${last.code} removed` }); };
+  const undo = async () => {
+    refocus();
+    if (real) {
+      const code = dispatch.scannedCodes?.at(-1); if (!code) return;
+      const r = await unscanOnline(dispatch.id, code); if (!r.ok) { beep('bad'); toast({ kind: 'error', title: 'Not removed', detail: r.message }); return; }
+      push(code, 'undo', 'Removed from manifest'); toast({ kind: 'info', title: `${code} removed` }); return;
+    }
+    const last = scannedLabels.at(-1); if (!last) return; unscanLast(dispatch.id); push(last.code, 'undo', 'Removed from manifest'); toast({ kind: 'info', title: `${last.code} removed` }); };
   const submitTyped = () => { const c = typed.trim().toUpperCase(); if (!c) return; doScan(c); setTyped(''); };
 
-  const onReading = (kg: number) => { const r = recordGateWeight(dispatch.id, kg); setRecounting(false); setScaleRun(0); beep(r.decision === 'pass' ? 'ok' : 'bad'); toast(r.decision === 'pass' ? { kind: 'ok', title: `Gate result · ${dispatch.deliveryNoteNo}`, detail: `${fmtKg(kg)} reading, ${fmtPct(r.variancePct, true)} vs expected. This is not a real gate pass.` } : { kind: 'error', title: 'Gate hold recorded', detail: r.reasons[0] }); };
-  const verdict = !recounting && dispatch.gateStatus !== 'pending' && dispatch.gateKg !== undefined ? gateDecision({ expectedKg: dispatch.expectedKg, actualKg: dispatch.gateKg, tolerancePct: tol, scannedBundles: scanned, orderedBundles: ordered }) : null;
+  const onReading = async (kg: number) => {
+    if (real) {
+      // The server decides pass or hold, the variance and the delivery note number; this shows what it answers.
+      setBusy(true); const r = await weighOnline(dispatch.id, kg); setBusy(false);
+      if (!r.ok || !r.dispatch) { beep('bad'); toast({ kind: 'error', title: 'Gate weight not recorded', detail: r.message }); setScaleRun(0); return; }
+      const g = gateResult(r.dispatch); setRecounting(false); setScaleRun(0); beep(g.decision === 'pass' ? 'ok' : 'bad');
+      toast(g.decision === 'pass' ? { kind: 'ok', title: `Gate pass ${gatePassNo(r.dispatch)}`, detail: `${fmtKg(kg)} reading, ${fmtPct(g.variancePct, true)} vs expected. Delivery note ${r.dispatch.deliveryNoteNo}.` } : { kind: 'error', title: 'Gate hold recorded', detail: g.reasons[0] });
+      return;
+    }
+    const r = recordGateWeight(dispatch.id, kg); setRecounting(false); setScaleRun(0); beep(r.decision === 'pass' ? 'ok' : 'bad'); toast(r.decision === 'pass' ? { kind: 'ok', title: `Gate result · ${dispatch.deliveryNoteNo}`, detail: `${fmtKg(kg)} reading, ${fmtPct(r.variancePct, true)} vs expected. This is not a real gate pass.` } : { kind: 'error', title: 'Gate hold recorded', detail: r.reasons[0] }); };
+  const verdict = !recounting && dispatch.gateStatus !== 'pending' && dispatch.gateKg !== undefined ? (real ? { variancePct: dispatch.variancePct ?? 0, reasons: dispatch.gateReasons ?? [] } : gateDecision({ expectedKg: dispatch.expectedKg, actualKg: dispatch.gateKg, tolerancePct: tol, scannedBundles: scanned, orderedBundles: ordered })) : null;
   const gateOpen = !verdict && !locked;
 
   const weigh = () => {
@@ -170,12 +194,18 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
 
   const recount = () => { setRecounting(true); setScaleRun(0); refocus(); };
   const openOverride = () => { setOverrideOpen(true); setPinError(null); };
-  const submitPin = useCallback((pin: string) => {
-    if (!overrideReason.trim()) { setPinError('Write the reason first, then enter the PIN.'); beep('bad'); return; }
+  const submitPin = useCallback(async (pin: string) => {
+    if (!overrideReason.trim()) { setPinError(real ? 'Write the reason first.' : 'Write the reason first, then enter the PIN.'); beep('bad'); return; }
+    if (real) {
+      // No PIN: the signed-in Site Manager is the re-authentication. The server refuses a weigher, a loader or any other role.
+      setBusy(true); const r = await overrideOnline(dispatch.id, overrideReason.trim()); setBusy(false);
+      if (!r.ok) { setPinError(r.message); beep('bad'); toast({ kind: 'error', title: 'Override refused', detail: r.message }); return; }
+      setPinError(null); setOverrideOpen(false); beep('ok'); toast({ kind: 'warn', title: `Override recorded for ${r.dispatch?.deliveryNoteNo ?? dispatch.deliveryNoteNo}`, detail: 'Logged with your name and reason.' }); return;
+    }
     const ok = overrideGate(dispatch.id, pin, overrideReason.trim());
     if (!ok) { setPinError('Wrong PIN. Only the Site Manager can release a held lorry.'); beep('bad'); toast({ kind: 'error', title: 'Wrong PIN' }); return; }
     setPinError(null); setOverrideOpen(false); beep('ok'); toast({ kind: 'warn', title: `Override recorded for ${dispatch.deliveryNoteNo}`, detail: 'Logged in the audit feed with your name and reason.' });
-  }, [overrideReason, overrideGate, dispatch.id, dispatch.deliveryNoteNo, beep, toast]);
+  }, [overrideReason, overrideGate, dispatch.id, dispatch.deliveryNoteNo, beep, toast, real]);
   const waLines = [`Delivery note ${dispatch.deliveryNoteNo} for ${order.number}`, ...lines.map((l) => `• ${l.product.internalName}: ${l.scanned} bundles (${fmtNum(l.scanned * l.product.bundlePieces)} pcs)`), `Gate weight ${dispatch.gateKg !== undefined ? fmtKg(dispatch.gateKg) : '—'} · expected ${fmtKg(dispatch.expectedKg)}`, `Driver ${dispatch.driver} · ${dispatch.vehicle}`, dispatch.gatePassedAt ? `Left ${site.shortName} at ${fmtTime(dispatch.gatePassedAt)}` : ''].filter(Boolean);
   const sendWa = async () => { await messaging.sendWhatsApp(client?.whatsapp ?? '', waLines.join('\n'), `${dispatch.deliveryNoteNo}.pdf`); setWaSent(true); toast({ kind: 'ok', title: 'Ready to share', detail: `No message or PDF was sent to ${client?.name}.` }); };
 
@@ -268,7 +298,7 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
             <IconChip size="lg" solid icon={hold ? Siren : pass ? ShieldCheck : ShieldAlert} color={tone} className={hold ? 'anim-alarm' : undefined} />
             <div className="min-w-0 flex-1 basis-[240px]">
               <div className="flex items-center gap-2 flex-wrap"><h3 className="t-title">{hold ? 'Gate check held' : pass ? 'Gate check passed' : 'Override recorded'}</h3><Badge tone={hold ? 'bad' : pass ? 'ok' : 'warn'} dot>{hold ? 'Hold' : pass ? 'Pass' : 'Override'}</Badge></div>
-              <div className="t-sm text-[var(--text-2)]">{hold ? `The gate check is held for ${dispatch.deliveryNoteNo}.` : pass ? `${dispatch.vehicle} passed the simulated check for ${dispatch.deliveryNoteNo}${dispatch.gatePassedAt ? ` · checked at ${fmtTime(dispatch.gatePassedAt)}` : ''}.` : `Override for ${dispatch.deliveryNoteNo}: “${dispatch.overrideReason}”`}</div>
+              <div className="t-sm text-[var(--text-2)]">{hold ? `The gate check is held for ${dispatch.deliveryNoteNo}.` : pass ? `${dispatch.vehicle} passed the ${real ? 'gate' : 'simulated'} check for ${dispatch.deliveryNoteNo}${dispatch.gatePassedAt ? ` · checked at ${fmtTime(dispatch.gatePassedAt)}` : ''}.` : `Override for ${dispatch.deliveryNoteNo}: “${dispatch.overrideReason}”`}</div>
             </div>
             {hold ? <Badge tone="bad" dot>CEOs alerted · {ceos.join(' & ')}</Badge>
               : <div className="text-right shrink-0"><div className="t-label">Gate pass no.</div><div className="code t-lg font-semibold">{gatePassNo(dispatch)}</div></div>}
@@ -290,7 +320,8 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
                 <Note tone="bad" className="mt-3">Recount and weigh again, or record a Site Manager override with a PIN and reason.</Note>
               </> : <>
                 <div className="t-label mb-1.5">Captured at the gate</div>
-                <div className="flex flex-col gap-1.5"><CaptureTile kind="signature" done={dispatch.hasDriverSignature} label={`Driver signature · ${dispatch.driver}`} /><CaptureTile kind="photo" done={dispatch.hasLorryPhoto} label={`Lorry photo · ${dispatch.vehicle}`} /></div>
+                {real ? <div className="t-base">Delivery note <span className="code font-semibold">{dispatch.deliveryNoteNo}</span> was allocated by the server with the gate pass. {dispatch.driver}, <span className="code">{dispatch.vehicle}</span>.</div>
+                  : <div className="flex flex-col gap-1.5"><CaptureTile kind="signature" done={dispatch.hasDriverSignature} label={`Driver signature · ${dispatch.driver}`} /><CaptureTile kind="photo" done={dispatch.hasLorryPhoto} label={`Lorry photo · ${dispatch.vehicle}`} /></div>}
                 {!pass && <Note tone="warn" className="mt-3">Recorded in the audit feed with the Site Manager's name and reason. Both CEOs can see it.</Note>}
                 <p className="t-sm text-[var(--text-3)] mt-2.5">{waSent ? 'Preview prepared.' : 'Prepare a share preview. This build does not send messages or PDFs.'}</p>
               </>}
@@ -327,7 +358,7 @@ export function CargoBuilder({ dispatch, order, onLoadNext, actions }: { dispatc
 
       {/* ---------------- override */}
       <Dialog open={overrideOpen} onClose={() => setOverrideOpen(false)} title="Site Manager override" width={480} footer={<Button variant="ghost" onClick={() => setOverrideOpen(false)}>Cancel</Button>}>
-        <OverrideForm dn={dispatch.deliveryNoteNo} reason={overrideReason} setReason={(v) => { setOverrideReason(v); setPinError(null); }} onPin={submitPin} error={pinError} />
+        <OverrideForm real={real} busy={busy} dn={dispatch.deliveryNoteNo} reason={overrideReason} setReason={(v) => { setOverrideReason(v); setPinError(null); }} onPin={submitPin} error={pinError} />
       </Dialog>
 
       {/* ---------------- whatsapp */}

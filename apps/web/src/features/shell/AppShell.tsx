@@ -1,5 +1,5 @@
 import { COMPANY } from '@/config/company';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from '@tanstack/react-router';
 import { Bell, Building2, ChevronDown, ChevronRight, ChevronsUpDown, Cloud, CloudOff, Contrast, Download, Factory, HelpCircle, Keyboard, LayoutGrid, LogOut, Maximize, Menu as MenuIcon, Minimize, MonitorSmartphone, Moon, MoreHorizontal, PanelLeft, Recycle, RefreshCw, Search, ShoppingBag, Sun, X, type LucideIcon } from 'lucide-react';
 import type { Role, SiteCode } from '@tanaad/domain';
@@ -15,8 +15,12 @@ import { SITE_COLOR, SITE_ICON } from '@/config/siteIdentity';
 import { Avatar, cn, IconButton, Kbd, Menu, useMedia, type MenuItem } from '@/components/ui';
 import { fmtDayLong, fmtDateTime } from '@/data/format';
 import { cashDayFor, currentShiftKind, DEMO_HOUR, openExceptions, portalsFor } from '@/data/selectors';
-import { PresenterPanel } from '@/demo/PresenterPanel';
+// The presenter panel is demo-only: a real build (API URL set, VITE_DEMO not 1) never includes it.
+const PresenterPanel = import.meta.env.VITE_DEMO === '1' || !import.meta.env.VITE_API_URL ? lazy(() => import('@/demo/PresenterPanel').then((m) => ({ default: m.PresenterPanel }))) : () => null;
 import { Toasts } from './Toasts';
+import { loadSeen, loadServerAlerts, mergeAlerts, saveSeen, useServerAlerts } from '@/data/api/alerts';
+import { NoAccess } from './NoAccess';
+import { canOpenPath } from '@/app/access';
 import { SyncIssues } from './SyncIssues';
 import { isReal, realLogout } from '@/data/api/sync';
 import { CommandPalette } from './CommandPalette';
@@ -51,6 +55,11 @@ function HubTabs({ tabs, pathname }: { tabs: Item[]; pathname: string }) {
 
 const DARK_KBD = '[&_kbd]:bg-white/10 [&_kbd]:border-white/15 [&_kbd]:text-white/60';
 
+/** What the status bar says about where the records live: the server in a real build, this browser in the offline-only demo. */
+export const dataSourceNote = (real: boolean) => (real
+  ? { text: 'Server data', title: 'Records are kept on the Tanaad server.' }
+  : { text: 'Local data', title: 'Data is stored in this browser. No server is connected.' });
+
 export function AppShell({ scope }: { scope: 'group' | 'site' }) {
   const session = useStore((s) => s.session);
   const site = useSite(); const nav = useNavigate(); const loc = useLocation();
@@ -61,6 +70,7 @@ export function AppShell({ scope }: { scope: 'group' | 'site' }) {
   const role: Role = session?.role ?? 'supervisor';
   const canGroup = role === 'ceo' || role === 'group_admin';
 
+  const allowed = !isReal() || canOpenPath(loc.pathname, session);
   const items = useMemo<Item[]>(() => (scope === 'group' ? GROUP_NAV.map((n) => ({ ...n, href: `/g/${n.to}` })) : visibleSiteNav(role, site.id).map((n) => ({ ...n, href: `/s/${site.id}/${n.to}` }))), [scope, role, site.id]);
   const current = useMemo(() => [...items].sort((a, b) => b.href.length - a.href.length).find((n) => loc.pathname === n.href || loc.pathname.startsWith(`${n.href}/`)), [items, loc.pathname]);
 
@@ -89,7 +99,7 @@ export function AppShell({ scope }: { scope: 'group' | 'site' }) {
         <TitleBar scope={scope} current={current} hubLabel={hub && hubTabs.length > 1 ? hub.label : undefined} desktop={desktop} onMenu={() => (desktop ? toggleSidebar() : setDrawer(true))} />
         {!desktop && <HubTabs tabs={hubTabs} pathname={loc.pathname} />}
         <main ref={main} id="main" className="flex-1 min-h-0 overflow-auto scrollbar-thin">
-          <div className="px-[var(--page-x)] py-[var(--page-y)] max-w-[1720px] mx-auto pb-12"><Outlet /></div>
+          <div className="px-[var(--page-x)] py-[var(--page-y)] max-w-[1720px] mx-auto pb-12">{allowed ? <Outlet /> : <NoAccess />}</div>
         </main>
         {desktop ? <StatusBar scope={scope} /> : <BottomNav items={items} pathname={loc.pathname} role={role} onMore={() => setDrawer(true)} />}
       </div>
@@ -104,7 +114,7 @@ export function AppShell({ scope }: { scope: 'group' | 'site' }) {
       <CommandPalette scope={scope} site={site.id} />
       <ShortcutHelp />
       <Toasts />
-      <PresenterPanel />
+      <Suspense fallback={null}><PresenterPanel /></Suspense>
     </div>
   );
 }
@@ -225,7 +235,12 @@ function Sidebar({ scope, items, pathname, collapsed, canGroup, embedded, onClos
 function TitleBar({ scope, current, hubLabel, desktop, onMenu }: { scope: 'group' | 'site'; current?: Item; hubLabel?: string; desktop: boolean; onMenu: () => void }) {
   const site = useSite(); const nav = useNavigate(); const wide = useMedia('(min-width: 1200px)');
   const session = useStore((s) => s.session); const users = useStore((s) => s.users); const signOut = useStore((s) => s.signOut);
-  const alerts = useStore((s) => s.alerts); const markAlertsRead = useStore((s) => s.markAlertsRead);
+  const localAlerts = useStore((s) => s.alerts); const markLocalRead = useStore((s) => s.markAlertsRead); const exceptions = useStore((s) => s.exceptions);
+  const serverAlerts = useServerAlerts(); const [seen, setSeen] = useState<Set<string>>(() => loadSeen());
+  // Real mode: ask the server for alerts now and every minute; if it has none to give, the open exceptions fill the bell.
+  useEffect(() => { if (!isReal()) return; void loadServerAlerts(); const t = setInterval(() => void loadServerAlerts(), 60_000); return () => clearInterval(t); }, []);
+  const alerts = useMemo(() => (isReal() ? mergeAlerts(localAlerts, serverAlerts, exceptions, seen, scope === 'site' ? site.id : undefined) : localAlerts), [localAlerts, serverAlerts, exceptions, seen, scope, site.id]);
+  const markAlertsRead = () => { markLocalRead(); if (!isReal()) return; const n = new Set(seen); alerts.forEach((a) => n.add(a.id)); setSeen(n); saveSeen(n); };
   const online = useStore((s) => s.online); const pending = useStore(pendingCount);
   const prefs = usePrefs(); const pwa = usePwa();
   const [alertsOpen, setAlertsOpen] = useState(false);
@@ -312,9 +327,9 @@ function TitleBar({ scope, current, hubLabel, desktop, onMenu }: { scope: 'group
 
       {/* Offline Status (Only shown when offline) */}
       {!online && (
-        <div className="app-no-drag flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium bg-[var(--bad-bg)] text-[var(--bad)] border border-[var(--bad)]/20" title="Connection is offline. New events are queued on this device.">
+        <div className="app-no-drag shrink-0 flex items-center gap-1.5 px-2.5 h-7 rounded-full text-xs font-medium bg-[var(--bad-bg)] text-[var(--bad)] border border-[var(--bad)]/20" title="Connection is offline. New events are queued on this device.">
           <CloudOff className="size-3.5" />
-          <span>Offline · {pending} queued</span>
+          <span className="whitespace-nowrap">Offline<span className="max-sm:hidden"> · {pending} queued</span></span>
         </div>
       )}
 
@@ -372,7 +387,7 @@ function StatusBar({ scope }: { scope: 'group' | 'site' }) {
       <span className="flex-1" />
       {pwa.updateReady && <Seg onClick={pwa.applyUpdate}><RefreshCw className="size-3" />Update ready</Seg>}
       {offline && <Seg onClick={() => s.setOnline(true)} title="The connection is off. Click to turn it back on."><CloudOff className="size-3" />Offline</Seg>}
-      <Seg title="Data is stored in this browser. No server is connected.">Local data</Seg>
+      <Seg title={dataSourceNote(isReal()).title}>{dataSourceNote(isReal()).text}</Seg>
     </footer>
   );
 }

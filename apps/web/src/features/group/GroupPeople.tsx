@@ -4,6 +4,7 @@ import type { EngagementType, SiteCode } from '@tanaad/domain';
 import { contractDaysRemaining } from '@tanaad/domain';
 import { useGo, useRefList } from '@/app/hooks';
 import { useStore } from '@/data/store';
+import { usePeopleAccess } from '@/features/people/access';
 import { Avatar, Badge, Bar, Button, ChipGroup, DataGrid, Empty, KpiStrip, Meter, PageHeader, Panel, Sheet, StackedBar, Stat, type Column } from '@/components/ui';
 import { CountUp, Delta, Donut, Legend, LineChart, pctChange } from '@/components/charts';
 import { SITE_LIST, SITES } from '@/config/sites';
@@ -21,7 +22,7 @@ const WEEKS_A_MONTH = 52 / 12;
 
 /** Headcount and wage cost per site, shared workers with their cost split, expiring contracts across the group. */
 export function GroupPeople() {
-  const s = useStore(); const renew = useStore((x) => x.renewContract); const toast = useStore((x) => x.toast);
+  const access = usePeopleAccess(); const s = useStore(); const renew = useStore((x) => x.renewContract); const toast = useStore((x) => x.toast);
   const [renewing, setRenewing] = useState<{ engId: string; name: string } | null>(null); const [termId, setTermId] = useState<string | null>(null); const go = useGo();
   const [sharedOpen, setSharedOpen] = useState<string | null>(null);
   const kind = currentShiftKind();
@@ -107,7 +108,7 @@ export function GroupPeople() {
     { key: 'p', header: 'Worker', sort: (r) => r.person.fullName, cell: (r) => <span className="flex items-center gap-2 py-0.5"><Avatar name={r.person.fullName} seed={r.person.avatarSeed} size={26} ring={r.state === 'expired' ? 'bad' : 'warn'} /><span className="min-w-0"><span className="block font-medium leading-tight">{r.person.fullName}</span><span className="flex items-center gap-1 t-xs text-[var(--text-3)]"><span className="size-1.5 rounded-[2px] shrink-0" style={{ background: SITE_COLOR[r.eng.siteId] }} />{SITES[r.eng.siteId].shortName} · {r.person.sector}</span></span></span> },
     { key: 't', header: 'Term', align: 'right', mono: true, sort: (r) => r.eng.termDays ?? 0, cell: (r) => `${r.eng.termDays} d` },
     { key: 'e', header: 'Ends', sort: (r) => r.days, cell: (r) => <Badge tone={r.state === 'expired' ? 'bad' : 'warn'} dot>{r.state === 'expired' ? `Expired ${-r.days} d ago` : r.days === 0 ? 'Ends today' : `In ${r.days} d · ${r.eng.endDate ? fmtDayShort(r.eng.endDate) : ''}`}</Badge> },
-    { key: 'a', header: '', align: 'right', cell: (r) => <Button size="sm" icon={RefreshCw} onClick={(e) => { e.stopPropagation(); setRenewing({ engId: r.eng.id, name: r.person.fullName }); }}>Renew</Button> },
+    { key: 'a', header: '', align: 'right', cell: (r) => (access.renew ? <Button size="sm" icon={RefreshCw} onClick={(e) => { e.stopPropagation(); setRenewing({ engId: r.eng.id, name: r.person.fullName }); }}>Renew</Button> : null) },
   ];
 
   return (
@@ -115,14 +116,14 @@ export function GroupPeople() {
       <PageHeader title="People" subtitle={`All sites · ${fmtNum(onShift)} of ${fmtNum(active)} on shift today`}
         actions={<>
           <Button icon={Download} hotkey="e" onClick={exportCsv}>Export CSV</Button>
-          <Button variant="primary" icon={RefreshCw} hotkey="r" hotkeyLabel="Renew the most urgent contract" disabled={!next} onClick={() => next && setRenewing({ engId: next.eng.id, name: next.person.fullName })}>Renew next</Button>
+          <Button variant="primary" icon={RefreshCw} hotkey="r" hotkeyLabel="Renew the most urgent contract" disabled={!next || !access.renew} onClick={() => next && setRenewing({ engId: next.eng.id, name: next.person.fullName })}>Renew next</Button>
         </>} />
 
       <KpiStrip>
         <Stat label="Workforce" icon={Users} accent="var(--series-1)" value={<CountUp value={active} />} spark={groupTrend.slice(0, -1)} sub={<Wrap>{byType.map((t) => `${t.active} ${SHORT[t.type].toLowerCase()}`).join(' · ')}</Wrap>} />
         <Stat label="On shift now" icon={UserCheck} accent="var(--series-3)" value={<CountUp value={nowShift} />} delta={<Delta value={pctChange(nowShift, yesterdayShift)} label={`vs yesterday's ${kind} shift`} />} spark={groupTrend.slice(0, -1)} sparkColor="var(--series-3)" sub={<Wrap>{kind} shift · {fmtNum(yesterdayShift)} yesterday</Wrap>} />
         <Stat label="Weekly wage bill" icon={Banknote} accent="var(--series-2)" value={<><CountUp value={weekly} format={compact} /><span className="t-base text-[var(--text-3)] font-medium"> UGX</span></>} sub={<><span className="flex items-center h-[26px] mb-1.5"><span className="flex w-full h-2 gap-[2px] rounded-[2px] overflow-hidden">{perSite.map((p) => <span key={p.site.id} title={`${p.site.shortName} ${fmtUGX(p.total.weekly)}`} style={{ width: `${(p.total.weekly / (weekly || 1)) * 100}%`, background: SITE_COLOR[p.site.id] }} />)}</span></span><Wrap>{usd0(weekly / s.fx)} · {compact(monthly)} a month</Wrap></>} />
-        <Stat label="Shared workers" icon={Share2} accent="var(--series-7)" value={<CountUp value={shared.length} />} sub={<><span className="flex items-center gap-1 h-[26px] mb-1.5">{shared.slice(0, 6).map((r) => <Avatar key={r.person.id} name={r.person.fullName} seed={r.person.avatarSeed} size={22} />)}</span><Wrap>{shared.length ? `across ${plural2(new Set(shared.flatMap((r) => r.per.filter((x) => x.days > 0).map((x) => x.site))).size)} · 14 days` : 'Nobody works across sites'}</Wrap></>} />
+        <Stat label="Shared workers" icon={Share2} accent="var(--series-7)" value={<CountUp value={shared.length} />} sub={<><span className="flex items-center gap-1 h-[26px] mb-1.5">{shared.slice(0, 6).map((r) => <Avatar key={r.person.id} name={r.person.fullName} seed={r.person.avatarSeed} size={22} />)}</span><Wrap>{shared.length ? `across ${plural2(new Set(shared.flatMap((r) => [r.person.homeSiteId, ...r.person.sharedSites, ...r.per.filter((x) => x.days > 0).map((x) => x.site)].filter(Boolean))).size)} · 14 days` : 'Nobody works across sites'}</Wrap></>} />
         <Stat label="To renew" icon={CalendarClock} accent="var(--series-8)" tone={expired ? 'bad' : contracts.length ? 'warn' : 'neutral'} value={<CountUp value={contracts.length} />} sub={<><span className="flex items-center h-[26px] mb-1.5"><span className="flex w-full h-2 gap-[2px] rounded-[2px] overflow-hidden bg-[var(--surface-3)]">{contracts.map((c) => <span key={c.eng.id} className="flex-1" style={{ background: c.state === 'expired' ? 'var(--bad)' : 'var(--warn)' }} />)}</span></span><Wrap>{contracts.length ? `${expired} expired · ${contracts.length - expired} ending soon` : `None ending in ${warnLabel}`}</Wrap></>} onClick={next ? () => setRenewing({ engId: next.eng.id, name: next.person.fullName }) : undefined} />
         <Stat label="New joiners" icon={UserPlus} accent="var(--series-5)" value={<CountUp value={joined.length} />}
           sub={<><span className="flex items-end gap-[3px] h-[26px] mb-1.5 border-b border-[var(--line)]">{joinBuckets.map((n, i) => <span key={i} title={`${n} joined`} className="flex-1 rounded-t-[2px]" style={{ height: `${Math.max(8, (n / Math.max(1, ...joinBuckets)) * 100)}%`, background: 'var(--series-5)', opacity: n ? 1 : 0.25 }} />)}</span><Wrap>{joinedWeek} this week · last 30 days</Wrap></>} />
@@ -187,7 +188,7 @@ export function GroupPeople() {
         </Panel>
         </div>
         <Panel icon={CalendarClock} title="Contracts ending" sub={`expired, or ending within ${warnLabel}`} pad={false} actions={<Badge tone={expired ? 'bad' : contracts.length ? 'warn' : 'ok'} dot>{contracts.length ? `${contracts.length} to renew` : 'Nothing due'}</Badge>} footer="Renewing starts a new term today. The old contract is kept as renewed; nothing is overwritten.">
-          <DataGrid bare rows={contracts} columns={contractCols} rowKey={(r) => r.eng.id} onRowClick={(r) => setRenewing({ engId: r.eng.id, name: r.person.fullName })} selectedKey={renewing?.engId} maxHeight={420} empty={`No contracts ending in the next ${warnLabel}.`} />
+          <DataGrid bare rows={contracts} columns={contractCols} rowKey={(r) => r.eng.id} onRowClick={(r) => { if (access.renew) setRenewing({ engId: r.eng.id, name: r.person.fullName }); }} selectedKey={renewing?.engId} maxHeight={420} empty={`No contracts ending in the next ${warnLabel}.`} />
         </Panel>
       </div>
 

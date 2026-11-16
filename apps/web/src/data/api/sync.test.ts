@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useStore, eventSink } from '../store';
 import { decisionNeedsNote, decisionToApi, exceptionStatusFromApi, toEnvelope } from './mapping';
 import { outboxDb, pending, rejectedItems } from './outbox';
-import { __setReal, applyAssigned, startSync, stopSync, syncNow, useSync } from './sync';
+import { __setReal, applyAssigned, startSync, stopSync, syncNow, undoRejectedCash, useSync, viewedSite } from './sync';
 import type { EnvelopeOut, IngestResult } from './types';
 
 function memoryStorage(): Storage {
@@ -34,6 +34,7 @@ describe('exception status mapping', () => {
     expect(exceptionStatusFromApi('acknowledged')).toBe('resolved');
     expect(exceptionStatusFromApi('open')).toBe('open');
     expect(exceptionStatusFromApi('held')).toBe('open'); // a server hold stays actionable
+    expect(exceptionStatusFromApi('resolved')).toBe('resolved'); // closed by the server (e.g. a renewed contract), no longer waiting for the CEO
     for (const d of ['approved', 'held', 'resolved'] as const) {
       const api = decisionToApi(d);
       expect(exceptionStatusFromApi({ approve: 'approved', hold: 'open', acknowledge: 'acknowledged' }[api])).toBe(d === 'held' ? 'open' : d);
@@ -116,6 +117,20 @@ describe('real mode', () => {
     expect(useSync.getState().rejected[0]).toMatchObject({ code: 'day_locked', reason: 'Day is locked' });
   });
 
+  it('drops an optimistic cash line the server refused and re-reads the cash pages', async () => {
+    const st = useStore.getState();
+    st.addCashEntry({ siteId: 'mats', day: st.today, direction: 'in', category: 'receipt', amount: 5, payee: 'Refused', hasReceiptPhoto: false });
+    const line = useStore.getState().cashEntries.find((e) => e.payee === 'Refused')!;
+    const keep = useStore.getState().cashEntries.length;
+    await undoRejectedCash('mats', [{ siteCode: 'mats', code: 'day_locked', reason: 'Day is locked', envelope: { id: 'x', type: 'cash.entry_recorded', version: 1, occurred_at: '', payload: { entry_id: line.id } } }]);
+    expect(useStore.getState().cashEntries.some((e) => e.id === line.id)).toBe(false);
+    expect(useStore.getState().cashEntries.length).toBe(keep - 1);
+    // other rejections leave the cash pages alone
+    const n = useStore.getState().cashEntries.length;
+    await undoRejectedCash('mats', [{ siteCode: 'mats', code: 'forbidden', envelope: { id: 'y', type: 'people.person_archived', version: 1, occurred_at: '', payload: {} } }]);
+    expect(useStore.getState().cashEntries.length).toBe(n);
+  });
+
   it('keeps writes made offline queued and sends them in order once online', async () => {
     startSync();
     await new Promise((r) => setTimeout(r, 20));
@@ -132,6 +147,44 @@ describe('real mode', () => {
     await syncNow();
     expect(sent.map((e) => e.payload.amount)).toEqual([1, 2, 3]);
     expect(await pending('mats')).toHaveLength(0);
+  });
+
+  it('sends a write queued while a sync is running right after it, without waiting for the timer', async () => {
+    const { enqueue } = await import('./outbox');
+    const env = (n: number): EnvelopeOut => ({ id: `e${n}`, type: 'cash.entry_recorded', version: 1, occurred_at: '2026-11-09T07:00:00Z', payload: { amount: n } });
+    const inner = fetchMock.getMockImplementation()!;
+    let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+    let started!: () => void; const posting = new Promise<void>((r) => { started = r; });
+    let held = false;
+    fetchMock.mockImplementation(async (input, init) => { if (String(input).endsWith('/events') && !held) { held = true; started(); await gate; } return inner(input, init); });
+    await enqueue('mats', env(1));
+    const first = syncNow();
+    await posting; // the first POST is in flight, carrying only e1
+    await enqueue('mats', env(2));
+    void syncNow();
+    release();
+    await first;
+    await vi.waitFor(async () => { expect(sent.map((e) => e.id)).toEqual(['e1', 'e2']); expect(await pending('mats')).toHaveLength(0); });
+  });
+
+  it('is back online when the server answers, even if one read is refused (429)', async () => {
+    useStore.setState({ online: false });
+    fetchMock.mockImplementation(async (input) => { const url = String(input); return url.includes('/snapshots/people') ? json(429, { code: 'rate_limited', detail: 'Slow down' }) : emptySnapshot(url); });
+    await syncNow();
+    expect(useStore.getState().online).toBe(true);
+    expect(useSync.getState().lastError).toBeTruthy();
+    fetchMock.mockImplementation(async () => { throw new TypeError('Failed to fetch'); });
+    await syncNow();
+    expect(useStore.getState().online).toBe(false);
+  });
+
+  it('treats the site in the address as the one on screen for a group role with several sites', () => {
+    vi.stubGlobal('location', { pathname: '/s/bags/people/settlement' });
+    expect(viewedSite(['mats', 'bags', 'recycling'])).toBe('bags');
+    vi.stubGlobal('location', { pathname: '/g/people' });
+    expect(viewedSite(['mats', 'bags', 'recycling'])).toBeUndefined();
+    expect(viewedSite(['mats'])).toBe('mats');
+    vi.unstubAllGlobals(); vi.stubGlobal('fetch', fetchMock); vi.stubGlobal('localStorage', memoryStorage());
   });
 
   it('applyAssigned ignores refs it does not own', () => {

@@ -1,7 +1,11 @@
-import { useCallback, useEffect, useRef, type ReactNode, type RefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { Check, Settings2, type LucideIcon } from 'lucide-react';
 import { Bar, Button, Empty, Kbd, cn, useHotkey, useIsTouch, useMedia, type Tone } from '@/components/ui';
 import { useGo } from '@/app/hooks';
+import { useStore } from '@/data/store';
+import { isReal } from '@/data/api/sync';
+import { isUuid } from '@/data/api/names';
+import { ChipGroup, FormRow, Select } from '@/components/ui';
 
 /** Production helpers shared with the mats screens (one implementation of the shift context, the production upsert and the print run). */
 export { PrintRun, addProduction, useShift } from '../mats/kit';
@@ -127,4 +131,22 @@ export function ScaleBay({ innerRef, children, note }: { innerRef: RefObject<HTM
       </div>
     </div>
   );
+}
+
+
+/**
+ * Where a sack or pack is kept. Demo mode keeps its fixed zone ids. Real mode uses the zones the server holds for the site, by name,
+ * and never returns an id the server does not know (undefined until a zone exists).
+ */
+export function useSiteZone(siteId: string, demoId: string) {
+  const all = useStore((s) => s.zones); const zones = useMemo(() => all.filter((z) => z.siteId === siteId && isUuid(z.id)), [all, siteId]);
+  const [pick, setPick] = useState<string | null>(null);
+  const real = isReal();
+  const zoneId = real ? (zones.find((z) => z.id === pick) ?? zones[0])?.id : demoId;
+  const picker = real ? (
+    <FormRow label="Store zone">{zones.length === 0 ? <SettingsEmpty what="store zones" where="Zones" /> : zones.length <= 6
+      ? <ChipGroup ariaLabel="Store zone" options={zones.map((z) => ({ value: z.id, label: z.name }))} value={zoneId ?? ''} onChange={setPick} />
+      : <Select aria-label="Store zone" value={zoneId ?? ''} onChange={(e) => setPick(e.target.value)}>{zones.map((z) => <option key={z.id} value={z.id}>{z.name}</option>)}</Select>}</FormRow>
+  ) : null;
+  return { zoneId, zones, picker };
 }

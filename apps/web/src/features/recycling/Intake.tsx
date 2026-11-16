@@ -11,6 +11,8 @@ import { ScaleWidget } from '@/components/ScaleWidget';
 import { QR } from '@/components/Sticker';
 import { WhatsAppPreview } from '@/components/WhatsAppPreview';
 import { messaging } from '@/devices';
+import { isReal, pullAll } from '@/data/api/sync';
+import { isConfirmed, loadCollectorLedger, payCollectorOnline, payErrorMessage, provisionalVoucher } from '@/data/api/recycling';
 import { compact, fmtDayLong, fmtDayShort, fmtKg, fmtNum, fmtUGX } from '@/data/format';
 import { amountOf, Calc, FormSection, ScaleBay, SettingsEmpty, useFirstField, useScaleKey, useScaleTitle, useShift, voucherNo, WIDE, Workbench } from './kit';
 import { fmtTime } from './kit';
@@ -99,19 +101,28 @@ export function Intake() {
 
   const weighIn = () => {
     if (!ready || !who || !gross) return;
-    const rec = s.recordIntake({ collector: who, grossKg: gross, tareKg, deductionPct: dedPct, pricePerKg: price, day: today, hasScalePhoto: true });
-    setVoucher(rec); useStore.getState().toast({ kind: 'ok', title: `Voucher ${voucherNo(rec, useStore.getState().collectorDeliveries)} issued`, detail: `${who} · ${fmtKg(rec.netKg)} net · ${fmtUGX(amountOf(rec))}` });
+    const real = isReal();
+    const rec = s.recordIntake({ collector: who, grossKg: gross, tareKg, deductionPct: dedPct, pricePerKg: price, day: today, hasScalePhoto: true, ...(real ? { provisionalNo: provisionalVoucher(today), ...(!customOn && dedId ? { deductionPresetId: dedId } : {}) } : {}) });
+    setVoucher(rec); useStore.getState().toast({ kind: 'ok', title: `Voucher ${voucherNo(rec, useStore.getState().collectorDeliveries)} issued`, detail: `${who} · ${fmtKg(rec.netKg)} net · ${fmtUGX(amountOf(rec))}${real ? ' · the final number is set when it syncs' : ''}` });
     setGross(null); setPhoto(false); setCustom(''); setCustomOn(false); setTarget(rnd(600, 2400)); setRound((r) => r + 1); if (adding) { setCollector(who); setAdding(false); setNewName(''); }
     focusFirst();
   };
-  const pay = (d: CollectorDelivery) => { s.payCollector(d.id); useStore.getState().toast({ kind: 'ok', title: 'Payment recorded', detail: `${fmtUGX(amountOf(d))} for ${d.collector} added to the local cash book. No money was transferred.` }); };
+  const pay = (d: CollectorDelivery) => {
+    if (isReal()) {
+      const toast = useStore.getState().toast;
+      if (!isConfirmed(d)) return toast({ kind: 'warn', title: 'Waiting to sync', detail: 'Pay this voucher once the server has confirmed it.' });
+      payCollectorOnline(d.id).then(async () => { await pullAll(); await loadCollectorLedger(); toast({ kind: 'ok', title: 'Payment recorded', detail: `${fmtUGX(amountOf(d))} for ${d.collector} posted to the cash book.` }); }).catch((e) => toast({ kind: 'warn', title: 'Payment not recorded', detail: payErrorMessage(e) }));
+      return;
+    }
+    s.payCollector(d.id); useStore.getState().toast({ kind: 'ok', title: 'Payment recorded', detail: `${fmtUGX(amountOf(d))} for ${d.collector} added to the local cash book. No money was transferred.` });
+  };
   const send = async (d: CollectorDelivery) => { await messaging.sendWhatsApp(d.collector, `Voucher ${no(d)}`); setSentId(d.id); useStore.getState().toast({ kind: 'ok', title: 'Voucher ready to share', detail: `No message was sent to ${d.collector}.` }); };
   const voucherLines = (d: CollectorDelivery) => [`${site.legalName} · Voucher ${no(d)}`, `${d.collector} · ${fmtDayLong(d.day)} ${fmtTime(d.at)}`, `Gross ${fmtKg(d.grossKg)} − tare ${fmtKg(d.tareKg)} − ${d.deductionPct}% = net ${fmtKg(d.netKg)}`, `${fmtKg(d.netKg)} × ${fmtUGX(d.pricePerKg)} = ${fmtUGX(amountOf(d))}`, d.paid ? 'Marked paid.' : 'Unpaid.'];
   useHotkey('c', () => setPhoto((p) => !p), { label: 'Capture the scale photo' });
 
   const cols: Column<CollectorDelivery>[] = [
     { key: 't', header: 'Time', mono: true, sort: (d) => d.at, cell: (d) => fmtTime(d.at) },
-    { key: 'v', header: 'Voucher', cell: (d) => <span className="code font-medium">{no(d)}</span> },
+    { key: 'v', header: 'Voucher', cell: (d) => <span className="code font-medium">{no(d)}{isReal() && !isConfirmed(d) && <span className="ml-1.5 t-xs font-normal text-[var(--text-3)]" title="The server sets the final number when this syncs">provisional</span>}</span> },
     { key: 'c', header: 'Collector', truncate: 240, sort: (d) => d.collector, cell: (d) => <span className="inline-flex items-center gap-1.5"><Avatar name={d.collector} size={20} />{d.collector}</span> },
     { key: 'g', header: 'Gross kg', align: 'right', mono: true, sort: (d) => d.grossKg, cell: (d) => fmtNum(d.grossKg) },
     { key: 'ta', header: 'Tare', align: 'right', mono: true, cell: (d) => fmtNum(d.tareKg) },

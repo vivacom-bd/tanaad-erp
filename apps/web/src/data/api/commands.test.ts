@@ -61,7 +61,7 @@ describe('briefs, names, sign-in', () => {
   it('never shows a UUID as a name', () => {
     const id = '0190a1b2-0000-7000-8000-000000000001';
     expect(isUuid(id)).toBe(true);
-    expect(userLabel(id, [])).toBe('Unknown user');
+    expect(userLabel(id, [])).toBe('A colleague');
     expect(userLabel(id, [], 'Moses')).toBe('Moses');
     expect(userLabel(id, [{ id, name: 'Grace' }])).toBe('Grace');
     expect(userLabel(id, [], undefined, [{ id, fullName: 'Ann' }])).toBe('Ann');
@@ -71,5 +71,20 @@ describe('briefs, names, sign-in', () => {
     expect(signInMessage(new ApiError(429, 'unknown', 'x'))).toMatch(/Too many attempts/);
     expect(signInMessage(new ApiError(403, 'forbidden', 'Username or PIN is wrong.'))).toBe('Username or PIN is wrong.');
     expect(signInMessage(new ApiError(0, 'network', 'x'))).toBe('Cannot reach the server.');
+  });
+});
+
+import { actionName, eventName, setDirectory } from './names';
+describe('plain wording', () => {
+  it('names actions and events', () => {
+    expect(actionName('cash.entry_recorded')).toBe('Record a cash entry');
+    expect(eventName('Cash.day_reopened')).toBe('Cash day reopened');
+    expect(eventName('CashDayReopened')).toBe('Cash day reopened');
+  });
+  it('uses the server directory before falling back to a colleague', () => {
+    const id = '0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b';
+    expect(userLabel(id, [])).toBe('A colleague');
+    setDirectory([{ id, name: 'Grace N.' }]);
+    expect(userLabel(id, [])).toBe('Grace N.');
   });
 });

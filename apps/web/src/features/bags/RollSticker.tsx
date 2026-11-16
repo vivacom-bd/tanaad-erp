@@ -12,6 +12,7 @@ import { Sticker } from '@/components/Sticker';
 import { printer } from '@/devices';
 import { fmtDayShort, fmtKg, fmtNum } from '@/data/format';
 import { addProduction, BarCell, dash, ScaleBay, SettingsEmpty, shortCode, Step, useFirstField, useScaleKey, useScaleTitle, useShift } from './kit';
+import { useFreshLabel, useFreshLabels } from '../production/parts';
 
 /** The six fields of the paper sticker, in the order they are written on it. */
 const FIELDS = ['DATE', 'OPERATOR', 'SHIFT', 'MACHINE', 'KG', 'ROLL'] as const;
@@ -46,7 +47,7 @@ export function RollSticker() {
   const [machineId, setMachineId] = useState<string | null>(null); const [operator, setOperator] = useState<string | null>(null); const [productId, setProductId] = useState<string | null>(null);
   const [mode, setMode] = useState<'scale' | 'pad'>('scale'); const [pad, setPad] = useState(''); const [kg, setKg] = useState<number | null>(null);
   const [target, setTarget] = useState(0); const [round, setRound] = useState(0);
-  const [printed, setPrinted] = useState<Label | null>(null); const [printing, setPrinting] = useState(false);
+  const [printedHeld, setPrinted] = useState<Label | null>(null); const printed = useFreshLabel(printedHeld); const [printing, setPrinting] = useState(false);
   const [formRef, focusFirst] = useFirstField<HTMLDivElement>(); const scaleRef = useRef<HTMLDivElement>(null);
   useScaleKey(scaleRef, mode === 'scale'); const scaleTitle = useScaleTitle('Roll scale');
 

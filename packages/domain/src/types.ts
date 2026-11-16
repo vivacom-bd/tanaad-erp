@@ -181,6 +181,8 @@ export interface CashEntry {
   by: string;
   /** Real mode: the server's display name for `by`, when it sends one. */
   byName?: string;
+  /** Real mode: set when the line was written by a wage payout; it is corrected through the payout, not here. */
+  payoutId?: string;
 }
 
 export interface Label {
@@ -262,6 +264,8 @@ export interface Client {
   creditLimit: number;
   creditDays: number;
   contact: string;
+  /** Real mode: false once the server has deactivated the client. */
+  active?: boolean;
 }
 
 export interface Order {
@@ -278,6 +282,11 @@ export interface Order {
   approvedAt?: string;
   cashConfirmedAt?: string;
   notes?: string;
+  /** Real mode: the server's own figures and words for the order. */
+  clientName?: string;
+  overLimit?: boolean;
+  holdReason?: string;
+  invoiceId?: string;
 }
 
 export interface OrderLine { productId: string; bundles: number; unitPrice: number }
@@ -304,6 +313,10 @@ export interface Dispatch {
   createdAt: string;
   gatePassedAt?: string;
   pod?: ProofOfDelivery;
+  /** Real mode: the server's own words and ids for the load (the order itself stays local until the Orders module). */
+  orderRef?: string;
+  gateReasons?: string[];
+  scannedCodes?: string[];
 }
 
 export interface ProofOfDelivery {
@@ -312,6 +325,9 @@ export interface ProofOfDelivery {
   bundlesExpected: number;
   deliveredAt: string;
   hasSignature: boolean;
+  /** Real mode: the Media hashes the server holds for the signature and the photo. */
+  signatureHash?: string;
+  photoHash?: string;
 }
 
 export interface Invoice {
@@ -323,6 +339,11 @@ export interface Invoice {
   issuedAt: string;
   efrisFdn?: string;
   efrisVerificationCode?: string;
+  /** Real mode: what the server has received against it, and the due balance. */
+  orderNumber?: string;
+  paid?: number;
+  balance?: number;
+  issuedDay?: string;
 }
 export interface Payment { id: string; clientId: string; invoiceId?: string; amount: number; currency: Currency; method: string; reference: string; at: string }
 
@@ -334,6 +355,8 @@ export interface Part {
   minLevel: number;
   unitCost: number;
   onHand: number;
+  /** Real mode: the catalogue code the server assigns. */
+  code?: string;
 }
 
 export interface PartIssue {
@@ -370,6 +393,11 @@ export interface CollectorDelivery {
   day: string;
   at: string;
   hasScalePhoto: boolean;
+  /** Real mode: the server's voucher number once synced; the provisional one is shown until then. */
+  voucherNo?: string;
+  provisionalNo?: string;
+  deductionPresetId?: string;
+  scalePhotoHash?: string;
 }
 
 export interface BusinessException {
@@ -494,6 +522,10 @@ export interface Purchase {
   receivedKg?: number;
   note?: string;
   example?: boolean;
+  /** Real mode: landed cost as the server computed it on receipt. The screens fall back to the shared arithmetic until then. */
+  landed?: { goodsUgx: number; extrasUgx: number; totalUgx: number; perKgUgx: number; upliftPct: number };
+  /** Real mode: the server flagged the receipt as short of the order. */
+  variance?: boolean;
 }
 
 /** What prints on a site's documents. Blank until the client provides it; never invented. */

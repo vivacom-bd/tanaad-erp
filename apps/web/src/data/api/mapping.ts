@@ -1,8 +1,11 @@
 // Pure translation between the prototype store's shapes and the API's (envelopes out, snapshot rows in).
 import type {
-  Attendance, BusinessException, CashDay, CashEntry, DomainEvent, Engagement, ExceptionKind, ExceptionStatus, Person, SiteCode,
+  Attendance, BusinessException, CashDay, CollectorDelivery, CashEntry, DomainEvent, Engagement, ExceptionKind, ExceptionStatus, Person, SiteCode,
 } from '@tanaad/domain';
 import type { EnvelopeOut } from './types';
+import { entryPayload, labelCreatedPayload } from './productionMap';
+import type { Label, ProductionEntry } from '@tanaad/domain';
+import { intakePayload } from './recycling';
 
 /* ───────────── exception status wording ───────────── */
 
@@ -13,6 +16,7 @@ export function exceptionStatusFromApi(status: string): ExceptionStatus {
     case 'approved': return 'approved';
     case 'rejected': return 'held';
     case 'acknowledged': return 'resolved';
+    case 'resolved': return 'resolved'; // closed by the server itself (contract renewed, engagement ended, entry recorded ...)
     case 'held': return 'open';
     default: return 'open';
   }
@@ -27,7 +31,7 @@ export function decisionToApi(d: 'approved' | 'held' | 'resolved'): 'approve' | 
 export const decisionNeedsNote = (d: 'approved' | 'held' | 'resolved') => decisionToApi(d) === 'hold';
 
 /** Kinds the server raises itself (policies, scheduler); people raise the rest by hand. Mirrors ExceptionRules::SYSTEM_KINDS. */
-export const SYSTEM_KINDS: ExceptionKind[] = ['cash_variance', 'ghost_worker', 'contract_expiring'];
+export const SYSTEM_KINDS: ExceptionKind[] = ['cash_variance', 'ghost_worker', 'contract_expiring', 'below_benchmark', 'not_logged', 'mass_gap'];
 
 /* ───────────── outgoing: store event → envelope ───────────── */
 
@@ -93,10 +97,20 @@ export function toEnvelope(ev: DomainEvent, deviceId?: string): Outgoing | null 
       const x = p as unknown as BusinessException;
       return out('group.exception_raised', opt({ exception_id: x.id, kind: x.kind, severity: x.severity, title: x.title, detail: x.detail, subject_ref: x.subjectRef, owner_role: x.ownerRole }));
     }
+    case 'CollectorDeliveryWeighed': return out('recycling.collector_intake_recorded', intakePayload(p as unknown as CollectorDelivery));
     case 'CashOpeningSet': return out('cash.opening_set', { day: p.day, amount: p.amount });
     case 'CashDayClosed': return out('cash.day_closed', opt({ day: p.day, counted: p.counted, denominations: p.denominations }));
     case 'CashDayReopened': return out('cash.day_reopened', { day: p.day, reason: ev.reason ?? '' });
     case 'ExceptionDecided': return out('group.exception_decided', opt({ exception_id: p.id, decision: decisionToApi(p.decision as 'approved'), note: ev.reason }));
+    case 'ProductionEntryRecorded': {
+      const e = p as unknown as ProductionEntry; const { day, kind } = parseShiftId(e.shiftId);
+      return out('production.entry_recorded', entryPayload(e, day, kind));
+    }
+    case 'LabelCreated': {
+      const l = p as unknown as Label;
+      return out('labels.created', labelCreatedPayload(l, parseShiftId(l.shiftId ?? '').kind));
+    }
+    case 'LabelConsumed': return out('labels.consumed', { label_id: p.labelId });
     default: return null; // other modules are not on the API yet; exceptions are raised server-side
   }
 }
@@ -138,7 +152,7 @@ export const cashEntryFromRow = (r: Row, site: SiteOf): CashEntry => ({
   id: String(r.id), cashDayId: String(r.cashDayId), siteId: site(r.siteId), day: String(r.day), direction: r.direction as CashEntry['direction'],
   category: r.category as CashEntry['category'], subcategory: str(r.subcategory), amount: num(r.amount), currency: r.currency as CashEntry['currency'],
   fxReference: num(r.fxReference), machineId: str(r.machineId), productId: str(r.productId), payee: str(r.payee), note: str(r.note),
-  hasReceiptPhoto: !!Number(r.hasReceiptPhoto), at: iso(r.at), by: String(r.recordedBy ?? ''), byName: str(r.recordedByName),
+  hasReceiptPhoto: !!Number(r.hasReceiptPhoto), at: iso(r.at), by: String(r.recordedBy ?? ''), byName: str(r.recordedByName), payoutId: str(r.payoutId),
 });
 
 export const exceptionFromRow = (r: Row, site: SiteOf): BusinessException => ({

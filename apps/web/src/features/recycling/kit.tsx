@@ -5,6 +5,7 @@ export { BarCell, Calc, FormSection, PrintRun, ScaleBay, SettingsEmpty, Step, St
 
 /** Voucher number derived from the delivery: RV-yymmdd-nn, nn = position among that day's deliveries by time. */
 export function voucherNo(d: CollectorDelivery, all: CollectorDelivery[]) {
+  if (d.voucherNo ?? d.provisionalNo) return (d.voucherNo ?? d.provisionalNo)!; // real mode: the server's number, or the provisional one until it syncs
   const sameDay = all.filter((x) => x.day === d.day).sort((a, b) => a.at.localeCompare(b.at));
   return `RV-${d.day.slice(2).replace(/-/g, '')}-${String(sameDay.findIndex((x) => x.id === d.id) + 1).padStart(2, '0')}`;
 }

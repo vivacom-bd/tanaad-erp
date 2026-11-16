@@ -4,6 +4,8 @@ import { AlarmClock, BarChart3, Download, FileText, HandCoins, Hourglass, Messag
 import type { Client, Currency, Invoice } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { useGo, useQueryParam, useSite } from '@/app/hooks';
+import { isReal } from '@/data/api/sync';
+import { loadStatement } from '@/data/api/salesActions';
 import { addDays, clientBalance } from '@/data/selectors';
 import { fmtDateTime, fmtDayLong, fmtDayShort, fmtMoney, fmtNum } from '@/data/format';
 import { Avatar, Badge, Button, DataGrid, Empty, KpiStrip, Meter, Note, PageHeader, Panel, SearchInput, Sheet, Split, StackedBar, Stat, Tabs, Toolbar, useMedia, type Column } from '@/components/ui';
@@ -41,12 +43,13 @@ export function Invoices() {
   const [tab, setTab] = useState<TabKey>('invoices'); const [filter, setFilter] = useState<InvFilter>('all'); const [method, setMethod] = useState('all');
   const [invId, setInvId] = useState<string | null>(null); const [clientId, setClientId] = useState<string | null>(null); const [sheet, setSheet] = useState(false);
   useEffect(() => { if (q0 !== undefined) { setQ(q0); setTab('invoices'); setFilter('all'); } }, [q0]);
+  useEffect(() => { if (isReal() && clientId) void loadStatement(site.id, clientId); }, [site.id, clientId]); // the server's statement for the client picked
 
   const siteOrders = useMemo(() => s.orders.filter((o) => o.siteId === site.id), [s.orders, site.id]);
   const invoices = useMemo(() => s.invoices.filter((i) => siteOrders.some((o) => o.id === i.orderId)).map((i) => {
     const order = siteOrders.find((x) => x.id === i.orderId)!; const client = clientOf(s, order.clientId)!; const paid = order.status === 'paid'; const age = ageDays(s.today, i.issuedAt);
     const received = s.payments.filter((p) => p.invoiceId === i.id).reduce((t, p) => t + p.amount, 0);
-    return { inv: i, order, client, paid, age, overdue: !paid && age > client.creditDays, balance: paid ? 0 : Math.max(0, i.total - received) };
+    return { inv: i, order, client, paid, age, overdue: !paid && age > client.creditDays, balance: paid ? 0 : Math.max(0, i.total - (i.paid ?? received)) };
   }).sort((a, b) => b.inv.issuedAt.localeCompare(a.inv.issuedAt)), [s, siteOrders]);
   type R = (typeof invoices)[number];
   const clientIds = useMemo(() => new Set(siteOrders.map((o) => o.clientId)), [siteOrders]);

@@ -7,6 +7,10 @@ import { useGo, useQueryParam, useRefList, useSite, useSiteSettings } from '@/ap
 import { SITE_COLOR } from '@/config/siteIdentity';
 import { Badge, Button, ChipGroup, Combobox, DataGrid, Empty, Field, IconButton, Input, KpiStrip, Meter, Note, PageHeader, Panel, SearchInput, Sheet, StackedBar, Stat, Tabs, Textarea, Toolbar, cn, useIsTouch, type Column, type Tone } from '@/components/ui';
 import { CountUp, Donut, compactNum } from '@/components/charts';
+import { isReal } from '@/data/api/sync';
+import { mayDo } from '@/app/access';
+import { advancePurchase, receivePurchaseReal, savePurchaseReal } from '@/data/api/stockActions';
+import { isProvisionalPo } from '@/data/api/stockMap';
 import { compact, fmtDayShort, fmtKg, fmtMoney, fmtNum, fmtUGX } from '@/data/format';
 
 type Status = Purchase['status'];
@@ -22,7 +26,7 @@ const CURRENCIES: { value: Currency; label: string }[] = [{ value: 'UGX', label:
 const SEGMENT = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)', 'var(--series-5)', 'var(--series-7)'];
 const num = (v: string) => parseFloat(v.replace(/,/g, '')) || 0;
 const clean = (v: string) => v.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
-const costOf = (p: Purchase) => landedCost({ qtyKg: p.qtyKg, unitPrice: p.unitPrice, currency: p.currency, fx: p.fxReference, costs: p.costs, receivedKg: p.receivedKg });
+const costOf = (p: Purchase) => p.landed ?? landedCost({ qtyKg: p.qtyKg, unitPrice: p.unitPrice, currency: p.currency, fx: p.fxReference, costs: p.costs, receivedKg: p.receivedKg });
 const toUgx = (amount: number, currency: Currency, fx: number) => (currency === 'USD' ? amount * fx : amount);
 
 interface CostDraft { key: string; label: string; amount: string; currency: Currency }
@@ -82,6 +86,7 @@ function Breakdown({ goodsUgx, extrasUgx, totalUgx, perKgUgx, upliftPct, kgLabel
 /** Raw-material purchases, local and imported, with every extra cost, so each kilo carries its landed cost. */
 export function Purchases() {
   const s = useStore(); const site = useSite(); const go = useGo(); const touch = useIsTouch(); const rules = useSiteSettings();
+  const mayRecord = !isReal() || mayDo('recordPurchase', s.session?.role);
   const materials = useRefList('material');
   const q0 = useQueryParam('q'); const [q, setQ] = useState(q0 ?? ''); useEffect(() => { if (q0 !== undefined) setQ(q0); }, [q0]);
   const [filter, setFilter] = useState<Filter>('all'); const [openId, setOpenId] = useState<string | null>(null); const [draft, setDraft] = useState<Draft | null>(null); const [received, setReceived] = useState('');
@@ -109,6 +114,14 @@ export function Purchases() {
   const save = () => {
     if (!d || dMissing.length) return;
     const existing = d.id ? s.purchases.find((p) => p.id === d.id) : undefined;
+    const fields = { siteId: site.id, supplier: d.supplier.trim(), originCountry: d.originCountry.trim(), material: d.material!, qtyKg: num(d.qty), unitPrice: num(d.unitPrice), currency: d.currency, costs: dCosts, note: d.note.trim() || undefined };
+    if (isReal()) {
+      void savePurchaseReal({ id: d.id, ...fields, receivedOn: existing?.receivedOn, receivedKg: existing?.receivedKg }).then((rec) => {
+        s.toast({ kind: 'ok', title: existing ? `Purchase ${rec.reference} updated` : 'Purchase recorded', detail: `${fmtKg(rec.qtyKg)} ${rec.material}${isProvisionalPo(rec.reference) ? ' · the PO number is assigned when it reaches the server' : ''}` });
+        setDraft(null); setOpenId(rec.id); setFilter('all');
+      });
+      return;
+    }
     const rec = s.savePurchase({ id: d.id, reference: d.reference, siteId: site.id, supplier: d.supplier.trim(), originCountry: d.originCountry.trim(), material: d.material!, qtyKg: num(d.qty), unitPrice: num(d.unitPrice), currency: d.currency, fxReference: dFx > 0 ? dFx : s.fx, costs: dCosts, status: existing?.status ?? 'ordered', orderedOn: existing?.orderedOn ?? s.today, receivedOn: existing?.receivedOn, receivedKg: existing?.receivedKg, note: d.note.trim() || undefined });
     s.toast({ kind: 'ok', title: `Purchase ${rec.reference} ${existing ? 'updated' : 'recorded'}`, detail: `${fmtKg(rec.qtyKg)} ${rec.material} · landed ${fmtUGX(dCalc.perKgUgx)} per kg` });
     setDraft(null); setOpenId(rec.id); setFilter('all');
@@ -117,12 +130,12 @@ export function Purchases() {
   /* ───── Inspector actions ───── */
   useEffect(() => { setReceived(open && open.p.status !== 'received' ? String(open.p.qtyKg) : ''); }, [openId]); // eslint-disable-line react-hooks/exhaustive-deps
   const next = open ? STAGES[STAGES.findIndex((x) => x.value === open.p.status) + 1] : undefined;
-  const advance = () => { if (!open || !next || next.value === 'received') return; s.savePurchase({ ...open.p, status: next.value }); s.toast({ kind: 'ok', title: `${open.p.reference} is ${next.label.toLowerCase()}` }); };
+  const advance = () => { if (!open || !next || next.value === 'received') return; if (isReal()) { void advancePurchase(open.p.id, next.value); s.toast({ kind: 'ok', title: `${open.p.reference} is ${next.label.toLowerCase()}` }); return; } s.savePurchase({ ...open.p, status: next.value }); s.toast({ kind: 'ok', title: `${open.p.reference} is ${next.label.toLowerCase()}` }); };
   const recKg = num(received); const shortKg = open ? Math.max(0, open.p.qtyKg - recKg) : 0; const shortPct = open && open.p.qtyKg ? (shortKg / open.p.qtyKg) * 100 : 0; const shortFlag = shortPct > rules.gateTolerancePct;
   const afterReceive = open ? landedCost({ qtyKg: open.p.qtyKg, unitPrice: open.p.unitPrice, currency: open.p.currency, fx: open.p.fxReference, costs: open.p.costs, receivedKg: recKg }) : null;
   const receive = () => {
     if (!open || recKg <= 0) return;
-    s.receivePurchase(open.p.id, recKg);
+    if (isReal()) void receivePurchaseReal(open.p.id, recKg); else s.receivePurchase(open.p.id, recKg);
     s.toast({ kind: shortFlag ? 'warn' : 'ok', title: `${open.p.reference} received · ${fmtKg(recKg)}`, detail: shortKg > 0 ? `${fmtKg(Math.round(shortKg * 10) / 10)} short of the ${fmtKg(open.p.qtyKg)} ordered (${shortPct.toFixed(1)}%)` : 'Full quantity received' });
   };
   const exportCsv = () => {
@@ -134,7 +147,7 @@ export function Purchases() {
   };
 
   const cols: Column<Row>[] = [
-    { key: 'ref', header: 'Reference', sort: (r) => r.p.reference, cell: ({ p }) => <span className="inline-flex items-center gap-1.5"><span className="code font-medium">{p.reference}</span>{p.example && <Badge tone="accent">example</Badge>}</span> },
+    { key: 'ref', header: 'Reference', sort: (r) => r.p.reference, cell: ({ p }) => <span className="inline-flex items-center gap-1.5"><span className="code font-medium">{p.reference}</span>{isReal() && isProvisionalPo(p.reference) && <Badge tone="warn" >number on sync</Badge>}{p.example && <Badge tone="accent">example</Badge>}</span> },
     { key: 'sup', header: 'Supplier · origin', truncate: 250, sort: (r) => r.p.supplier, cell: ({ p }) => <span><span className="font-medium">{p.supplier}</span><span className="text-[var(--text-3)]"> · {p.originCountry || 'local'}</span></span> },
     { key: 'mat', header: 'Material', truncate: 160, sort: (r) => r.p.material, cell: ({ p }) => p.material },
     { key: 'kg', header: 'Kg', align: 'right', mono: true, sort: (r) => r.p.qtyKg, cell: ({ p }) => <span>{fmtNum(p.qtyKg)}{p.receivedKg !== undefined && p.receivedKg !== p.qtyKg && <span className="text-[var(--text-3)]"> · {fmtNum(p.receivedKg)} in</span>}</span> },
@@ -151,7 +164,7 @@ export function Purchases() {
       <div className="-mb-[var(--gap)]">
         <PageHeader eyebrow={`${site.name} · Purchases`} title="Purchases" meta={<><Badge tone="neutral" dot>{openOnes.length} open</Badge><Badge tone="neutral">UGX {fmtNum(s.fx)} per USD</Badge></>}
           subtitle="Raw material bought locally or imported. Freight, clearing, haulage and duties are added to the goods price, so every kilo carries its landed cost."
-          actions={<><Button icon={Download} onClick={exportCsv} disabled={shown.length === 0} hotkey="e" hotkeyLabel="Export purchases as CSV">Export CSV</Button><Button variant="primary" icon={Plus} onClick={() => setDraft(draftFrom(null, s.fx))} hotkey="n" hotkeyLabel="New purchase">New purchase</Button></>} />
+          actions={<><Button icon={Download} onClick={exportCsv} disabled={shown.length === 0} hotkey="e" hotkeyLabel="Export purchases as CSV">Export CSV</Button>{mayRecord && <Button variant="primary" icon={Plus} onClick={() => setDraft(draftFrom(null, s.fx))} hotkey="n" hotkeyLabel="New purchase">New purchase</Button>}</>} />
       </div>
 
       <KpiStrip className="md:!grid-cols-2 xl:!grid-cols-none">
@@ -167,7 +180,7 @@ export function Purchases() {
           <Tabs value={filter} onChange={setFilter} tabs={[{ value: 'all' as Filter, label: 'All', count: mine.length }, ...STAGES.map((st) => ({ value: st.value as Filter, label: st.label, count: mine.filter((r) => r.p.status === st.value).length }))]} />
         </Toolbar>
         <DataGrid rows={shown} rowKey={(r) => r.p.id} columns={cols} onRowClick={(r) => setOpenId(r.p.id)} selectedKey={openId}
-          empty={mine.length === 0 ? <span className="inline-flex flex-col items-center gap-2"><span>No purchases recorded for {site.name} yet.</span><Button size="sm" icon={Plus} onClick={() => setDraft(draftFrom(null, s.fx))}>New purchase</Button></span> : 'No purchase matches this search or status.'}
+          empty={mine.length === 0 ? <span className="inline-flex flex-col items-center gap-2"><span>No purchases recorded for {site.name} yet.</span>{mayRecord && <Button size="sm" icon={Plus} onClick={() => setDraft(draftFrom(null, s.fx))}>New purchase</Button>}</span> : 'No purchase matches this search or status.'}
           footer={shown.length ? <tr><td colSpan={3}>{shown.length} purchase{shown.length === 1 ? '' : 's'}</td><td className="text-right num">{fmtNum(tot.kg)}</td><td /><td className="text-right num">{fmtNum(Math.round(tot.extras))}</td><td className="text-right num">{tot.landedKg ? fmtNum(Math.round(tot.total / tot.landedKg)) : '—'}{tot.total - tot.extras > 0 ? ` +${((tot.extras / (tot.total - tot.extras)) * 100).toFixed(1)}%` : ''}</td><td className="num">{compact(tot.total)}</td></tr> : undefined} />
         {mine.some((r) => r.p.example) && <p className="t-xs text-[var(--text-3)] mt-2">Records marked “example” are placeholders that show the shape of an import. They lose the mark as soon as someone edits them.</p>}
       </div>
@@ -188,9 +201,9 @@ export function Purchases() {
         title={open ? <span className="inline-flex items-center gap-2"><span className="code">{open.p.reference}</span><StatusBadge status={open.p.status} />{open.p.example && <Badge tone="accent">example</Badge>}</span> : ''}
         sub={open ? `${open.p.material} · ${open.p.supplier}` : undefined}
         footer={open && <>
-          <Button className="mr-auto" variant="ghost" icon={Pencil} onClick={() => setDraft(draftFrom(open.p, s.fx))}>Edit</Button>
+          {mayRecord && <Button className="mr-auto" variant="ghost" icon={Pencil} onClick={() => setDraft(draftFrom(open.p, s.fx))}>Edit</Button>}
           {next && next.value !== 'received' && <Button icon={ArrowRight} onClick={advance} hotkey="a" hotkeyLabel="Move the purchase to its next stage">Mark {next.label.toLowerCase()}</Button>}
-          {open.p.status !== 'received' && <Button variant="primary" icon={PackageCheck} disabled={recKg <= 0} onClick={receive} hotkey="mod+enter" hotkeyLabel="Receive the purchase">Receive {recKg > 0 ? fmtKg(recKg) : ''}</Button>}
+          {open.p.status !== 'received' && (!isReal() || mayDo('receivePurchase', s.session?.role)) && <Button variant="primary" icon={PackageCheck} disabled={recKg <= 0} onClick={receive} hotkey="mod+enter" hotkeyLabel="Receive the purchase">Receive {recKg > 0 ? fmtKg(recKg) : ''}</Button>}
         </>}>
         {open && (
           <div className="flex flex-col gap-3">
@@ -252,9 +265,13 @@ export function Purchases() {
               <Field label="Unit price per kg" required><Input className="num text-right" inputMode="decimal" value={d.unitPrice} onChange={(e) => set({ unitPrice: clean(e.target.value) })} placeholder="0" /></Field>
               <Field label="Currency" className="max-sm:col-span-2"><ChipGroup ariaLabel="Currency" options={CURRENCIES} value={d.currency} onChange={(v) => set({ currency: v })} /></Field>
             </div>
+            {isReal()
+              ? <Note tone="neutral">The exchange reference (UGX {fmtNum(s.fx)} per USD) is the group rate set in Settings. The server captures it when the order is recorded and keeps it with the purchase.</Note>
+              : <>
             <Field label="Exchange reference" hint={`Starts from the group reference (UGX ${fmtNum(s.fx)} per USD). Change it to the rate this purchase was paid at; it stays with the purchase.`}>
               <div className="relative max-w-[240px]"><span className="absolute left-2.5 top-1/2 -translate-y-1/2 t-sm text-[var(--text-3)] pointer-events-none">UGX</span><Input className="num text-right pl-11 pr-[68px]" inputMode="decimal" value={d.fx} onChange={(e) => set({ fx: clean(e.target.value) })} /><span className="absolute right-2.5 top-1/2 -translate-y-1/2 t-sm text-[var(--text-3)] pointer-events-none">per USD</span></div>
             </Field>
+              </>}
 
             <div>
               <div className="flex items-center justify-between gap-2 mb-1"><span className="t-sm font-medium text-[var(--text-2)]">Extra costs <span className="font-normal text-[var(--text-3)]">· freight, clearing, haulage, duties…</span></span><Button size="sm" icon={Plus} onClick={() => set({ costs: [...d.costs, newCost(d.costs.at(-1)?.currency)] })}>Add cost</Button></div>

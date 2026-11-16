@@ -1,17 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, MessageCircle, ScrollText, ShieldCheck, ShoppingCart, Truck, Wallet } from 'lucide-react';
 import type { Client, Invoice, Order, Payment } from '@tanaad/domain';
 import { useStore } from '@/data/store';
-import { useGo } from '@/app/hooks';
+import { useGo, useSite } from '@/app/hooks';
+import { isReal } from '@/data/api/sync';
+import { loadStatement } from '@/data/api/salesActions';
 import { addDays, clientBalance, orderTotal } from '@/data/selectors';
-import { fmtDateTime, fmtDayLong, fmtDayShort, fmtMoney } from '@/data/format';
+import { fmtDateTime, fmtDayLong, fmtDayShort, fmtMoney, kampalaDay } from '@/data/format';
+import { ServerDocumentButton } from '@/features/documents/ServerDocument';
 import { Avatar, Badge, Button, DataGrid, Meter, Note, Panel, Sheet, type Column } from '@/components/ui';
 import { TimeTrack } from '@/components/charts';
 import { FigureRow, StatusBadge, WhatsAppSend, ageDays, invoiceOf, linesSummary, marketOf, plural, termsOf } from './shared';
 
 /** Client inspector: profile, credit position, everything shipped, invoiced and paid, and the two things you do next. */
 export function ClientInspector({ client, onClose, onNewOrder }: { client: Client; onClose: () => void; onNewOrder: () => void }) {
-  const s = useStore(); const go = useGo(); const [view, setView] = useState<'profile' | 'statement'>('profile');
+  const s = useStore(); const go = useGo(); const site = useSite(); const [view, setView] = useState<'profile' | 'statement'>('profile');
+  useEffect(() => { if (isReal()) void loadStatement(site.id, client.id); }, [site.id, client.id]); // the server's statement covers every site the role may see
   const bal = clientBalance(s, client.id); const cur = client.currencyPref;
   const orders = s.orders.filter((o) => o.clientId === client.id).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   const invoices = s.invoices.filter((i) => orders.some((o) => o.id === i.orderId)).sort((a, b) => b.issuedAt.localeCompare(a.issuedAt));
@@ -19,18 +23,18 @@ export function ClientInspector({ client, onClose, onNewOrder }: { client: Clien
   const used = client.creditLimit ? Math.round((bal.balance / client.creditLimit) * 100) : 0;
   const oldest = bal.openInvoices[0]; const late = !!oldest && bal.ageDays > client.creditDays;
   const toInvoice = orders.some((o) => invoiceOf(s, o.id) === undefined && (o.status === 'dispatched' || o.status === 'delivered'));
-  const statement = [`*Statement of account · ${fmtDayLong(s.today)}*`, `${client.name}`, '', ...bal.openInvoices.map((i) => `${i.number} · ${fmtDayShort(i.issuedAt.slice(0, 10))} · ${fmtMoney(i.total, i.currency)} · ${ageDays(s.today, i.issuedAt)} days`), '', `Paid to date: ${fmtMoney(bal.paid, cur)}`, `*Balance due: ${fmtMoney(bal.balance, cur)}*`, '', 'Thank you for your business. — Tanaad'];
+  const statement = [`*Statement of account · ${fmtDayLong(s.today)}*`, `${client.name}`, '', ...bal.openInvoices.map((i) => `${i.number} · ${fmtDayShort(kampalaDay(i.issuedAt))} · ${fmtMoney(i.total, i.currency)} · ${ageDays(s.today, i.issuedAt)} days`), '', `Paid to date: ${fmtMoney(bal.paid, cur)}`, `*Balance due: ${fmtMoney(bal.balance, cur)}*`, '', 'Thank you for your business. — Tanaad'];
 
   const orderCols: Column<Order>[] = [
     { key: 'no', header: 'Order', cell: (o) => <span className="code font-medium">{o.number}</span> },
-    { key: 'd', header: 'Date', mono: true, cell: (o) => <span className="text-[var(--text-2)]">{fmtDayShort(o.createdAt.slice(0, 10))}</span> },
+    { key: 'd', header: 'Date', mono: true, cell: (o) => <span className="text-[var(--text-2)]">{fmtDayShort(kampalaDay(o.createdAt))}</span> },
     { key: 'l', header: 'Lines', truncate: 170, cell: (o) => <span className="text-[var(--text-2)]" title={linesSummary(s, o)}>{linesSummary(s, o)}</span> },
     { key: 't', header: 'Total', align: 'right', mono: true, cell: (o) => <span className="font-medium">{fmtMoney(orderTotal(o), o.currency)}</span> },
     { key: 's', header: 'Status', cell: (o) => <StatusBadge status={o.status} /> },
   ];
   const invCols: Column<Invoice>[] = [
     { key: 'no', header: 'Invoice', cell: (i) => <span className="code font-medium">{i.number}</span> },
-    { key: 'd', header: 'Issued', mono: true, cell: (i) => <span className="text-[var(--text-2)]">{fmtDayShort(i.issuedAt.slice(0, 10))}</span> },
+    { key: 'd', header: 'Issued', mono: true, cell: (i) => <span className="text-[var(--text-2)]">{fmtDayShort(kampalaDay(i.issuedAt))}</span> },
     { key: 't', header: 'Total', align: 'right', mono: true, cell: (i) => <span className="font-medium">{fmtMoney(i.total, i.currency)}</span> },
     { key: 's', header: 'Status', cell: (i) => { const paid = orders.find((o) => o.id === i.orderId)?.status === 'paid'; const age = ageDays(s.today, i.issuedAt); return paid ? <Badge tone="ok" dot>Paid</Badge> : <Badge tone={age > client.creditDays ? 'bad' : 'warn'} dot>{age} days open</Badge>; } },
   ];
@@ -45,6 +49,7 @@ export function ClientInspector({ client, onClose, onNewOrder }: { client: Clien
   return (
     <Sheet open onClose={onClose} width={620} title={client.name} sub={`${marketOf(client)} · ${termsOf(client)}`}
       footer={view === 'statement' ? <Button variant="ghost" icon={ArrowLeft} className="mr-auto" onClick={() => setView('profile')}>Back to profile</Button> : <>
+        <ServerDocumentButton kind="statement" id={client.id} size="md" />
         <Button icon={MessageCircle} onClick={() => setView('statement')} hotkey="w" hotkeyLabel="Send statement on WhatsApp">Send statement on WhatsApp</Button>
         <Button variant="primary" icon={ShoppingCart} onClick={onNewOrder} hotkey="mod+enter">New order</Button>
       </>}>
@@ -63,7 +68,7 @@ export function ClientInspector({ client, onClose, onNewOrder }: { client: Clien
           <FigureRow items={[
             { label: 'Open invoices', value: bal.openInvoices.length, sub: bal.openInvoices.length ? `oldest ${bal.ageDays} days` : 'all settled', tone: late ? 'bad' : undefined },
             { label: 'Invoiced to date', value: fmtMoney(bal.invoiced, cur), sub: plural(invoices.length, 'invoice') },
-            { label: 'Paid to date', value: fmtMoney(bal.paid, cur), sub: bal.lastPayment ? `last ${fmtDayShort(bal.lastPayment.at.slice(0, 10))} · ${bal.lastPayment.method}` : 'none yet' },
+            { label: 'Paid to date', value: fmtMoney(bal.paid, cur), sub: bal.lastPayment ? `last ${fmtDayShort(kampalaDay(bal.lastPayment.at))} · ${bal.lastPayment.method}` : 'none yet' },
           ]} />
 
           {client.channel === 'export' ? (
@@ -72,7 +77,7 @@ export function ClientInspector({ client, onClose, onNewOrder }: { client: Clien
               <div className="t-sm text-[var(--text-3)] mb-3">{used > 100 ? 'Over limit: new orders need CEO approval at the credit desk.' : used > 80 ? 'Close to the limit: the next large order will go to the CEO.' : 'Headroom available for new export orders.'}</div>
               {oldest ? <>
                 <div className="flex items-baseline justify-between mb-2"><span className="t-base">Oldest open invoice <span className="code">{oldest.number}</span></span><span className={`num t-base font-medium ${late ? 'text-[var(--bad)]' : ''}`}>{late ? `${bal.ageDays - client.creditDays} days past terms` : client.creditDays === bal.ageDays ? 'Due today' : `${client.creditDays - bal.ageDays} days left`}</span></div>
-                <TimeTrack progress={client.creditDays ? bal.ageDays / client.creditDays : 1} color={late ? 'var(--bad)' : 'var(--accent)'} startLabel={`Issued ${fmtDayShort(oldest.issuedAt.slice(0, 10))}`} nowLabel={`Day ${bal.ageDays} of ${client.creditDays}`} endLabel={`Due ${fmtDayShort(addDays(oldest.issuedAt.slice(0, 10), client.creditDays))}`} />
+                <TimeTrack progress={client.creditDays ? bal.ageDays / client.creditDays : 1} color={late ? 'var(--bad)' : 'var(--accent)'} startLabel={`Issued ${fmtDayShort(kampalaDay(oldest.issuedAt))}`} nowLabel={`Day ${bal.ageDays} of ${client.creditDays}`} endLabel={`Due ${fmtDayShort(addDays(kampalaDay(oldest.issuedAt), client.creditDays))}`} />
               </> : <div className="t-sm text-[var(--text-3)]">No invoice is open, so no credit period is running.</div>}
             </Panel>
           ) : <Note tone="neutral">Local clients have no credit. Orders unlock for dispatch only after the cashier confirms cash.</Note>}

@@ -3,6 +3,8 @@ import { Settings2, type LucideIcon } from 'lucide-react';
 import { Badge, Button, Empty, FormRow, NumberPad, Tabs, cn, useIsTouch, type Tone } from '@/components/ui';
 import { useGo } from '@/app/hooks';
 import { Donut } from '@/components/charts';
+import type { Label } from '@tanaad/domain';
+import { useStore } from '@/data/store';
 import type { MachineTile, massBalanceDay } from '@/data/selectors';
 import { fmtKg, fmtNum } from '@/data/format';
 
@@ -109,4 +111,18 @@ export function MassBalance({ mb, size = 112 }: { mb: MassDay; size?: number }) 
       <div className="flex-1 min-w-0">{parts.map((b) => <div key={b.label} className="flex items-center gap-2 h-6 t-sm"><span className="size-2 rounded-[2px] shrink-0" style={{ background: b.color }} /><span className="text-[var(--text-2)] truncate flex-1">{b.label}</span><span className="num font-medium whitespace-nowrap">{fmtNum(b.value)} kg</span></div>)}</div>
     </div>
   );
+}
+
+/**
+ * The store's current copy of a label held in a screen's own state. A label made offline carries a PENDING code until the server
+ * assigns the real one; the copy in state would keep showing (and reprinting) the pending code, so screens read it through here.
+ */
+export const freshLabel = <T extends Label>(stored: Label[], held: T): T => (stored.find((x) => x.id === held.id) as T | undefined) ?? held;
+export function useFreshLabels<T extends Label>(held: T[]): T[] {
+  const stored = useStore((s) => s.labels);
+  return held.map((l) => freshLabel(stored, l));
+}
+export function useFreshLabel<T extends Label>(held: T | null | undefined): T | null {
+  const stored = useStore((s) => s.labels);
+  return held ? freshLabel(stored, held) : null;
 }

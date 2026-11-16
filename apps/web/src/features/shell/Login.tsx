@@ -50,6 +50,7 @@ export function Login() {
     enter(user, 'password');
   };
   const demo = useMemo(() => {
+    if (isReal()) return []; // real accounts live on the server; there is no list to pick from
     const order = ['u_ceo1', 'u_sm_mats', 'u_sup_mats', 'u_cash_mats', 'u_store_mats', 'u_mech', 'u_sales_mats', 'u_sm_bags', 'u_sup_bags', 'u_sm_rec', 'u_sup_rec', 'u_admin'];
     return order.map((id) => users.find((u) => u.id === id)).filter((u): u is User => !!u);
   }, [users]);
@@ -89,6 +90,7 @@ export function Login() {
                 <p className="t-xs text-[var(--text-3)] text-center mt-3">{isReal() ? 'Signs in against the Tanaad server.' : 'Enter your password to continue.'}</p>
               </form>
 
+              {demo.length > 0 && (
               <div className="mt-5">
                 <div className="flex items-center gap-3 mb-2">
                   <span className="t-label">Accounts</span>
@@ -108,6 +110,7 @@ export function Login() {
                   ))}
                 </div>
               </div>
+              )}
             </>
           ) : (
             <div className="surface p-5">

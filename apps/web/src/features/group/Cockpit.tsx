@@ -11,6 +11,8 @@ import { SITE_COLOR } from '@/config/siteIdentity';
 import { roleLabel } from '@/config/roles';
 import { cashDayFor, cashInSafe, cashSummary, clientBalance, currentShiftKind, dailySeries, DEMO_HOUR, headcount, lastWorkingDays, liveSite, machineWall, massBalanceDay, openExceptions, orderTotal, receivables, stockByProduct } from '@/data/selectors';
 import { compact, fmtDateTime, fmtDayLong, fmtDayShort, fmtKg, fmtNum, fmtTime, fmtUGX, fmtUSD } from '@/data/format';
+import { isReal } from '@/data/api/sync';
+import { CockpitServer } from './CockpitServer';
 import { CountryTag, IconChip, KIND_META, KV, SEVERITIES, SiteBadge, SiteMark, agoLabel, cap, catLabel, plural, rovingKeys, setPresetSelection, severityColor, severityLabel, severityTone, unitName } from './shared';
 
 type DrillKind = 'cash' | 'headcount' | 'output' | 'machines' | 'waste' | 'dispatches' | 'exceptions' | 'receivables' | 'stock' | 'orders';
@@ -134,7 +136,7 @@ function SiteCard({ p, index, onDrill, onOpen, shift }: { p: SiteNumbers; index:
 }
 
 /** Group overview: cross-site status, site records, and open work. */
-export function Cockpit() {
+function DemoCockpit() {
   const s = useStore(); const go = useGo(); const kind = currentShiftKind(); const markRead = useStore((x) => x.markAlertsRead);
   const [drill, setDrill] = useState<Drill | null>(null);
   const [viewPref, setView] = useState<'cards' | 'matrix'>('cards'); const [cashDir, setCashDir] = useState<'in' | 'out'>('in');
@@ -431,3 +433,6 @@ function DrillSheet({ drill, onClose }: { drill: Drill | null; onClose: () => vo
     </Sheet>
   );
 }
+
+/** Real mode shows the server's tiles; demo mode keeps the local computation. */
+export function Cockpit() { return isReal() ? <CockpitServer /> : <DemoCockpit />; }

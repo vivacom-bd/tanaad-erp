@@ -13,6 +13,8 @@ import { userLabel } from '@/data/api/names';
 import { SYSTEM_KINDS } from '@/data/api/mapping';
 import { isReal, refreshGroupExceptions } from '@/data/api/sync';
 import { decisionNeedsNote } from '@/data/api/mapping';
+import { ApprovalOrders } from './ApprovalOrders';
+import { decidedFromOrder } from '@/data/api/groupMap';
 import { IconChip, KIND_META, KV, catLabel, ReasonQuote, SEVERITIES, SEVERITY_ICON, SiteBadge, agoLabel, plural, setPresetSelection, severityColor, severityLabel, severityTone, takePresetSelection, useListKeys } from './shared';
 
 type Decision = 'approved' | 'held' | 'resolved';
@@ -26,7 +28,7 @@ const DECISION: Record<Decision, { verb: string; doing: string; done: string; to
 interface Insight { facts: [string, ReactNode][]; meter?: { label: string; value: number; max: number; display: ReactNode; tone: Tone | 'series' }; trend?: { title: string; data: { label: string; value: number; partial?: boolean }[]; unit: string }; records?: { title: string; rows: { key: string; title: ReactNode; sub?: ReactNode; right?: ReactNode }[] }; link?: { label: string; to: 'credit'; id: string } }
 
 function insightFor(s: AppState, e: BusinessException): Insight {
-  const site = liveSite(s, SITES[e.siteId]); const person = (id?: string) => s.people.find((p) => p.id === id);
+  const site = liveSite(s, SITES[e.siteId]); const person = (ref?: string) => s.people.find((p) => p.id === ref?.split(':')[0]); // a ghost-worker ref is "<person id>:<day>"
   const machine = s.machines.find((m) => m.id === e.subjectRef);
   if (machine) {
     const tile = machineWall(s, e.siteId, s.today, currentShiftKind()).find((t) => t.machine.id === machine.id);
@@ -193,6 +195,7 @@ export function Approvals() {
   const disarm = () => { setArmed(null); setNoteMissing(false); reasonRef.current?.blur(); };
   const confirm = () => {
     if (!selected || !armed) return;
+    if (isReal() && decidedFromOrder(selected.kind)) return;
     if (isReal() && decisionNeedsNote(armed) && !reason.trim()) { setNoteMissing(true); reasonRef.current?.focus(); return; }
     const next = open[index + 1] ?? open[index - 1];
     decide(selected.id, armed, reason.trim() || undefined);
@@ -202,7 +205,13 @@ export function Approvals() {
   const userName = (id?: string) => (id ? userLabel(id, s.users, undefined, s.people) : 'System');
   const link = (to: 'credit', id: string) => { setPresetSelection(id); go.group(to); };
 
-  const decisionBar = selected && (
+  const fromOrder = isReal() && !!selected && decidedFromOrder(selected.kind);
+  const decisionBar = selected && fromOrder ? (
+    <div className="w-full flex flex-wrap items-center justify-between gap-2">
+      <span className="t-sm text-[var(--text-2)]">An order over its credit limit is decided from the order, not from this exception.</span>
+      <Button variant="primary" icon={ExternalLink} onClick={() => go.group('credit')}>Open the credit desk</Button>
+    </div>
+  ) : selected && (
     <div className="w-full">
       <div className="flex flex-wrap items-center justify-end gap-2">
         <Input ref={reasonRef} value={reason} onChange={(e) => { setReason(e.target.value); setNoteMissing(false); }} aria-invalid={noteMissing || undefined} className="basis-full 2xl:basis-0 2xl:flex-1 2xl:min-w-[200px]" aria-label="Reason"
@@ -210,7 +219,7 @@ export function Approvals() {
           onKeyDown={(e) => { if (e.key === 'Enter' && armed) { e.preventDefault(); confirm(); } else if (e.key === 'Escape' && armed) { e.stopPropagation(); disarm(); } }} />
         {armed ? <>
           <Button variant="ghost" onClick={disarm}>Cancel</Button>
-          <Button variant={DECISION[armed].variant} icon={armed === 'approved' ? Check : armed === 'held' ? Pause : CircleCheck} hotkey="mod+enter" onClick={confirm}>{DECISION[armed].doing}</Button>
+          <Button variant={DECISION[armed].variant} icon={armed === 'approved' ? Check : armed === 'held' ? Pause : CircleCheck} hotkey="mod+enter" disabled={isReal() && armed === 'held' && !reason.trim()} onClick={confirm}>{DECISION[armed].doing}</Button>
         </> : <>
           <Button variant="ok" icon={Check} hotkey="a" hotkeyLabel="Approve the selected exception" onClick={() => arm('approved')}>Approve</Button>
           <Button variant="secondary" icon={Pause} hotkey="h" hotkeyLabel="Hold the selected exception" onClick={() => arm('held')}>Hold</Button>
@@ -284,6 +293,7 @@ export function Approvals() {
         <Tabs value={kind} onChange={setKind} tabs={[{ value: 'all' as const, label: 'All kinds' }, ...kindsPresent.map((k) => ({ value: k, label: KIND_META[k].label, count: byKind(k) }))]} />
       </Toolbar>
 
+      {isReal() && tab === 'open' && <div className="mb-[var(--gap)]"><ApprovalOrders /></div>}
       {tab === 'open' ? (
         split && selected ? (
           <Split asideWidth={roomy ? 640 : 520} aside={

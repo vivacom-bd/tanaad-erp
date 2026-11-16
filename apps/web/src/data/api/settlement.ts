@@ -132,7 +132,8 @@ export async function loadSettlement(sites: SiteCode[]): Promise<void> {
       runs.push(...r.data.map((e) => runFromApi(e, site)));
       advances.push(...a.data.map((x) => advanceFromApi(x, site)));
     }
-    useSettlement.setState({ runs, advances, loaded: true, error: undefined });
+    const mine = new Set<string>(sites); // other sites keep what they hold
+    useSettlement.setState((st) => ({ runs: [...st.runs.filter((x) => !mine.has(x.siteCode)), ...runs], advances: [...st.advances.filter((x) => !mine.has(x.siteCode) || x.queued), ...advances], loaded: true, error: undefined }));
   } catch (e) {
     useSettlement.setState({ error: e instanceof Error ? e.message : String(e) });
   }
@@ -146,4 +147,29 @@ export async function submitSettlement(siteCode: SiteCode, env: EnvelopeOut): Pr
   const { refreshCounts, syncNow } = await import('./sync');
   await refreshCounts();
   void syncNow();
+}
+
+/* ───────────── plain wording for refusals ───────────── */
+
+const UUID_G = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
+/**
+ * A refusal in words the manager can act on. A server reason that carries a raw id (engagement, person, run) has the id
+ * swapped for the person's name from local data; if no name is known the id is dropped, never shown.
+ */
+export function refusalText(
+  item: Pick<OutboxItem, 'code' | 'reason' | 'envelope'>,
+  engagements: { id: string; personId: string }[],
+  people: { id: string; fullName: string }[],
+): string {
+  const reason = (item.reason ?? '').trim();
+  const nameOf = (id: string) => { const pid = engagements.find((e) => e.id === id)?.personId ?? id; return people.find((p) => p.id === pid)?.fullName; };
+  const p = item.envelope.payload as Record<string, unknown>;
+  const period = typeof p.from === 'string' && typeof p.to === 'string' ? ` for ${p.from} to ${p.to}` : '';
+  const ids = reason.match(UUID_G) ?? [];
+  if (item.envelope.type === TYPES.create && (item.code === 'duplicate_fact' || item.code === 'state_conflict') && (ids.length > 0 || /already/i.test(reason))) {
+    const who = ids.map(nameOf).find(Boolean);
+    return who ? `${who} is already settled${period}. Cancel that run first if it needs redoing.` : `Someone in this period is already settled${period}. Check the existing runs, or cancel the earlier one first.`;
+  }
+  if (ids.length === 0) return reason || 'The server refused this.';
+  return reason.replace(UUID_G, (id) => nameOf(id) ?? 'a record').replace(/\s+/g, ' ');
 }

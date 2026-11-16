@@ -4,6 +4,7 @@ import { Settings2, type LucideIcon } from 'lucide-react';
 import type { Product, SiteCode } from '@tanaad/domain';
 import { useGo, useQueryParam } from '@/app/hooks';
 import { Badge, Button, Empty, NumberPad, cn, useIsTouch } from '@/components/ui';
+import { kampalaDay } from '@/data/format';
 
 /** Local helpers for the stock wall, count, tagging, spares and breakdown screens. */
 
@@ -12,7 +13,7 @@ export interface UnitWords { one: string; many: string; title: string }
 /** What one sticker stands for on each site. */
 export const unitWords = (site: SiteCode): UnitWords => (site === 'mats' ? { one: 'bundle', many: 'bundles', title: 'Bundles' } : site === 'bags' ? { one: 'unit', many: 'packs and rolls', title: 'Packs and rolls' } : { one: 'sack', many: 'sacks', title: 'Sacks' });
 export const plural = (n: number, one: string, many = `${one}s`) => `${n.toLocaleString('en-UG')} ${n === 1 ? one : many}`;
-export const dayOf = (iso: string) => iso.slice(0, 10);
+export const dayOf = (iso: string) => kampalaDay(iso);
 
 /* ------------------------------------------------------------------ identity */
 /** Zones get a fixed series colour by their position in the site's zone list, so the same zone reads the same everywhere. */

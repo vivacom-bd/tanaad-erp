@@ -6,6 +6,7 @@ import { refList } from '@/data/selectors';
 import { SITES } from '@/config/sites';
 import { Badge, Button, ChipGroup, DataGrid, Field, Input, Note, Panel, SearchInput, Select, Sheet, Status, Toolbar, type Column } from '@/components/ui';
 import { fmtMoney } from '@/data/format';
+import { change } from './change';
 
 const KINDS: { value: Product['kind']; label: string }[] = [{ value: 'mat', label: 'Mat' }, { value: 'bag_pack', label: 'Bag pack' }, { value: 'roll', label: 'Film roll' }, { value: 'pellet', label: 'Pellet' }, { value: 'material', label: 'Material' }];
 const num = (v: string) => (v === '' ? 0 : Number(v.replace(/[^0-9.]/g, '')) || 0);
@@ -30,8 +31,7 @@ export function ProductsEditor({ site, canEdit }: { site: SiteCode; canEdit: boo
   const setPrice = (ch: Price['channel'], patch: Partial<Price>) => setEdit((e) => { const others = (e?.prices ?? []).filter((p) => p.channel !== ch); const cur = (e?.prices ?? []).find((p) => p.channel === ch) ?? { channel: ch, currency: (ch === 'export' ? 'USD' : 'UGX') as Currency, amount: 0, effectiveFrom: s.today }; return { ...e, prices: [...others, { ...cur, ...patch }] }; });
   const save = () => {
     if (!edit?.internalName?.trim()) return;
-    s.saveProduct({ siteId: site, internalName: edit.internalName.trim(), commercialName: edit.commercialName?.trim() || undefined, kind: edit.kind ?? 'mat', bundlePieces: edit.bundlePieces || 1, stdBundleWeightKg: edit.stdBundleWeightKg ?? 0, weightTolerancePct: edit.weightTolerancePct ?? 2, weightStatus: edit.weightStatus ?? 'to_be_measured', prices: (edit.prices ?? []).filter((p) => p.amount > 0), colour: edit.colour, unit: edit.unit, thicknessMicron: edit.thicknessMicron || undefined, active: edit.active ?? true, id: edit.id });
-    s.toast({ kind: 'ok', title: `${edit.internalName} saved` }); setEdit(null);
+    void change.product(site, { siteId: site, internalName: edit.internalName.trim(), commercialName: edit.commercialName?.trim() || undefined, kind: edit.kind ?? 'mat', bundlePieces: edit.bundlePieces || 1, stdBundleWeightKg: edit.stdBundleWeightKg ?? 0, weightTolerancePct: edit.weightTolerancePct ?? 2, weightStatus: edit.weightStatus ?? 'to_be_measured', prices: (edit.prices ?? []).filter((p) => p.amount > 0), colour: edit.colour, unit: edit.unit, thicknessMicron: edit.thicknessMicron || undefined, active: edit.active ?? true, id: edit.id }, { title: `${edit.internalName} saved` }).then((ok) => { if (ok) setEdit(null); });
   };
   return (
     <div>
@@ -89,7 +89,7 @@ export function MachinesEditor({ site, canEdit }: { site: SiteCode; canEdit: boo
     { key: 's', header: 'Stage', cell: (m) => base.stages.find((x) => x.code === m.stageCode)?.name ?? m.stageCode },
     { key: 'st', header: 'Status', sort: (m) => m.status, cell: (m) => <Status tone={m.status === 'active' ? 'ok' : m.status === 'down' ? 'bad' : 'neutral'}>{m.status}</Status> },
   ];
-  const save = () => { if (!edit?.code?.trim()) return; s.saveMachine({ siteId: site, code: edit.code.trim(), kind: edit.kind?.trim() || 'machine', stageCode: edit.stageCode ?? base.stages[0].code, status: edit.status ?? 'active', capacityKgPerDay: edit.capacityKgPerDay || undefined, id: edit.id }); s.toast({ kind: 'ok', title: `${edit.code} saved`, detail: 'It is on the machine wall now.' }); setEdit(null); };
+  const save = () => { if (!edit?.code?.trim()) return; void change.machine(site, { siteId: site, code: edit.code.trim(), kind: edit.kind?.trim() || 'machine', stageCode: edit.stageCode ?? base.stages[0].code, status: edit.status ?? 'active', make: edit.make, model: edit.model, commissioned: edit.commissioned, capacityKgPerDay: edit.capacityKgPerDay || undefined, id: edit.id }, { title: `${edit.code} saved`, detail: 'It is on the machine wall now.' }).then((ok) => { if (ok) setEdit(null); }); };
   return (
     <div className="grid gap-[var(--gap)]">
       <div>
@@ -101,7 +101,7 @@ export function MachinesEditor({ site, canEdit }: { site: SiteCode; canEdit: boo
           <div className="overflow-auto max-h-[420px]">
             <table className="w-full border-collapse t-base">
               <thead className="sticky top-0 z-10"><tr className="bg-[var(--surface-2)]"><th className="px-2.5 h-8 text-left t-xs font-semibold uppercase tracking-[0.04em] text-[var(--text-3)] border-b border-[var(--line)]">Machine</th>{prods.map((p) => <th key={p.id} className="px-2.5 h-8 text-right t-xs font-semibold uppercase tracking-[0.04em] text-[var(--text-3)] border-b border-[var(--line)] whitespace-nowrap">{p.internalName}</th>)}</tr></thead>
-              <tbody>{benchMachines.map((m) => <tr key={m.id} className="border-b border-[var(--line)] last:border-b-0"><td className="px-2.5 h-9 font-medium whitespace-nowrap">{m.code}{m.status === 'arriving' && <span className="t-xs text-[var(--text-3)]"> · arriving</span>}</td>{prods.map((p) => { const b = s.benchmarks.find((x) => x.machineId === m.id && x.productId === p.id); return <td key={p.id} className="px-1.5 text-right"><input disabled={!canEdit} inputMode="numeric" defaultValue={b?.unitsPerShift ?? ''} placeholder="—" onBlur={(e) => { const v = num(e.target.value); if (v !== (b?.unitsPerShift ?? 0)) s.setBenchmark({ machineId: m.id, productId: p.id, unitsPerShift: v }); }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className="num w-[72px] h-7 px-2 text-right rounded border border-transparent hover:border-[var(--line-2)] focus:border-[var(--focus)] bg-transparent outline-none" /></td>; })}</tr>)}</tbody>
+              <tbody>{benchMachines.map((m) => <tr key={m.id} className="border-b border-[var(--line)] last:border-b-0"><td className="px-2.5 h-9 font-medium whitespace-nowrap">{m.code}{m.status === 'arriving' && <span className="t-xs text-[var(--text-3)]"> · arriving</span>}</td>{prods.map((p) => { const b = s.benchmarks.find((x) => x.machineId === m.id && x.productId === p.id); return <td key={p.id} className="px-1.5 text-right"><input disabled={!canEdit} inputMode="numeric" defaultValue={b?.unitsPerShift ?? ''} placeholder="—" onBlur={(e) => { const v = num(e.target.value); if (v !== (b?.unitsPerShift ?? 0)) void change.benchmark(site, { machineId: m.id, productId: p.id, unitsPerShift: v }); }} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }} className="num w-[72px] h-7 px-2 text-right rounded border border-transparent hover:border-[var(--line-2)] focus:border-[var(--focus)] bg-transparent outline-none" /></td>; })}</tr>)}</tbody>
             </table>
           </div>
         )}

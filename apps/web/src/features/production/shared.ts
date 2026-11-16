@@ -1,3 +1,4 @@
+import { kampalaHour } from '@/data/format';
 import type { Label, Product, RefItem, ShiftKind, Site, SiteCode } from '@tanaad/domain';
 import type { AppState } from '@/data/store';
 import { DEMO_HOUR, benchmarkFor, currentShiftKind, shiftId, type MachineTile } from '@/data/selectors';
@@ -44,7 +45,7 @@ export const productKindsForLabel = (site: SiteCode, kind: Label['kind']): Produ
 };
 
 /** Hour-of-day (0–24, fractional) from an ISO timestamp, as written (local site time). */
-export const hourOf = (iso: string) => { const m = iso.match(/T(\d{2}):(\d{2})/); return m ? +m[1] + +m[2] / 60 : 0; };
+export const hourOf = kampalaHour;
 /** Shift start hour as a number from "07:00". */
 export const startHour = (site: Site, kind: 'day' | 'night') => +(site.shifts.find((x) => x.kind === kind)?.starts ?? '07:00').slice(0, 2);
 

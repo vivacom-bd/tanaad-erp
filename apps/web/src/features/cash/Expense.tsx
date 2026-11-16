@@ -107,6 +107,12 @@ export function Expense() {
     { key: 'r', header: 'Running', align: 'right', mono: true, cell: (e) => <span className="text-[var(--text-3)]">{compact(running.get(e.id) ?? 0)}</span> },
   ];
 
+  // Only the Cashier and the Site Manager write the cash book (the server refuses anyone else).
+  if (s.session?.role !== 'cashier' && s.session?.role !== 'site_manager') return (
+    <div><PageHeader eyebrow={`Cash · ${site.name}`} title="New expense" actions={<Button icon={Wallet} onClick={() => go.site('cash')}>Cash page</Button>} />
+      <Empty icon={ShieldAlert} title="Expenses are recorded by the Cashier or the Site Manager" hint="Your role can read the cash book but not add to it." /></div>
+  );
+
   const amountRow = (i: number) => (
     <FormRow key="amount" required label={<Step n={i} done={n > 0}>Amount</Step>} hint={needsApproval ? undefined : `Above ${fmtUGX(APPROVAL_LIMIT)} the Site Manager approves with a PIN before it saves.`}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-2">

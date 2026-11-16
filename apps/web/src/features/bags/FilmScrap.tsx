@@ -11,7 +11,8 @@ import { ScaleWidget } from '@/components/ScaleWidget';
 import { Sticker } from '@/components/Sticker';
 import { printer } from '@/devices';
 import { fmtDayShort, fmtKg, fmtNum } from '@/data/format';
-import { ScaleBay, SettingsEmpty, Step, useFirstField, useScaleKey, useScaleTitle, useShift, Workbench } from './kit';
+import { ScaleBay, SettingsEmpty, useSiteZone, Step, useFirstField, useScaleKey, useScaleTitle, useShift, Workbench } from './kit';
+import { useFreshLabel, useFreshLabels } from '../production/parts';
 
 type Dest = 'onsite' | 'recycling';
 const PLANT = SITES.recycling.name;
@@ -22,11 +23,12 @@ const rnd = (a: number, b: number) => a + Math.floor(Math.random() * (b - a + 1)
 /** B4 · Film scrap sacks: exactly what they already do, weighed and labelled. A sack to the recycling plant is a transfer with a destination site. */
 export function FilmScrap() {
   const s = useStore(); const { today, site, kindLabel, shift } = useShift();
+  const { zoneId: rawZone, picker: zonePicker } = useSiteZone('bags', 'z_bags_raw');
   const sources = useRefList('waste_source'); const [sourceId, setSourceId] = useState<string | null>(null);
   useEffect(() => { if (!sources.some((x) => x.id === sourceId)) setSourceId(sources[0]?.id ?? null); }, [sources, sourceId]);
   const source = sources.find((x) => x.id === sourceId)?.label;
   const [dest, setDest] = useState<Dest>('onsite'); const [target, setTarget] = useState(() => rnd(20, 45)); const [round, setRound] = useState(0); const [kg, setKg] = useState<number | null>(null);
-  const [last, setLast] = useState<Label | null>(null); const [printing, setPrinting] = useState(false); const [sent, setSent] = useState<Record<string, true>>({});
+  const [lastHeld, setLast] = useState<Label | null>(null); const last = useFreshLabel(lastHeld); const [printing, setPrinting] = useState(false); const [sent, setSent] = useState<Record<string, true>>({});
   const [formRef, focusFirst] = useFirstField<HTMLDivElement>(); const scaleRef = useRef<HTMLDivElement>(null);
   useScaleKey(scaleRef); const scaleTitle = useScaleTitle('Scrap scale');
 
@@ -37,13 +39,13 @@ export function FilmScrap() {
   const moves = s.events.filter((e) => e.type === 'StockMoved' && e.siteId === 'bags' && (e.payload as { toSiteId?: string }).toSiteId === 'recycling');
   const transfers = moves.length; const transferKg = moves.reduce((t, e) => t + ((e.payload as { qtyKg?: number }).qtyKg ?? 0), 0);
   const inStore = sacks.filter((l) => l.status === 'in_stock');
-  const preview: Label = useMemo(() => ({ id: 'preview', code: 'BAG-SAC-······', siteId: 'bags', kind: 'sack', stageCode: 'store', shiftId: shift, day: today, qtyUnits: 1, qtyKg: kg ?? 0, grade: source, status: 'created', zoneId: 'z_bags_raw', parentIds: [] }), [shift, today, kg, source]);
+  const preview: Label = useMemo(() => ({ id: 'preview', code: 'BAG-SAC-······', siteId: 'bags', kind: 'sack', stageCode: 'store', shiftId: shift, day: today, qtyUnits: 1, qtyKg: kg ?? 0, grade: source, status: 'created', zoneId: rawZone, parentIds: [] }), [shift, today, kg, source, rawZone]);
   const ready = !!kg && kg > 0 && !!source && !printing;
 
   const weigh = async () => {
     if (!ready || !kg || !source) return;
-    const label = s.createLabel({ siteId: 'bags', kind: 'sack', stageCode: 'store', shiftId: shift, day: today, qtyUnits: 1, qtyKg: kg, grade: source, zoneId: 'z_bags_raw', parentIds: [] });
-    if (dest === 'recycling') { s.moveStock({ siteId: 'bags', kind: 'transfer', labelId: label.id, fromZoneId: 'z_bags_raw', toSiteId: 'recycling', qtyUnits: 1, qtyKg: kg, reason: `${source} to ${PLANT}` }); setSent((m) => ({ ...m, [label.id]: true })); }
+    const label = s.createLabel({ siteId: 'bags', kind: 'sack', stageCode: 'store', shiftId: shift, day: today, qtyUnits: 1, qtyKg: kg, grade: source, zoneId: rawZone, parentIds: [] });
+    if (dest === 'recycling') { s.moveStock({ siteId: 'bags', kind: 'transfer', labelId: label.id, fromZoneId: rawZone, toSiteId: 'recycling', qtyUnits: 1, qtyKg: kg, reason: `${source} to ${PLANT}` }); setSent((m) => ({ ...m, [label.id]: true })); }
     setLast(label); setPrinting(true); await printer.print({ code: label.code, lines: [source.toUpperCase(), `${kg} kg`] }); setPrinting(false);
     useStore.getState().toast({ kind: 'ok', title: `${source} sack ${fmtKg(kg)} labelled`, detail: dest === 'recycling' ? `Transfer to ${PLANT} recorded` : 'In the resin store for re-pelletising' });
     setKg(null); setTarget(rnd(20, 45)); setRound((r) => r + 1); focusFirst();
@@ -89,6 +91,7 @@ export function FilmScrap() {
               <ChipGroup ariaLabel="Destination" options={DESTS} value={dest} onChange={setDest} />
               <Note tone={dest === 'recycling' ? 'info' : 'neutral'} className="mt-2">An inter-company transfer is just a transfer with a destination site. The sack keeps its sticker; the {PLANT} receives it by scanning the same code.</Note>
             </FormRow>
+            {zonePicker}
             <FormRow label={<Step n={3} done={!!kg}>Weight</Step>}>
               <ScaleBay innerRef={scaleRef} note={kg ? <span className="inline-flex items-center gap-1 text-[var(--text-2)]"><CheckCircle2 className="size-3.5 text-[var(--ok)]" />{fmtKg(kg)} taken from the scale</span> : 'Put the sack on the scale.'}><ScaleWidget key={round} title={scaleTitle} targetKg={target} onReading={(v) => setKg(v)} disabled={printing} /></ScaleBay>
             </FormRow>

@@ -4,7 +4,7 @@ import type { Label, Machine, Person, ProductionEntry } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { lastWorkingDays, machinesOf } from '@/data/selectors';
 import { REASON_AFTER_MIN, codeKey, sectorForStage, shiftWindow } from '../production/shared';
-import { SetupHint } from '../production/parts';
+import { SetupHint, useFreshLabel } from '../production/parts';
 import { Avatar, Badge, Bar, Button, ChipGroup, Combobox, DataGrid, Empty, KpiStrip, NumberPad, PageHeader, Panel, Sheet, StackedBar, Stat, Status, Tabs, cn, useIsTouch, type Column, type Tone } from '@/components/ui';
 import { ColumnChart, CountUp, Legend } from '@/components/charts';
 import { PersonPicker } from '@/components/PersonPicker';
@@ -157,7 +157,7 @@ function ExtruderSheet({ machineId: initial, extruders, batches, onClose }: { ma
   const machine = extruders.find((m) => m.id === machineId) ?? extruders[0]; const existing = entryOf(machine.id);
   const [operator, setOperator] = useState<string | null>(existing?.operatorId ?? null); const [batchId, setBatchId] = useState<string | null>(null);
   const [kg, setKg] = useState(''); const [rack, setRack] = useState(true); const [colour, setColour] = useState<string | null>(null);
-  const [printed, setPrinted] = useState<Label | null>(null); const [printing, setPrinting] = useState(false);
+  const [printedHeld, setPrinted] = useState<Label | null>(null); const printed = useFreshLabel(printedHeld); const [printing, setPrinting] = useState(false);
   /** Where the cursor starts: on the operator when nobody is set yet, otherwise straight on the kilos. */
   const [startOnOperator] = useState(!existing?.operatorId);
   const batch = batches.find((b) => b.id === batchId); const outKg = parseFloat(kg || '0') || 0; const rackColour = batch?.colour ?? colour;

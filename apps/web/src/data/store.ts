@@ -5,12 +5,16 @@ import type {
   Client, CompanyProfile, Engagement, Label, Machine, Purchase, Order, Product, RefItem, RefList, SiteSettings, Benchmark, PartIssue, Person, ProductionEntry, ProofOfDelivery, Role, SiteCode, StockCount, StockMovement, Breakdown, Payment, Invoice,
 } from '@tanaad/domain';
 import { cashClose, expectedCargoKg, gateDecision, intakeNet } from '@tanaad/domain';
-import { buildSeed, TODAY, FX, type SeedData } from './seed/build';
+import { buildSeed, TODAY, FX } from './seed/build';
+import type { SeedData } from './seed/build';
 import { buildMasterData } from './seed/masterData';
+import { emptyData, realToday } from './emptyData';
 import { dexieStorage } from './persist';
 import { uuid7, nowIso } from './ids';
 import { SITES } from '@/config/sites';
 import { DEMO } from './api/env';
+import type { ServerViews } from './api/productionMap';
+import type { StockOnHand } from './api/stockMap';
 
 export interface Session { userId: string; role: Role; siteId?: SiteCode; deviceId: string }
 
@@ -30,9 +34,16 @@ export interface AppState extends SeedData {
   seedVersion: number;
   toasts: { id: string; kind: 'ok' | 'warn' | 'error' | 'info'; title: string; detail?: string }[];
   alerts: { id: string; title: string; detail: string; at: string; siteId?: SiteCode; read: boolean }[];
+  /** Real mode only: the server's machine wall, mass balance and output answers (the selectors use them instead of computing locally). */
+  serverViews?: ServerViews;
+  /** Real mode only: the server's on-hand figures per product and zone (stock_on_hand snapshot). */
+  serverStock?: StockOnHand[];
 }
 
 const SEED_VERSION = 20;
+/** Decided at build time (Vite replaces both variables), so a real build drops the demo seed entirely. */
+const DEMO_BUILD = import.meta.env.VITE_DEMO === '1' || !import.meta.env.VITE_API_URL;
+const startingData = () => { if (DEMO_BUILD) return { seed: buildSeed(), master: buildMasterData() }; return emptyData(realToday()); };
 
 type Mut = (s: AppState) => void;
 
@@ -120,6 +131,8 @@ export interface Actions {
   raiseException: (e: Omit<BusinessException, 'id' | 'raisedAt' | 'status'>) => void;
 }
 
+/** Real mode: the server allocates the real code on sync, so until then the label carries an obvious placeholder. */
+const pendingLabelCode = (id: string) => `PENDING-${id.replace(/-/g, '').slice(-6).toUpperCase()}`;
 const nextLabelCode = (s: AppState, siteId: SiteCode, kind: Label['kind']) => `${siteId.toUpperCase().slice(0, 3)}-${kind.toUpperCase().slice(0, 3)}-${String(s.labels.length + 1).padStart(6, '0')}`;
 
 export const useStore = create<AppState & Actions>()(
@@ -138,18 +151,18 @@ export const useStore = create<AppState & Actions>()(
         eventSink.current?.(ev);
         return ev;
       };
-      const seed = buildSeed(); const master = buildMasterData();
+      const { seed, master } = startingData();
       const cfg = (siteId: SiteCode) => get().siteSettings?.[siteId] ?? master.siteSettings[siteId];
       return {
         ...seed, ...master,
-        events: [], auth: null, session: null, online: true, today: TODAY, fx: FX, seedVersion: SEED_VERSION, toasts: [], alerts: [],
+        events: [], auth: null, session: null, online: true, today: DEMO_BUILD ? TODAY : realToday(), fx: DEMO_BUILD ? FX : 0, seedVersion: SEED_VERSION, toasts: [], alerts: [],
 
         logIn: (userId, method = 'password') => set({ auth: { userId, method, at: nowIso() }, session: null }),
         signIn: (userId, role, siteId) => set((st) => ({ auth: st.auth?.userId === userId ? st.auth : { userId, method: 'link', at: nowIso() }, session: { userId, role, siteId, deviceId: `${siteId ?? 'group'}-${role}-01` } })),
         signOut: () => set({ session: null, auth: null }),
         setOnline: (online) => { set({ online }); if (online) get().flushOutbox(); },
         flushOutbox: () => { mutate((d) => { d.events = d.events.map((e) => ({ ...e, synced: true })); }); },
-        resetDemo: () => { const fresh = { ...buildSeed(), ...buildMasterData() }; set({ ...fresh, events: [], online: true, toasts: [], alerts: [], seedVersion: SEED_VERSION }); },
+        resetDemo: () => { if (!DEMO_BUILD) return; const fresh = { ...buildSeed(), ...buildMasterData() }; set({ ...fresh, events: [], online: true, toasts: [], alerts: [], seedVersion: SEED_VERSION }); },
         toast: (t) => { const id = uuid7(); set((s) => ({ toasts: [...s.toasts, { id, ...t }] })); setTimeout(() => get().dismissToast(id), 3200); },
         dismissToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
         pushAlert: (a) => set((s) => ({ alerts: [{ id: uuid7(), at: nowIso(), read: false, ...a }, ...s.alerts] })),
@@ -217,10 +230,10 @@ export const useStore = create<AppState & Actions>()(
         recordProduction: (e) => {
           const s = get(); const entry: ProductionEntry = { id: uuid7(), at: nowIso(), ...e };
           const existing = s.production.find((p) => p.shiftId === e.shiftId && p.machineId === e.machineId && p.stageCode === e.stageCode);
-          mutate((d) => { d.production = existing ? d.production.map((p) => (p.id === existing.id ? { ...entry, id: existing.id } : p)) : [...d.production, entry]; d.exceptions = d.exceptions.map((x) => (x.subjectRef === e.machineId && (x.kind === 'not_logged' || (x.kind === 'below_benchmark' && e.downtimeReason)) && x.status === 'open' ? { ...x, status: 'resolved', decidedAt: nowIso(), decisionReason: 'Entry recorded' } : x)); });
-          emit('ProductionEntryRecorded', e.siteId, entry);
+          mutate((d) => { d.production = existing ? d.production.map((p) => (p.id === existing.id ? { ...entry, id: existing.id } : p)) : [...d.production, entry]; if (DEMO) d.exceptions = d.exceptions.map((x) => (x.subjectRef === e.machineId && (x.kind === 'not_logged' || (x.kind === 'below_benchmark' && e.downtimeReason)) && x.status === 'open' ? { ...x, status: 'resolved', decidedAt: nowIso(), decisionReason: 'Entry recorded' } : x)); });
+          emit('ProductionEntryRecorded', e.siteId, !DEMO && existing ? { ...entry, id: existing.id } : entry); // a re-log keeps the entry's id on the server too
         },
-        createLabel: (l) => { const s = get(); const label: Label = { id: uuid7(), code: nextLabelCode(s, l.siteId, l.kind), status: l.status ?? 'in_stock', ...l }; mutate((d) => { d.labels = [...d.labels, label]; }); emit('LabelCreated', l.siteId, label); return label; },
+        createLabel: (l) => { const s = get(); const label: Label = { id: uuid7(), code: DEMO ? nextLabelCode(s, l.siteId, l.kind) : '', status: l.status ?? 'in_stock', ...l }; if (!DEMO) label.code = pendingLabelCode(label.id); mutate((d) => { d.labels = [...d.labels, label]; }); emit('LabelCreated', l.siteId, label); return label; },
         consumeLabel: (labelId) => { mutate((d) => { d.labels = d.labels.map((l) => (l.id === labelId ? { ...l, status: 'consumed' } : l)); }); emit('LabelConsumed', get().labels.find((l) => l.id === labelId)?.siteId, { labelId }); },
 
         recordStockCount: (c) => { const a = actor(); const rec: StockCount = { id: uuid7(), at: nowIso(), by: a.id, ...c }; mutate((d) => { d.stockCounts = [...d.stockCounts, rec]; }); const v = c.countedBundles - c.systemBundles; emit('StockCounted', c.siteId, rec, { audit: { summary: `Stock count ${get().zones.find((z) => z.id === c.zoneId)?.name}: ${get().products.find((p) => p.id === c.productId)?.internalName} ${v === 0 ? 'matches' : `${v > 0 ? '+' : ''}${v} bundles vs system`}`, flag: v === 0 ? 'normal' : 'variance' } }); },
@@ -279,7 +292,7 @@ export const useStore = create<AppState & Actions>()(
 
         createOrder: (o) => { const s = get(); const n = 2300 + s.orders.length + 1; const order: Order = { id: uuid7(), number: `SO-${n}`, createdAt: nowIso(), fxReference: s.fx, ...o }; mutate((d) => { d.orders = [order, ...d.orders]; }); emit('OrderCreated', o.siteId, order); return order; },
         confirmCash: (orderId) => { const o = get().orders.find((x) => x.id === orderId)!; mutate((d) => { d.orders = d.orders.map((x) => (x.id === orderId ? { ...x, status: 'approved', cashConfirmedAt: nowIso() } : x)); }); emit('OrderCashConfirmed', o.siteId, { orderId }); },
-        decideOrder: (orderId, decision, reason) => { const s = get(); const o = s.orders.find((x) => x.id === orderId)!; const a = actor(); mutate((d) => { d.orders = d.orders.map((x) => (x.id === orderId ? { ...x, status: decision, approvedBy: decision === 'approved' ? a.id : undefined, approvedAt: nowIso(), notes: reason ?? x.notes } : x)); d.exceptions = d.exceptions.map((x) => (x.kind === 'credit_over_limit' && x.detail.includes(o.number) ? { ...x, status: decision === 'approved' ? 'approved' : 'held', decidedBy: a.id, decidedAt: nowIso(), decisionReason: reason } : x)); }); emit(decision === 'approved' ? 'OrderApproved' : 'OrderHeld', o.siteId, { orderId }, { reason, audit: { summary: `Export order ${o.number} for ${s.clients.find((c) => c.id === o.clientId)?.name} ${decision}` } }); },
+        decideOrder: (orderId, decision, reason) => { if (!DEMO) { void import('./api/salesActions').then((m) => m.decideOrderOnline(orderId, decision, reason)); return; } const s = get(); const o = s.orders.find((x) => x.id === orderId)!; const a = actor(); mutate((d) => { d.orders = d.orders.map((x) => (x.id === orderId ? { ...x, status: decision, approvedBy: decision === 'approved' ? a.id : undefined, approvedAt: nowIso(), notes: reason ?? x.notes } : x)); d.exceptions = d.exceptions.map((x) => (x.kind === 'credit_over_limit' && x.detail.includes(o.number) ? { ...x, status: decision === 'approved' ? 'approved' : 'held', decidedBy: a.id, decidedAt: nowIso(), decisionReason: reason } : x)); }); emit(decision === 'approved' ? 'OrderApproved' : 'OrderHeld', o.siteId, { orderId }, { reason, audit: { summary: `Export order ${o.number} for ${s.clients.find((c) => c.id === o.clientId)?.name} ${decision}` } }); },
         issueInvoice: (orderId) => { const s = get(); const o = s.orders.find((x) => x.id === orderId)!; const existing = s.invoices.find((i) => i.orderId === orderId); if (existing) return existing; const inv: Invoice = { id: uuid7(), orderId, number: `INV-${o.number.slice(3)}`, total: o.lines.reduce((t, l) => t + l.bundles * l.unitPrice, 0), currency: o.currency, issuedAt: nowIso() }; mutate((d) => { d.invoices = [...d.invoices, inv]; d.orders = d.orders.map((x) => (x.id === orderId && (x.status === 'delivered' || x.status === 'dispatched') ? { ...x, status: 'invoiced' } : x)); }); emit('InvoiceIssued', o.siteId, inv); return inv; },
         recordPayment: (p) => { const pay: Payment = { id: uuid7(), at: nowIso(), ...p }; mutate((d) => { d.payments = [...d.payments, pay]; if (p.invoiceId) { const inv = d.invoices.find((i) => i.id === p.invoiceId); if (inv) d.orders = d.orders.map((x) => (x.id === inv.orderId ? { ...x, status: 'paid' } : x)); } }); emit('PaymentRecorded', undefined, pay, { audit: { summary: `Payment ${p.currency} ${p.amount.toLocaleString()} from ${get().clients.find((c) => c.id === p.clientId)?.name} (${p.method} ${p.reference})` } }); },
 

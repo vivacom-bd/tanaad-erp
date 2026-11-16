@@ -30,7 +30,9 @@ export function Tagging() {
   const products = s.products.filter((p) => p.siteId === site.id && p.kind !== 'material' && p.active !== false);
   const [zoneId, setZoneId] = useState<string | null>(zones[0]?.id ?? null);
   const [productId, setProductId] = useState<string | null>(products[0]?.id ?? null);
-  const [printing, setPrinting] = useState<Label | null>(null); const [busy, setBusy] = useState(false);
+  const [printingSeen, setPrinting] = useState<Label | null>(null); const [busy, setBusy] = useState(false);
+  // After a sync the server gives the label its real code: show the stored label, not the copy made when it was tagged.
+  const printing = printingSeen ? s.labels.find((l) => l.id === printingSeen.id) ?? printingSeen : null;
   const [session, setSession] = useState<Record<string, number>>({}); // key zone|product
   const [summary, setSummary] = useState<{ zoneId: string; zone: string; rows: { name: string; colour?: string; n: number }[] } | null>(null);
   const [target, setTarget] = useState<number | undefined>(() => readEstimate(site.id)); const [estimating, setEstimating] = useState(false); const [draft, setDraft] = useState('');
@@ -57,7 +59,7 @@ export function Tagging() {
     await printer.print({ code: label.code, lines: [product.internalName, `${product.bundlePieces} pcs`] });
     setSession((m) => ({ ...m, [key(zoneId, product.id)]: (m[key(zoneId, product.id)] ?? 0) + 1 }));
     setBusy(false);
-    toast({ kind: 'ok', title: 'Label recorded', detail: `${label.code} · ${product.internalName} · ${zone?.name}. No physical sticker was printed.` });
+    toast({ kind: 'ok', title: 'Label recorded', detail: `${label.code} · ${product.internalName} · ${zone?.name}. No physical sticker was printed.${label.code.startsWith('PENDING-') ? ' The server assigns the real code when it syncs.' : ''}` });
   };
   const finishZone = () => {
     if (!zoneId || sessionTotal === 0) return;

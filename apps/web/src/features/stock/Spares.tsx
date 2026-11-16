@@ -8,8 +8,12 @@ import { CountUp } from '@/components/charts';
 import { PersonPicker } from '@/components/PersonPicker';
 import { addDays, lowStockParts, machinesOf } from '@/data/selectors';
 import { compact, fmtDateTime, fmtDayShort, fmtNum, fmtUGX } from '@/data/format';
+import { isReal } from '@/data/api/sync';
+import { mayDo } from '@/app/access';
+import { issuePartOnline, receivePartOnline } from '@/data/api/spares';
 import { useBeep } from './shared';
 import { KV, dayOf, matches, plural, useSearch } from './kit';
+import { kampalaDay } from '@/data/format';
 
 type Tab = 'parts' | 'log' | 'low';
 
@@ -33,6 +37,7 @@ const levelBadge = (p: Part) => (p.onHand === 0 ? <Badge tone="bad" dot>Out of s
 export function Spares() {
   const s = useStore(); const site = useSite(); const beep = useBeep(); const touch = useIsTouch();
   const issuePart = useStore((x) => x.issuePart); const receivePart = useStore((x) => x.receivePart); const toast = useStore((x) => x.toast);
+  const real = isReal(); const mayIssue = !real || mayDo('issuePart', useStore.getState().session?.role); const [busy, setBusy] = useState(false);
   const [q, setQ] = useSearch(); const wide = useMedia('(min-width: 1280px)'); const phone = useMedia('(max-width: 639px)');
   const [tab, setTab] = useState<Tab>('parts');
   const parts = s.parts.filter((p) => p.siteId === site.id); const low = lowStockParts(s, site.id);
@@ -44,7 +49,7 @@ export function Spares() {
   const partOf = (id: string) => s.parts.find((p) => p.id === id); const machineOf = (id: string) => s.machines.find((m) => m.id === id); const personOf = (id: string) => s.people.find((p) => p.id === id);
   const costOf = (i: PartIssue) => i.qty * (partOf(i.partId)?.unitCost ?? 0);
   const issues = s.partIssues.filter((i) => i.siteId === site.id).sort((a, b) => b.at.localeCompare(a.at));
-  const realToday = new Date().toISOString().slice(0, 10);
+  const realToday = kampalaDay(new Date().toISOString());
   const issuesToday = issues.filter((i) => dayOf(i.at) === s.today || dayOf(i.at) === realToday);
   const valueOnHand = parts.reduce((t, p) => t + p.onHand * p.unitCost, 0);
   const week = Array.from({ length: 7 }, (_, k) => addDays(s.today, k - 6)).map((day) => { const list = day === s.today ? issuesToday : issues.filter((i) => dayOf(i.at) === day); return { day, n: list.length, cost: list.reduce((t, i) => t + costOf(i), 0) }; });
@@ -72,9 +77,12 @@ export function Spares() {
   const reset = () => { setPartId(null); setQty(''); setQtyDone(false); setMachineId(null); setPinError(null); setDone(null); setMechanicId(mechanics.length === 1 ? mechanics[0].id : null); };
   const openIssue = (preset?: string) => { reset(); if (preset) setPartId(preset); setIssueOpen(true); if (!touch) setTimeout(() => focusField(preset ? 'qty' : 'part'), 60); };
   const afterQty = () => { setQtyDone(true); if (!touch) focusField(!machineId ? 'machine' : !mechanicId ? 'mechanic' : 'pin'); };
-  const submitPin = (pin: string) => {
-    if (!part || !machineId || !mechanicId || n <= 0) return;
-    const r = issuePart({ pin, siteId: site.id, partId: part.id, machineId, mechanicId, qty: n });
+  const submitPin = async (pin: string) => {
+    if (!part || !machineId || !mechanicId || n <= 0 || busy) return;
+    // Real mode: no PIN. The signed-in issuer is the accountability, and the server checks the stock and the role.
+    let r: { ok: boolean; message: string };
+    if (real) { setBusy(true); r = await issuePartOnline({ siteId: site.id, partId: part.id, machineId, mechanicId, qty: n }); setBusy(false); }
+    else r = issuePart({ pin, siteId: site.id, partId: part.id, machineId, mechanicId, qty: n });
     if (!r.ok) { setPinError(r.message); beep('bad'); toast({ kind: 'error', title: r.message }); return; }
     const code = machineOf(machineId)?.code ?? '';
     setPinError(null); beep('ok'); toast({ kind: 'ok', title: r.message, detail: `For ${code}. ${part.onHand - n} ${part.unit} left.` });
@@ -87,9 +95,13 @@ export function Spares() {
   const [rPart, setRPart] = useState<string | null>(null); const [rQty, setRQty] = useState('');
   const rForm = useRef<HTMLDivElement>(null);
   const rp = parts.find((x) => x.id === rPart);
-  const receive = () => {
-    const qn = parseInt(rQty || '0', 10); if (!rp || qn <= 0) return;
-    receivePart(rp.id, qn); beep('ok'); toast({ kind: 'ok', title: `${rp.name} +${qn} ${rp.unit}`, detail: `${rp.onHand + qn} ${rp.unit} on hand.` }); setRQty('');
+  const receive = async () => {
+    const qn = parseInt(rQty || '0', 10); if (!rp || qn <= 0 || busy) return;
+    if (real) {
+      setBusy(true); const r = await receivePartOnline(site.id, rp.id, qn); setBusy(false);
+      if (!r.ok) { beep('bad'); toast({ kind: 'error', title: 'Not booked in', detail: r.message }); return; }
+      beep('ok'); toast({ kind: 'ok', title: r.message, detail: `${r.onHand ?? rp.onHand + qn} ${rp.unit} on hand.` }); setRQty('');
+    } else { receivePart(rp.id, qn); beep('ok'); toast({ kind: 'ok', title: `${rp.name} +${qn} ${rp.unit}`, detail: `${rp.onHand + qn} ${rp.unit} on hand.` }); setRQty(''); }
     if (!touch) setTimeout(() => rForm.current?.querySelector<HTMLElement>('[data-f="rpart"] input')?.focus(), 30);
   };
   const anySheet = issueOpen || receiveOpen;
@@ -112,7 +124,7 @@ export function Spares() {
     { key: 'sh', header: 'Short by', align: 'right', mono: true, sort: (p) => p.minLevel - p.onHand, cell: (p) => <span className="text-[var(--bad)] font-medium">{p.minLevel - p.onHand} {p.unit}</span> },
     { key: 'o', header: 'Order', align: 'right', mono: true, cell: (p) => `${reorderQty(p)} ${p.unit}` },
     { key: 'oc', header: 'Cost, UGX', align: 'right', mono: true, sort: (p) => reorderQty(p) * p.unitCost, cell: (p) => fmtNum(reorderQty(p) * p.unitCost) },
-    { key: 'a', header: '', align: 'right', cell: (p) => <Button size="sm" icon={ShoppingCart} onClick={() => toast({ kind: 'ok', title: 'Purchase request sent', detail: `${p.name} · ${reorderQty(p)} ${p.unit} · ${fmtUGX(reorderQty(p) * p.unitCost)}` })}>Reorder</Button> },
+    ...(real ? [] : [{ key: 'a', header: '', align: 'right' as const, cell: (p: Part) => <Button size="sm" icon={ShoppingCart} onClick={() => toast({ kind: 'ok', title: 'Purchase request sent', detail: `${p.name} · ${reorderQty(p)} ${p.unit} · ${fmtUGX(reorderQty(p) * p.unitCost)}` })}>Reorder</Button> }]),
   ];
   const logCols: Column<PartIssue>[] = [
     { key: 'at', header: 'When', sort: (i) => i.at, cell: (i) => <span className="num text-[var(--text-2)]">{fmtDateTime(i.at)}</span> },
@@ -125,9 +137,9 @@ export function Spares() {
 
   return (
     <div>
-      <PageHeader eyebrow={`${site.name} · Maintenance`} title="Spares store" meta={<><Badge tone="neutral"><Lock className="size-3" />Locked · PIN to issue</Badge>{low.length > 0 && <Badge tone="bad" dot>{plural(low.length, 'part')} below minimum</Badge>}</>}
-        subtitle="A part leaves only against a machine, a mechanic and a PIN."
-        actions={<><Button icon={PackagePlus} hotkey={anySheet ? undefined : 'r'} hotkeyLabel="Receive parts" onClick={() => { setRQty(''); setReceiveOpen(true); }}>Receive parts</Button><Button variant="primary" icon={Wrench} hotkey={anySheet ? undefined : 'n'} hotkeyLabel="Issue part" onClick={() => openIssue()}>Issue part</Button></>} />
+      <PageHeader eyebrow={`${site.name} · Maintenance`} title="Spares store" meta={<><Badge tone="neutral"><Lock className="size-3" />{real ? 'Locked · issued under your sign-in' : 'Locked · PIN to issue'}</Badge>{low.length > 0 && <Badge tone="bad" dot>{plural(low.length, 'part')} below minimum</Badge>}</>}
+        subtitle={real ? 'A part leaves only against a machine and a mechanic, under the issuer\'s own sign-in.' : 'A part leaves only against a machine, a mechanic and a PIN.'}
+        actions={<><Button icon={PackagePlus} hotkey={anySheet ? undefined : 'r'} hotkeyLabel="Receive parts" onClick={() => { setRQty(''); setReceiveOpen(true); }}>Receive parts</Button>{mayIssue && <Button variant="primary" icon={Wrench} hotkey={anySheet ? undefined : 'n'} hotkeyLabel="Issue part" onClick={() => openIssue()}>Issue part</Button>}</>} />
 
       <div className="flex flex-col gap-[var(--gap)]">
       <KpiStrip className="md:grid-cols-4!">
@@ -177,9 +189,9 @@ export function Spares() {
       </div>
 
       {/* Issue: one form, five fields, the PIN last */}
-      <Sheet open={issueOpen} onClose={() => setIssueOpen(false)} width={480} title="Issue part" sub="Nothing leaves without all five fields"
+      <Sheet open={issueOpen} onClose={() => setIssueOpen(false)} width={480} title="Issue part" sub={real ? 'Nothing leaves without all four fields' : 'Nothing leaves without all five fields'}
         footer={done ? <><Button onClick={() => setIssueOpen(false)}>Close</Button><Button data-again="" variant="primary" icon={Wrench} hotkey="mod+enter" hotkeyLabel="Issue another part" onClick={() => openIssue()}>Issue another part</Button></>
-          : <><span className="t-sm text-[var(--text-3)] mr-auto">{complete ? `${part!.name} ×${n} for ${machineOf(machineId!)?.code}` : 'Fill in the four fields, then the PIN'}</span><Button variant="primary" icon={Lock} hotkey="mod+enter" hotkeyLabel="Confirm with PIN" disabled={!complete} onClick={() => { setQtyDone(true); focusField('pin'); }}>Confirm with PIN</Button></>}>
+          : <><span className="t-sm text-[var(--text-3)] mr-auto">{complete ? `${part!.name} ×${n} for ${machineOf(machineId!)?.code}` : real ? 'Fill in the four fields' : 'Fill in the four fields, then the PIN'}</span><Button variant="primary" icon={Lock} hotkey="mod+enter" hotkeyLabel={real ? 'Confirm' : 'Confirm with PIN'} disabled={!complete} onClick={() => { setQtyDone(true); focusField('pin'); }}>{real ? 'Confirm' : 'Confirm with PIN'}</Button></>}>
         <div ref={form}>
           {done ? (
             <div className="anim-pop">
@@ -211,9 +223,11 @@ export function Spares() {
                 <PersonPicker siteId={pickerSite} sector="Maintenance" value={mechanicId} onChange={(v) => setMechanicId(v)} placeholder="Search mechanic by name" />
               </div></Field>
               <div data-f="pin" className={cn('rounded-lg border border-[var(--line)] bg-[var(--surface-2)] px-3 py-3', !armed && 'opacity-60')}>
-                <div className="t-sm font-medium text-[var(--text-2)] mb-2 flex items-center gap-1.5"><Lock className="size-3.5" />5 · Mechanic PIN</div>
-                {armed ? <PinPad onSubmit={submitPin} title={`Enter PIN to unlock ${part!.name} ×${n}`} error={pinError} />
-                  : <div className="t-sm text-[var(--text-3)] text-center py-3">{complete ? 'Press Enter in the quantity field, or Confirm with PIN.' : 'Finish fields 1 to 4 first. The PIN pad unlocks when they are complete.'}</div>}
+                <div className="t-sm font-medium text-[var(--text-2)] mb-2 flex items-center gap-1.5"><Lock className="size-3.5" />{real ? '5 · Confirm' : '5 · Mechanic PIN'}</div>
+                {armed ? (real
+                  ? <div className="px-3"><Button variant="primary" block icon={Wrench} disabled={busy} onClick={() => void submitPin('')}>{busy ? 'Issuing…' : `Issue ${part!.name} ×${n}`}</Button>{pinError && <Note tone="bad" className="mt-2">{pinError}</Note>}</div>
+                  : <PinPad onSubmit={submitPin} title={`Enter PIN to unlock ${part!.name} ×${n}`} error={pinError} />)
+                  : <div className="t-sm text-[var(--text-3)] text-center py-3">{complete ? (real ? 'Press Enter in the quantity field, or Confirm.' : 'Press Enter in the quantity field, or Confirm with PIN.') : (real ? 'Finish fields 1 to 4 first. The issue button unlocks when they are complete.' : 'Finish fields 1 to 4 first. The PIN pad unlocks when they are complete.')}</div>}
               </div>
             </div>
           )}

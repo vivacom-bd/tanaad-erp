@@ -6,8 +6,14 @@ import { useSite, useGo } from '@/app/hooks';
 import { SITE_LIST } from '@/config/sites';
 import { Avatar, Badge, Bar, Button, ChipGroup, Combobox, DataGrid, FormRow, Input, KpiStrip, Note, PageHeader, Panel, SearchInput, Stat, Tabs, useIsTouch, type Column, type Tone } from '@/components/ui';
 import { CountUp } from '@/components/charts';
-import { fmtDateTime, fmtKg, fmtNum } from '@/data/format';
+import { fmtDateTime, fmtKg, fmtNum, kampalaDay } from '@/data/format';
+import { isReal, siteCodeOf } from '@/data/api/sync';
+import { useServerStock } from '@/data/api/stock';
+import { adjustStock, moveBetweenZones, receiveTransfer, scrapLabel, sendTransfer } from '@/data/api/stockActions';
+import { directoryName } from '@/data/api/names';
 import { downloadCsv, useBeep } from './shared';
+import { voucherLine } from './voucher';
+import { matchReceivingProduct } from './transferMatch';
 import { Bench, IconChip, KV, ProductName, QtyPad, SetupHint, Step, Swatch, dayOf, matches, plural, unitWords, useSearch } from './kit';
 
 type Kind = 'transfer' | 'site' | 'adjust' | 'scrap';
@@ -38,14 +44,17 @@ export function Movements() {
   const [kind, setKind] = useState<Kind>('transfer'); const [productId, setProductId] = useState<string | null>(null); const [qty, setQty] = useState('');
   const [from, setFrom] = useState<string | null>(null); const [to, setTo] = useState<string | null>(null); const [toSite, setToSite] = useState<SiteCode | null>(null); const [reason, setReason] = useState('');
   const form = useRef<HTMLDivElement>(null);
+  // Real mode: adjustments are signed, scrap writes off one label by its code, and the server decides whether the zone has enough.
+  const [remove, setRemove] = useState(false); const [labelCode, setLabelCode] = useState(''); const [busy, setBusy] = useState(false);
+  const scrapReal = isReal() && kind === 'scrap'; const serverMv = useServerStock((x) => x.movements); const transfers = useServerStock((x) => x.transfers); const [recvZone, setRecvZone] = useState<string | null>(null); const [recvProduct, setRecvProduct] = useState<Record<string, string>>({});
   const product = products.find((p) => p.id === productId); const n = parseInt(qty || '0', 10);
-  const inStock = useMemo(() => { const m = new Map<string, number>(); for (const l of s.labels) if (l.siteId === site.id && l.status === 'in_stock' && l.productId && l.zoneId) m.set(`${l.productId}|${l.zoneId}`, (m.get(`${l.productId}|${l.zoneId}`) ?? 0) + 1); return m; }, [s.labels, site.id]);
+  const inStock = useMemo(() => { const m = new Map<string, number>(); if (isReal() && s.serverStock) { for (const r of s.serverStock) if (r.siteId === site.id && r.zoneId) m.set(`${r.productId}|${r.zoneId}`, r.bundles); return m; } for (const l of s.labels) if (l.siteId === site.id && l.status === 'in_stock' && l.productId && l.zoneId) m.set(`${l.productId}|${l.zoneId}`, (m.get(`${l.productId}|${l.zoneId}`) ?? 0) + 1); return m; }, [s.labels, s.serverStock, site.id]);
   const inZone = (zid: string | null, pid = product?.id) => (pid && zid ? inStock.get(`${pid}|${zid}`) ?? 0 : 0);
   const totalOf = (pid: string) => zones.reduce((t, z) => t + inZone(z.id, pid), 0);
   const unitOne = product?.unit ?? words.one; const unitMany = product?.unit ? `${product.unit}s` : words.many; const unit = n === 1 ? unitOne : unitMany;
   const kg = product ? Math.round(n * product.stdBundleWeightKg * 10) / 10 : 0;
   const needsReason = kind === 'adjust' || kind === 'scrap';
-  const missing = [!product && 'product', !from && 'from zone', kind === 'transfer' && (!to || to === from) && 'to zone', kind === 'site' && !toSite && 'destination site', !(n > 0) && 'quantity', needsReason && reason.trim().length < 3 && 'reason'].filter(Boolean) as string[];
+  const missing = scrapReal ? [!labelCode.trim() && 'label code', reason.trim().length < 3 && 'reason'].filter(Boolean) as string[] : [!product && 'product', !from && 'from zone', kind === 'transfer' && (!to || to === from) && 'to zone', kind === 'site' && !toSite && 'destination site', !(n > 0) && 'quantity', needsReason && reason.trim().length < 3 && 'reason'].filter(Boolean) as string[];
   const ready = missing.length === 0;
   const have = inZone(from); const overdraw = !!product && !!from && n > have && kind !== 'adjust';
   const destination = kind === 'transfer' ? (to ? zoneName(to) : undefined) : kind === 'site' ? (toSite ? siteName(toSite) : undefined) : kind === 'scrap' ? 'Scrap' : 'Adjustment';
@@ -55,6 +64,7 @@ export function Movements() {
   const focusFirst = () => { if (!touch) setTimeout(() => form.current?.querySelector<HTMLElement>('[data-f="product"] input')?.focus(), 40); };
   const clear = () => { setProductId(null); setQty(''); setFrom(null); setTo(null); setToSite(null); setReason(''); focusFirst(); };
   const submit = () => {
+    if (isReal()) { void submitReal(); return; }
     if (!ready || !product) return;
     moveStock({ siteId: site.id, kind: kind === 'site' ? 'transfer' : kind, productId: product.id, fromZoneId: from ?? undefined, toZoneId: kind === 'transfer' ? to ?? undefined : undefined, toSiteId: kind === 'site' ? toSite ?? undefined : undefined, qtyUnits: n, qtyKg: kg, reason: reason.trim() || (kind === 'site' ? `Inter-company transfer to ${siteName(toSite ?? undefined)}` : undefined) });
     beep('ok');
@@ -63,17 +73,45 @@ export function Movements() {
     setQty(''); setReason(''); if (!touch) setTimeout(() => form.current?.querySelector<HTMLElement>('[data-f="qty"] input')?.focus(), 40);
   };
 
+  const submitReal = async () => {
+    if (!ready || busy) return;
+    setBusy(true);
+    try {
+      if (scrapReal) { await scrapLabel(site.id, labelCode, reason); toast({ kind: 'warn', title: `Label ${labelCode.trim()} scrapped`, detail: 'Written off with your reason. It is in the movement ledger.' }); setLabelCode(''); setReason(''); }
+      else if (product) {
+        if (kind === 'transfer') await moveBetweenZones(site.id, { productId: product.id, fromZoneId: from!, toZoneId: to!, bundles: n, product, reason });
+        else if (kind === 'adjust') await adjustStock(site.id, { productId: product.id, zoneId: from!, bundles: remove ? -n : n, product, reason });
+        else await sendTransfer(site.id, { toSite: toSite!, productId: product.id, fromZoneId: from!, bundles: n, product, note: reason });
+        beep('ok');
+        toast({ kind: kind === 'adjust' ? 'warn' : 'ok', title: `${KINDS[kind].short}: ${fmtNum(n)} ${unit} of ${product.internalName}`, detail: kind === 'site' ? 'Sent. The other site books it in when it arrives.' : 'The server has booked it.' });
+        setQty(''); setReason('');
+      }
+    } catch (e) { beep('bad'); toast({ kind: 'error', title: 'Not recorded', detail: e instanceof Error ? e.message : undefined }); }
+    setBusy(false);
+  };
+  const incoming = isReal() ? transfers.filter((t) => t.status === 'sent' && siteCodeOf(t.toSiteId) === site.id) : [];
+  const sentProduct = (t: { productId: string }) => s.products.find((p) => p.id === t.productId);
+  const matchOf = (t: { productId: string }) => matchReceivingProduct(sentProduct(t), products);
+  /** The picked product, else the one the sent product maps to at this site. */
+  const chosenProduct = (id: string): string | undefined => { const t = incoming.find((x) => x.id === id); const m = t ? matchOf(t) : undefined; return recvProduct[id] || (m?.status === 'one' ? m.product.id : undefined); };
+  const receiveIncoming = async (id: string) => {
+    if (!recvZone) { toast({ kind: 'warn', title: 'Choose the zone it goes into first' }); return; }
+    const pid = chosenProduct(id); if (!pid) { toast({ kind: 'warn', title: 'Choose which of your products this is first' }); return; }
+    try { await receiveTransfer(site.id, id, { toZoneId: recvZone, productId: pid }); toast({ kind: 'ok', title: 'Transfer booked in', detail: `Into ${zoneName(recvZone)}.` }); }
+    catch (e) { toast({ kind: 'error', title: 'Not booked in', detail: e instanceof Error ? e.message : undefined }); }
+  };
+
   /* ---- the ledger */
   const [q, setQ] = useSearch(); const [filter, setFilter] = useState<Ledger>('all');
-  const events = useMemo(() => (s.events.filter((e) => e.type === 'StockMoved' && e.siteId === site.id) as Ev[]).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt)), [s.events, site.id]);
-  const who = (id: string) => s.users.find((u) => u.id === id)?.name ?? s.people.find((p) => p.id === id)?.fullName ?? 'Unknown user';
+  const events = useMemo(() => (isReal() ? (serverMv.filter((m) => m.payload.siteId === site.id) as unknown as Ev[]) : (s.events.filter((e) => e.type === 'StockMoved' && e.siteId === site.id) as Ev[]).sort((a, b) => b.occurredAt.localeCompare(a.occurredAt))), [s.events, serverMv, site.id]);
+  const who = (id: string) => s.users.find((u) => u.id === id)?.name ?? s.people.find((p) => p.id === id)?.fullName ?? directoryName(id) ?? 'A colleague';
   const productOf = (id?: string) => s.products.find((p) => p.id === id);
   const whatOf = (m: StockMovement) => productOf(m.productId)?.internalName ?? m.reason?.split(' · ')[0] ?? 'Material';
   const routeOf = (m: StockMovement) => ({ from: m.kind === 'receive' ? 'Supplier' : zoneName(m.fromZoneId), to: m.toSiteId ? siteName(m.toSiteId) : m.kind === 'scrap' ? 'Scrap' : m.kind === 'adjust' ? 'Adjustment' : zoneName(m.toZoneId) });
   const searched = events.filter((e) => { const m = e.payload; const r = routeOf(m); return matches(q, whatOf(m), m.reason, r.from, r.to, who(e.actorId), LEDGER[ledgerKind(m)].label, m.kind); });
   const rows = searched.filter((e) => filter === 'all' || ledgerKind(e.payload) === filter);
   const count = (f: Ledger) => searched.filter((e) => f === 'all' || ledgerKind(e.payload) === f).length;
-  const realToday = new Date().toISOString().slice(0, 10);
+  const realToday = kampalaDay(new Date().toISOString());
   const todays = events.filter((e) => dayOf(e.occurredAt) === realToday || dayOf(e.occurredAt) === s.today);
   const sumKg = (list: Ev[]) => list.reduce((t, e) => t + e.payload.qtyKg, 0);
   const of = (k: Ledger) => events.filter((e) => ledgerKind(e.payload) === k);
@@ -126,6 +164,29 @@ export function Movements() {
           )}
           {product?.weightStatus === 'to_be_measured' && n > 0 && <div className="t-xs text-[var(--text-3)] mt-2">Kilos use the standard weight of {fmtKg(product.stdBundleWeightKg)} per {unitOne}, which is still to be measured.</div>}
         </Panel>
+        {incoming.length > 0 && (
+          <Panel icon={Building2} title="Arriving from another site" sub={plural(incoming.length, 'transfer')}>
+            <div className="t-xs text-[var(--text-3)] mb-1">Pick the zone, then for each transfer choose which of this site's own products it becomes.</div>
+            <FormRow label="Book into zone" required><ChipGroup ariaLabel="Zone to book into" value={recvZone} onChange={setRecvZone} options={zones.map((z) => ({ value: z.id, label: z.name }))} /></FormRow>
+            {incoming.map((t) => {
+              const m = matchOf(t); const sent = sentProduct(t); const pid = chosenProduct(t.id);
+              const options = m.status === 'many' ? m.options : products;
+              return (
+              <div key={t.id} className="border-t border-[var(--line)] py-1 t-sm">
+                <div className="flex items-center gap-2 min-h-9">
+                  <span className="flex-1 min-w-0 truncate">{siteName(siteCodeOf(t.fromSiteId))} · {sent ? <b>{sent.internalName}</b> : 'a product'} · <span className="num font-medium">{fmtNum(t.bundles)}</span> {t.bundles === 1 ? words.one : words.many} · {fmtKg(t.qtyKg)}{t.note ? ` · ${t.note}` : ''}</span>
+                  {m.status === 'one' && !recvProduct[t.id]
+                    ? <span className="w-[220px] truncate text-[var(--text-2)]" title="Matched by name, category and unit">Books in as <b>{m.product.internalName}</b></span>
+                    : <Combobox className="w-[220px]" value={recvProduct[t.id] ?? ''} onChange={(v) => setRecvProduct((x) => ({ ...x, [t.id]: v ?? '' }))} placeholder="Our product (required)" emptyText="No product with that name"
+                        options={options.map((p) => ({ value: p.id, label: p.internalName, sub: p.commercialName }))} />}
+                  <Button size="sm" variant="primary" disabled={!pid} onClick={() => void receiveIncoming(t.id)}>Book in</Button>
+                </div>
+                {m.status === 'many' && !recvProduct[t.id] && <div className="t-xs text-[var(--warn)] pb-1">More than one of our products looks like {sent?.internalName ?? 'this one'}. Choose which it is.</div>}
+                {m.status === 'none' && !recvProduct[t.id] && <div className="t-xs text-[var(--warn)] pb-1">None of our products matches {sent?.internalName ?? 'this one'} by name and unit. Choose which of ours it becomes.</div>}
+              </div>
+              ); })}
+          </Panel>
+        )}
         <Panel icon={ScrollText} title="Written today" sub={plural(todays.length, 'voucher')} pad={false}>
           <DataGrid bare dense rows={todays.slice(0, 8)} columns={columns.filter((c) => ['k', 'p', 'q'].includes(c.key)).map((c) => ({ ...c, sort: undefined, truncate: c.key === 'p' ? 150 : c.truncate }))} rowKey={(e) => e.id} empty="No voucher yet today. Receipts, transfers, adjustments and scrap land here as they are recorded." />
         </Panel>
@@ -133,13 +194,20 @@ export function Movements() {
         <Panel icon={ArrowRightLeft} title="Stock voucher" sub={KINDS[kind].hint} pad={false}
           actions={<Button size="sm" variant="ghost" icon={Eraser} disabled={!productId && !qty && !from && !reason} onClick={clear}>Clear</Button>}
           footer={<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-            <span className="min-w-0">{ready ? `${fmtNum(n)} ${unit} of ${product!.internalName}, ${zoneName(from!)} to ${destination}.` : `Still needed: ${missing.join(', ')}.`}</span>
-            <Button variant={kind === 'adjust' || kind === 'scrap' ? 'danger' : 'primary'} icon={Send} hotkey="mod+enter" hotkeyLabel="Record the movement" disabled={!ready} onClick={submit}>Record movement</Button>
+            <span className="min-w-0">{voucherLine({ ready, missing, scrapLabelCode: scrapReal ? labelCode : undefined, qty: fmtNum(n), unit, productName: product?.internalName, fromZone: from ? zoneName(from) : '—', destination })}</span>
+            <Button variant={kind === 'adjust' || kind === 'scrap' ? 'danger' : 'primary'} icon={Send} hotkey="mod+enter" hotkeyLabel="Record the movement" disabled={!ready || busy} onClick={submit}>{busy ? 'Recording…' : 'Record movement'}</Button>
           </div>}>
           <div ref={form}>
             <Step n={1} title="Kind of move" hint={touch ? undefined : 'arrows or 1 to 4'}>
               <ChipGroup ariaLabel="Kind of move" value={kind} onChange={(k) => { setKind(k); setTo(null); setToSite(null); }} options={(Object.keys(KINDS) as Kind[]).map((k) => { const K = KINDS[k]; return { value: k, label: <><K.icon className="size-3.5" />{K.label}</> }; })} />
             </Step>
+            {scrapReal ? (
+              <Step n={2} title="Label to write off" hint="scrapping is done one label at a time">
+                <FormRow label="Label code" required><Input value={labelCode} onChange={(e) => setLabelCode(e.target.value)} placeholder="Code printed on the label" className="max-w-[320px] code" autoComplete="off" /></FormRow>
+                <FormRow label="Reason" required><Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="What happened to it?" /></FormRow>
+                <div className="t-xs text-[var(--text-3)]">The label must be in stock. The server takes its bundle, units and kilos out of its zone and keeps your reason with the movement.</div>
+              </Step>
+            ) : (<>
             <Step n={2} title="Product" hint={product ? `${fmtNum(totalOf(product.id))} ${unitMany} in stock at ${site.shortName}` : 'what is moving'}>
               <div data-f="product">
                 {products.length === 0 ? <SetupHint inline what="products" where="Products" />
@@ -155,6 +223,7 @@ export function Movements() {
               </>}
             </Step>
             <Step n={4} title="Quantity and reason" hint={needsReason ? 'a reason is required for this kind' : 'the reason is optional'}>
+              {isReal() && kind === 'adjust' && <FormRow label="Direction" required><ChipGroup ariaLabel="Direction" value={remove ? 'remove' : 'add'} onChange={(v) => setRemove(v === 'remove')} options={[{ value: 'add', label: 'Add to the zone' }, { value: 'remove', label: 'Take out of the zone' }]} /></FormRow>}
               <FormRow label="Quantity" required>
                 <div data-f="qty" className="max-w-[340px]"><QtyPad value={qty} onChange={setQty} unit={unitMany} max={99999} /></div>
                 {product && n > 0 && <div className="t-sm text-[var(--text-3)] mt-1 num">{fmtKg(kg)} at the standard weight of {fmtKg(product.stdBundleWeightKg)} per {unitOne}</div>}
@@ -164,6 +233,7 @@ export function Movements() {
                 <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder={kind === 'adjust' ? 'Why does the system figure change?' : kind === 'scrap' ? 'What happened to it?' : 'Optional note'} />
               </FormRow>
             </Step>
+            </>)}
           </div>
         </Panel>
       </Bench>

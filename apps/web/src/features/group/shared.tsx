@@ -6,6 +6,7 @@ import { cn, useHotkey, type Tone } from '@/components/ui';
 import { SITES } from '@/config/sites';
 import { SITE_COLOR, SITE_ICON } from '@/config/siteIdentity';
 import { DEMO_HOUR } from '@/data/selectors';
+import { kampalaDay, kampalaHour } from '@/data/format';
 
 /* ───────────────────────────── Site identity ───────────────────────────── */
 /** Small site tag used across every group screen: the site's icon in its colour on a tint of it. */
@@ -77,7 +78,7 @@ export const weekStart = (day: string) => { const d = new Date(day + 'T00:00:00Z
 export function agoLabel(iso: string, today: string) {
   const now = new Date(`${today}T${String(DEMO_HOUR).padStart(2, '0')}:20:00Z`).getTime();
   const m = iso.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})/); if (!m) return '';
-  const then = new Date(`${m[1]}T${m[2]}:${m[3]}:00Z`).getTime();
+  const then = new Date(`${kampalaDay(iso)}T${String(Math.floor(kampalaHour(iso))).padStart(2, '0')}:${m[3]}:00Z`).getTime(); // the demo clock is Kampala wall time
   const min = Math.round((now - then) / 60000);
   if (min < 2) return 'just now';
   if (min < 60) return `${min} min ago`;

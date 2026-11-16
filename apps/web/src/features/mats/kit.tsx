@@ -7,6 +7,7 @@ import { MiniBars, cn, type Tone } from '@/components/ui';
 import { PersonPicker } from '@/components/PersonPicker';
 import { Sticker } from '@/components/Sticker';
 import { printer } from '@/devices';
+import { isReal } from '@/data/api/sync';
 
 /* ───────────────────────────── Colours ───────────────────────────── */
 /** The site's colours as set up in Settings → Master data: names in the user's order, and the swatch of each. */
@@ -51,9 +52,13 @@ export function OperatorTiles({ sector, value, onChange }: { sector: string; val
 }
 
 /* ───────────────────────────── Stickers ───────────────────────────── */
-/** A label that does not exist yet, for the live sticker preview. The code is the next number the store will issue. */
+/**
+ * A label that does not exist yet, for the live sticker preview. The demo shows the next number the store will issue; against the
+ * server the number is assigned per label kind when the label is accepted, so no number is guessed here.
+ */
 export function draftLabel(issued: number, l: Omit<Label, 'id' | 'code' | 'status'>): Label {
-  return { ...l, id: 'draft-next', status: 'in_stock', code: `${l.siteId.toUpperCase().slice(0, 3)}-${l.kind.toUpperCase().slice(0, 3)}-${String(issued + 1).padStart(6, '0')}` };
+  const next = isReal() ? '······' : String(issued + 1).padStart(6, '0');
+  return { ...l, id: 'draft-next', status: 'in_stock', code: `${l.siteId.toUpperCase().slice(0, 3)}-${l.kind.toUpperCase().slice(0, 3)}-${next}` };
 }
 
 /** Where a sticker is shown: a quiet tray with the printer slot the sticker rolls out of. */

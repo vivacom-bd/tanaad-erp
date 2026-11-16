@@ -6,7 +6,7 @@ import { useSite, useGo } from '@/app/hooks';
 import { Badge, Bar, Button, DataGrid, Empty, KpiStrip, Meter, Note, PageHeader, Panel, SearchInput, Sheet, Stat, Tabs, type Column } from '@/components/ui';
 import { CountUp } from '@/components/charts';
 import { lastWorkingDays, stockByProduct } from '@/data/selectors';
-import { fmtDayShort, fmtKg, fmtMoney, fmtNum } from '@/data/format';
+import { fmtDayShort, fmtKg, fmtMoney, fmtNum, kampalaDay } from '@/data/format';
 import { setPresetZone } from './shared';
 import { Fact, KV, ProductName, Swatch, matches, plural, unitWords, useSearch, zoneColor } from './kit';
 
@@ -42,7 +42,7 @@ export function StockWall() {
   const days = lastWorkingDays(site.id, s.today, 7);
   // Labelled stock at the end of each day, rebuilt from what is in stock now plus what has left on a lorry since.
   const level = useMemo(() => {
-    const leftOn = new Map<string, string>(); for (const d of s.dispatches) if (d.siteId === site.id) for (const id of d.scannedLabelIds) leftOn.set(id, d.createdAt.slice(0, 10));
+    const leftOn = new Map<string, string>(); for (const d of s.dispatches) if (d.siteId === site.id) for (const id of d.scannedLabelIds) leftOn.set(id, kampalaDay(d.createdAt));
     return days.map((day) => { const there = siteLabels.filter((l) => l.productId && l.day <= day && (l.status === 'in_stock' || (leftOn.get(l.id) ?? '') > day)); return { units: there.length, pieces: there.reduce((t, l) => t + l.qtyUnits, 0), kg: there.reduce((t, l) => t + l.qtyKg, 0) }; });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [siteLabels, s.dispatches, site.id, s.today]);

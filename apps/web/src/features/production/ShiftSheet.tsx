@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, CheckCircle2, Download, Factory, PackageCheck, Printer, Scale, ScrollText, Timer } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Lock, Download, Factory, PackageCheck, Printer, Scale, ScrollText, Timer } from 'lucide-react';
 import type { ShiftKind } from '@tanaad/domain';
+import { isReal } from '@/data/api/sync';
+import { ensureProductionDay } from '@/data/api/production';
+import { closeShift, isShiftClosed } from '@/data/api/productionActions';
 import { useStore } from '@/data/store';
 import { useSite, useGo, useSession, useQueryParam } from '@/app/hooks';
 import { Avatar, Badge, Button, ChipGroup, DataGrid, Empty, KpiStrip, Meter, Note, PageHeader, Panel, SearchInput, Stat, Tabs, Toolbar, cn, type Column } from '@/components/ui';
@@ -24,7 +27,16 @@ export function ShiftSheet() {
   const [open, setOpen] = useState<{ id: string; nonce: number } | null>(null);
   const readOnly = session?.role === 'ceo' || session?.role === 'group_admin';
   const editable = !readOnly && day === s.today;
+  const canClose = isReal() && (session?.role === 'supervisor' || session?.role === 'site_manager');
+  const closed = isReal() && isShiftClosed(s.serverViews, site.id, day, kind); const [closing, setClosing] = useState(false);
+  const closeThisShift = async () => {
+    setClosing(true);
+    try { await closeShift(site.id, day, kind); useStore.getState().toast({ kind: 'ok', title: `${fmtDayShort(day)} ${kind} shift closed` }); }
+    catch (e) { useStore.getState().toast({ kind: 'error', title: 'Shift not closed', detail: e instanceof Error ? e.message : 'The shift could not be closed.' }); }
+    finally { setClosing(false); }
+  };
 
+  useEffect(() => { if (isReal()) void ensureProductionDay(site.id, day).catch(() => undefined); }, [site.id, day]); // another day's figures come from the server
   const wall = useMemo(() => machineWall(s, site.id, day, kind), [s, site.id, day, kind]);
   const other = useMemo(() => machineWall(s, site.id, day, kind === 'day' ? 'night' : 'day'), [s, site.id, day, kind]);
   const rows = wall.filter((t) => t.state !== 'arriving');
@@ -81,6 +93,7 @@ export function ShiftSheet() {
       </KpiStrip>
 
       <Toolbar right={<>
+        {canClose && <Button icon={Lock} onClick={() => void closeThisShift()} disabled={closed || closing || win.phase === 'upcoming'} hotkeyLabel="Close this shift">{closed ? 'Shift closed' : closing ? 'Closing' : 'Close shift'}</Button>}
         <Button icon={Download} onClick={exportCsv} disabled={rows.length === 0} hotkey={open ? undefined : 'e'} hotkeyLabel="Export the shift sheet as CSV">CSV</Button>
         <Button icon={Printer} variant="primary" onClick={print} disabled={rows.length === 0} hotkey={open ? undefined : 'p'} hotkeyLabel="Print the shift sheet">Print</Button>
       </>}>

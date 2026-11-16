@@ -6,7 +6,7 @@ import { useStore, type AppState } from '@/data/store';
 import { SITES } from '@/config/sites';
 import { Badge, cn, type Tone } from '@/components/ui';
 import { QR } from '@/components/Sticker';
-import { fmtDateTime, fmtDayLong, fmtKg, fmtMoney, fmtNum, fmtPct } from '@/data/format';
+import { fmtDateTime, fmtDayLong, fmtKg, fmtMoney, fmtNum, fmtPct, kampalaDay } from '@/data/format';
 
 /* ------------------------------------------------------------------ small CSS the stock screens need (scan feedback) */
 export function StockStyles() {
@@ -44,16 +44,17 @@ export const setPresetZone = (z: string | undefined) => { presetZone = z; };
 export const takePresetZone = () => { const z = presetZone; presetZone = undefined; return z; };
 
 /* ------------------------------------------------------------------ status helpers */
-export type DeliveryStatus = 'loading' | 'held' | 'gate_pass' | 'in_transit' | 'delivered' | 'discrepancy';
+export type DeliveryStatus = 'loading' | 'held' | 'gate_pass' | 'gate_override' | 'in_transit' | 'delivered' | 'discrepancy';
 export function deliveryStatus(d: Dispatch): DeliveryStatus {
   if (d.pod) return d.pod.bundlesCounted === d.pod.bundlesExpected ? 'delivered' : 'discrepancy';
   if (d.gateStatus === 'hold') return 'held';
   if (d.gateStatus === 'pending') return 'loading';
   const ageH = (Date.now() - new Date(d.gatePassedAt ?? d.createdAt).getTime()) / 3_600_000;
-  return ageH > 2 ? 'in_transit' : 'gate_pass';
+  if (ageH > 2) return 'in_transit';
+  return d.gateStatus === 'overridden' ? 'gate_override' : 'gate_pass';
 }
 export const STATUS_META: Record<DeliveryStatus, { label: string; tone: Tone }> = {
-  loading: { label: 'Loading', tone: 'neutral' }, held: { label: 'Held at gate', tone: 'bad' }, gate_pass: { label: 'Gate pass', tone: 'ok' },
+  loading: { label: 'Loading', tone: 'neutral' }, held: { label: 'Held at gate', tone: 'bad' }, gate_pass: { label: 'Gate pass', tone: 'ok' }, gate_override: { label: 'Gate override', tone: 'warn' },
   in_transit: { label: 'In transit', tone: 'accent' }, delivered: { label: 'Delivered', tone: 'ok' }, discrepancy: { label: 'Discrepancy', tone: 'bad' },
 };
 export const GATE_META: Record<Dispatch['gateStatus'], { label: string; tone: Tone }> = { pending: { label: 'Loading', tone: 'neutral' }, pass: { label: 'Gate pass', tone: 'ok' }, hold: { label: 'Held', tone: 'bad' }, overridden: { label: 'Override', tone: 'warn' } };
@@ -173,7 +174,7 @@ export function DeliveryNoteCard({ dispatch, serialPreview, className, compact }
       </div>
       <div className="grid grid-cols-2 gap-3 py-2.5">
         <div className="min-w-0"><L>Deliver to</L><div className="font-bold truncate">{client?.name}</div><div className="text-neutral-600 truncate">{client?.country} · {client?.contact}</div></div>
-        <div className="min-w-0 text-right"><L>Order</L><div className="font-bold">{o.number}</div><div className="text-neutral-600 truncate">{fmtDayLong((dispatch?.createdAt ?? o.createdAt).slice(0, 10))}</div></div>
+        <div className="min-w-0 text-right"><L>Order</L><div className="font-bold">{o.number}</div><div className="text-neutral-600 truncate">{fmtDayLong(kampalaDay(dispatch?.createdAt ?? o.createdAt))}</div></div>
       </div>
       <table className="w-full mb-2">
         <thead><tr className="border-y border-neutral-400"><th className="text-left py-1 font-normal"><L>Item</L></th><th className="text-right font-normal"><L>Ordered</L></th><th className="text-right font-normal pl-2"><L>Loaded</L></th><th className="text-right font-normal pl-2"><L>Kg</L></th></tr></thead>

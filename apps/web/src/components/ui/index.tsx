@@ -542,6 +542,8 @@ export interface Column<T> {
   width?: number | string;
   align?: 'left' | 'right' | 'center';
   sticky?: boolean;
+  /** Pin to the right edge so an action column stays reachable when the table scrolls sideways. */
+  stickyRight?: boolean;
   mono?: boolean;
   /** Return a comparable value to make the column sortable by clicking its header. */
   sort?: (row: T) => number | string;
@@ -589,7 +591,7 @@ export function DataGrid<T>({ rows, columns, rowKey, dense, className, onRowClic
                 const is = sort?.key === c.key;
                 return (
                   <th key={c.key} style={{ width: c.width, textAlign: c.align ?? 'left' }} aria-sort={is ? (sort!.dir === 1 ? 'ascending' : 'descending') : undefined}
-                    className={cn('px-2.5 h-8 touch:h-10 t-xs font-semibold text-[var(--text-3)] uppercase tracking-[0.04em] whitespace-nowrap border-b border-[var(--line)] bg-[var(--surface-2)]', c.sticky && 'sticky left-0 z-20')}>
+                    className={cn('px-2.5 h-8 touch:h-10 t-xs font-semibold text-[var(--text-3)] uppercase tracking-[0.04em] whitespace-nowrap border-b border-[var(--line)] bg-[var(--surface-2)]', c.sticky && 'sticky left-0 z-20', c.stickyRight && 'sticky right-0 z-20')}>
                     {c.sort ? (
                       <button type="button" onClick={() => setSort(is ? (sort!.dir === 1 ? { key: c.key, dir: -1 } : null) : { key: c.key, dir: 1 })} className={cn('inline-flex items-center gap-1 uppercase tracking-[0.04em] font-semibold hover:text-[var(--text)]', is && 'text-[var(--text)]')}>
                         {c.header}{is && (sort!.dir === 1 ? <ArrowUp className="size-3" /> : <ArrowDown className="size-3" />)}
@@ -608,13 +610,13 @@ export function DataGrid<T>({ rows, columns, rowKey, dense, className, onRowClic
               return (
                 <tr key={key} onClick={onRowClick ? () => { setActive(i); onRowClick(r); } : undefined}
                   className={cn('border-b border-[var(--line)] last:border-b-0', zebra && i % 2 === 1 && 'bg-[var(--surface-2)]', onRowClick && 'cursor-pointer hover:bg-[var(--hover)]', isSel && 'bg-[var(--selected)] hover:bg-[var(--selected)]', isActive && 'shadow-[inset_2px_0_0_var(--focus)] bg-[var(--hover)]', rowClassName?.(r))}>
-                  {columns.map((c) => <td key={c.key} style={{ textAlign: c.align ?? 'left', maxWidth: c.truncate }} className={cn('px-2.5 align-middle', !c.wrap && 'whitespace-nowrap', c.truncate && 'overflow-hidden text-ellipsis', dense ? 'h-[28px] touch:h-10 py-0.5' : 'h-[var(--row-h)] py-1', c.mono && 'num', c.sticky && 'sticky left-0 z-[1] bg-[var(--surface)]')}>{c.cell(r)}</td>)}
+                  {columns.map((c) => <td key={c.key} style={{ textAlign: c.align ?? 'left', maxWidth: c.truncate }} className={cn('px-2.5 align-middle', !c.wrap && 'whitespace-nowrap', c.truncate && 'overflow-hidden text-ellipsis', dense ? 'h-[28px] touch:h-10 py-0.5' : 'h-[var(--row-h)] py-1', c.mono && 'num', c.sticky && 'sticky left-0 z-[1] bg-[var(--surface)]', c.stickyRight && 'sticky right-0 z-[1] bg-[var(--surface)] shadow-[-1px_0_0_var(--line)]')}>{c.cell(r)}</td>)}
                 </tr>
               );
             })}
             {sorted.length === 0 && <tr><td colSpan={columns.length} className="px-3 py-8 text-center t-sm text-[var(--text-3)]">{empty ?? 'Nothing to show.'}</td></tr>}
           </tbody>
-          {footer && <tfoot className="sticky bottom-0 bg-[var(--surface-2)] font-semibold [&_td]:px-2.5 [&_td]:h-8 [&_td]:border-t [&_td]:border-[var(--line-2)]">{footer}</tfoot>}
+          {footer && <tfoot className="sticky bottom-0 z-10 bg-[var(--surface-2)] font-semibold [&_td]:bg-[var(--surface-2)] [&_td]:px-2.5 [&_td]:h-8 [&_td]:border-t [&_td]:border-[var(--line-2)]">{footer}</tfoot>}
         </table>
       </div>
     </div>

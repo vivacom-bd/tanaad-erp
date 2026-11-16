@@ -2,6 +2,8 @@ import { useRef, useState } from 'react';
 import { Activity, AlertTriangle, BarChart3, CheckCircle2, Clock, Cog, PieChart, ScrollText, Siren, Timer, Wallet, Wrench } from 'lucide-react';
 import type { Breakdown } from '@tanaad/domain';
 import { useStore } from '@/data/store';
+import { isReal } from '@/data/api/sync';
+import { reportBreakdownOnline, resolveBreakdownOnline } from '@/data/api/spares';
 import { useSite, useGo, useRefList } from '@/app/hooks';
 import { Badge, Bar, Button, ChipGroup, Combobox, DataGrid, Empty, Field, Input, KpiStrip, Meter, PageHeader, Panel, SearchInput, Sheet, Stat, Tabs, useIsTouch, useNow, type Column } from '@/components/ui';
 import { ColumnChart, CountUp, Donut } from '@/components/charts';
@@ -17,7 +19,7 @@ const dayStart = (day: string) => ms(`${day}T00:00:00+03:00`);
 export function Maintenance() {
   const s = useStore(); const site = useSite(); const go = useGo(); const now = useNow(15000); const beep = useBeep(); const touch = useIsTouch();
   const reportBreakdown = useStore((x) => x.reportBreakdown); const resolveBreakdown = useStore((x) => x.resolveBreakdown); const toast = useStore((x) => x.toast);
-  const causes = useRefList('breakdown_cause');
+  const causes = useRefList('breakdown_cause'); const real = isReal();
   const [q, setQ] = useSearch();
   const [filter, setFilter] = useState<'all' | 'open' | 'resolved'>('all');
   const [openId, setOpenId] = useState<string | null>(null);
@@ -58,12 +60,17 @@ export function Maintenance() {
   const causeSegs = (causeRows.length > 6 ? [...causeRows.slice(0, 5), { label: 'Other causes', value: causeRows.slice(5).reduce((t, x) => t + x.value, 0) }] : causeRows).map((c, i) => ({ ...c, color: c.label === 'Other causes' ? 'var(--text-4)' : `var(--series-${i + 1})` }));
 
   const openReport = () => { setMachineId(null); setCause(null); setOther(''); setReporting(true); };
-  const report = () => {
+  const report = async () => {
     const c = other.trim() || cause; if (!machineId || !c) return;
-    reportBreakdown({ siteId: site.id, machineId, cause: c }); beep('bad');
+    if (real) { const r = await reportBreakdownOnline(site.id, machineId, c); if (!r.ok) { beep('bad'); toast({ kind: 'error', title: 'Breakdown not reported', detail: r.message }); return; } } else reportBreakdown({ siteId: site.id, machineId, cause: c });
+    beep('bad');
     toast({ kind: 'warn', title: `${codeOf(machineId)} reported down`, detail: `${c}. The clock is running.` }); setMachineId(null); setCause(null); setOther(''); setReporting(false);
   };
-  const resolve = (id: string) => { const b = breakdowns.find((x) => x.id === id)!; resolveBreakdown(id); beep('ok'); toast({ kind: 'ok', title: `${codeOf(b.machineId)} back in production`, detail: `Down ${fmtHours(hoursBetween(b.startedAt, now))}.` }); };
+  const resolve = async (id: string) => {
+    const b = breakdowns.find((x) => x.id === id)!;
+    if (real) { const r = await resolveBreakdownOnline(site.id, id); if (!r.ok) { beep('bad'); toast({ kind: 'error', title: 'Not resolved', detail: r.message }); return; } } else resolveBreakdown(id);
+    beep('ok'); toast({ kind: 'ok', title: `${codeOf(b.machineId)} back in production`, detail: `Down ${fmtHours(hoursBetween(b.startedAt, now))}.` });
+  };
 
   const shown = breakdowns.filter((b) => (filter === 'all' || (filter === 'open') === !b.resolvedAt) && matches(q, codeOf(b.machineId), b.cause));
   const maxHours = Math.max(1, ...shown.map(hoursOf));
