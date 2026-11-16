@@ -1,0 +1,700 @@
+{
+  "expectedCargoKg": [
+    {
+      "name": "two lines",
+      "input": [
+        [
+          {
+            "bundles": 100,
+            "stdBundleWeightKg": 38
+          },
+          {
+            "bundles": 50,
+            "stdBundleWeightKg": 25.2
+          }
+        ]
+      ],
+      "expected": 5060
+    },
+    {
+      "name": "fractional weights",
+      "input": [
+        [
+          {
+            "bundles": 7,
+            "stdBundleWeightKg": 12.345
+          },
+          {
+            "bundles": 3,
+            "stdBundleWeightKg": 0.1
+          }
+        ]
+      ],
+      "expected": 86.715
+    },
+    {
+      "name": "empty",
+      "input": [
+        []
+      ],
+      "expected": 0
+    }
+  ],
+  "variancePct": [
+    {
+      "name": "under",
+      "input": [
+        5060,
+        5010
+      ],
+      "expected": -0.99
+    },
+    {
+      "name": "over",
+      "input": [
+        1000,
+        1025
+      ],
+      "expected": 2.5
+    },
+    {
+      "name": "zero expected",
+      "input": [
+        0,
+        10
+      ],
+      "expected": 0
+    },
+    {
+      "name": "half cent rounding",
+      "input": [
+        3000,
+        2999.955
+      ],
+      "expected": 0
+    }
+  ],
+  "gateDecision": [
+    {
+      "name": "exact",
+      "input": [
+        {
+          "expectedKg": 5060,
+          "actualKg": 5060,
+          "tolerancePct": 2,
+          "scannedBundles": 150,
+          "orderedBundles": 150
+        }
+      ],
+      "expected": {
+        "decision": "pass",
+        "variancePct": 0,
+        "reasons": []
+      }
+    },
+    {
+      "name": "edge of tolerance",
+      "input": [
+        {
+          "expectedKg": 1000,
+          "actualKg": 980,
+          "tolerancePct": 2,
+          "scannedBundles": 10,
+          "orderedBundles": 10
+        }
+      ],
+      "expected": {
+        "decision": "pass",
+        "variancePct": -2,
+        "reasons": []
+      }
+    },
+    {
+      "name": "just over tolerance",
+      "input": [
+        {
+          "expectedKg": 1000,
+          "actualKg": 979,
+          "tolerancePct": 2,
+          "scannedBundles": 10,
+          "orderedBundles": 10
+        }
+      ],
+      "expected": {
+        "decision": "hold",
+        "variancePct": -2.1,
+        "reasons": [
+          "Weight variance -2.1% exceeds ±2%"
+        ]
+      }
+    },
+    {
+      "name": "weight ok but a bundle unscanned",
+      "input": [
+        {
+          "expectedKg": 1000,
+          "actualKg": 1000,
+          "tolerancePct": 2,
+          "scannedBundles": 9,
+          "orderedBundles": 10
+        }
+      ],
+      "expected": {
+        "decision": "hold",
+        "variancePct": 0,
+        "reasons": [
+          "Scanned 9 bundles, order has 10"
+        ]
+      }
+    },
+    {
+      "name": "rwanda 200 short",
+      "input": [
+        {
+          "expectedKg": 5060,
+          "actualKg": 4420,
+          "tolerancePct": 2,
+          "scannedBundles": 140,
+          "orderedBundles": 150
+        }
+      ],
+      "expected": {
+        "decision": "hold",
+        "variancePct": -12.65,
+        "reasons": [
+          "Weight variance -12.65% exceeds ±2%",
+          "Scanned 140 bundles, order has 150"
+        ]
+      }
+    },
+    {
+      "name": "overweight hold",
+      "input": [
+        {
+          "expectedKg": 1000,
+          "actualKg": 1030,
+          "tolerancePct": 2,
+          "scannedBundles": 10,
+          "orderedBundles": 10
+        }
+      ],
+      "expected": {
+        "decision": "hold",
+        "variancePct": 3,
+        "reasons": [
+          "Weight variance +3% exceeds ±2%"
+        ]
+      }
+    }
+  ],
+  "massBalance": [
+    {
+      "name": "balanced",
+      "input": [
+        {
+          "kgIn": 2500,
+          "kgOut": 2250,
+          "wipDeltaKg": 120,
+          "wasteKg": 180,
+          "allowedLossPct": 2
+        }
+      ],
+      "expected": {
+        "allowedLossKg": 50,
+        "gapKg": -100,
+        "gapPct": -4,
+        "state": "balanced"
+      }
+    },
+    {
+      "name": "explainable",
+      "input": [
+        {
+          "kgIn": 2500,
+          "kgOut": 2300,
+          "wipDeltaKg": 0,
+          "wasteKg": 120,
+          "allowedLossPct": 2
+        }
+      ],
+      "expected": {
+        "allowedLossKg": 50,
+        "gapKg": 30,
+        "gapPct": 1.2,
+        "state": "explainable"
+      }
+    },
+    {
+      "name": "missing",
+      "input": [
+        {
+          "kgIn": 2500,
+          "kgOut": 2100,
+          "wipDeltaKg": 0,
+          "wasteKg": 50,
+          "allowedLossPct": 2
+        }
+      ],
+      "expected": {
+        "allowedLossKg": 50,
+        "gapKg": 300,
+        "gapPct": 12,
+        "state": "missing"
+      }
+    },
+    {
+      "name": "nothing in",
+      "input": [
+        {
+          "kgIn": 0,
+          "kgOut": 0,
+          "wipDeltaKg": 0,
+          "wasteKg": 0,
+          "allowedLossPct": 2
+        }
+      ],
+      "expected": {
+        "allowedLossKg": 0,
+        "gapKg": 0,
+        "gapPct": 0,
+        "state": "balanced"
+      }
+    },
+    {
+      "name": "negative wip",
+      "input": [
+        {
+          "kgIn": 1000,
+          "kgOut": 1100,
+          "wipDeltaKg": -150,
+          "wasteKg": 30,
+          "allowedLossPct": 1.5
+        }
+      ],
+      "expected": {
+        "allowedLossKg": 15,
+        "gapKg": 5,
+        "gapPct": 0.5,
+        "state": "explainable"
+      }
+    }
+  ],
+  "settlementNet": [
+    {
+      "name": "weekly casual",
+      "input": [
+        {
+          "rateBasis": "day",
+          "rate": 15000,
+          "unitsWorked": 6,
+          "advances": 20000
+        }
+      ],
+      "expected": {
+        "gross": 90000,
+        "overtime": 0,
+        "bonus": 0,
+        "advances": 20000,
+        "net": 70000
+      }
+    },
+    {
+      "name": "monthly with overtime",
+      "input": [
+        {
+          "rateBasis": "month",
+          "rate": 450000,
+          "unitsWorked": 0.5,
+          "overtimeHours": 6.5,
+          "overtimeRatePerHour": 2500,
+          "bonus": 10000
+        }
+      ],
+      "expected": {
+        "gross": 225000,
+        "overtime": 16250,
+        "bonus": 10000,
+        "advances": 0,
+        "net": 251250
+      }
+    },
+    {
+      "name": "piece rate",
+      "input": [
+        {
+          "rateBasis": "piece",
+          "rate": 350,
+          "unitsWorked": 213
+        }
+      ],
+      "expected": {
+        "gross": 74550,
+        "overtime": 0,
+        "bonus": 0,
+        "advances": 0,
+        "net": 74550
+      }
+    },
+    {
+      "name": "advances exceed",
+      "input": [
+        {
+          "rateBasis": "shift",
+          "rate": 12000,
+          "unitsWorked": 2,
+          "advances": 30000
+        }
+      ],
+      "expected": {
+        "gross": 24000,
+        "overtime": 0,
+        "bonus": 0,
+        "advances": 30000,
+        "net": -6000
+      }
+    }
+  ],
+  "cashClose": [
+    {
+      "name": "18 August page",
+      "input": [
+        {
+          "opening": 1200000,
+          "sales": 4500000,
+          "receipts": 0,
+          "expenses": 2382000,
+          "wages": 1068000,
+          "counted": 2250000
+        }
+      ],
+      "expected": {
+        "expectedClosing": 2250000,
+        "variance": 0
+      }
+    },
+    {
+      "name": "short by 10,000",
+      "input": [
+        {
+          "opening": 1200000,
+          "sales": 4500000,
+          "receipts": 0,
+          "expenses": 2382000,
+          "wages": 1068000,
+          "counted": 2240000
+        }
+      ],
+      "expected": {
+        "expectedClosing": 2250000,
+        "variance": -10000
+      }
+    },
+    {
+      "name": "over with receipts",
+      "input": [
+        {
+          "opening": 100000.5,
+          "sales": 0,
+          "receipts": 2500.25,
+          "expenses": 999.99,
+          "wages": 0,
+          "counted": 101700
+        }
+      ],
+      "expected": {
+        "expectedClosing": 101500.76,
+        "variance": 199.24
+      }
+    }
+  ],
+  "contractDaysRemaining": [
+    {
+      "name": "three days",
+      "input": [
+        "2026-10-13",
+        "2026-10-10"
+      ],
+      "expected": 3
+    },
+    {
+      "name": "yesterday",
+      "input": [
+        "2026-10-09",
+        "2026-10-10"
+      ],
+      "expected": -1
+    },
+    {
+      "name": "across new year",
+      "input": [
+        "2027-01-02",
+        "2026-12-30"
+      ],
+      "expected": 3
+    }
+  ],
+  "contractState": [
+    {
+      "name": "open",
+      "input": [
+        "2026-11-30",
+        "2026-10-10"
+      ],
+      "expected": "open"
+    },
+    {
+      "name": "expiring",
+      "input": [
+        "2026-10-13",
+        "2026-10-10"
+      ],
+      "expected": "expiring"
+    },
+    {
+      "name": "expired",
+      "input": [
+        "2026-10-09",
+        "2026-10-10"
+      ],
+      "expected": "expired"
+    },
+    {
+      "name": "no end",
+      "input": [
+        null,
+        "2026-10-10"
+      ],
+      "expected": "open"
+    },
+    {
+      "name": "custom warning",
+      "input": [
+        "2026-10-20",
+        "2026-10-10",
+        10
+      ],
+      "expected": "expiring"
+    }
+  ],
+  "yieldPct": [
+    {
+      "name": "ninety one",
+      "input": [
+        10000,
+        9100
+      ],
+      "expected": 91
+    },
+    {
+      "name": "zero input",
+      "input": [
+        0,
+        5
+      ],
+      "expected": 0
+    },
+    {
+      "name": "rounding",
+      "input": [
+        3,
+        2
+      ],
+      "expected": 66.67
+    }
+  ],
+  "intakeNet": [
+    {
+      "name": "standard",
+      "input": [
+        {
+          "grossKg": 1200,
+          "tareKg": 40,
+          "deductionPct": 8,
+          "pricePerKg": 900
+        }
+      ],
+      "expected": {
+        "netKg": 1067.2,
+        "amount": 960480
+      }
+    },
+    {
+      "name": "tare exceeds gross",
+      "input": [
+        {
+          "grossKg": 30,
+          "tareKg": 40,
+          "deductionPct": 8,
+          "pricePerKg": 900
+        }
+      ],
+      "expected": {
+        "netKg": 0,
+        "amount": 0
+      }
+    },
+    {
+      "name": "thirds",
+      "input": [
+        {
+          "grossKg": 100,
+          "tareKg": 0,
+          "deductionPct": 33.333,
+          "pricePerKg": 1.5
+        }
+      ],
+      "expected": {
+        "netKg": 66.667,
+        "amount": 100
+      }
+    }
+  ],
+  "bundlesFromPieces": [
+    {
+      "name": "loose one",
+      "input": [
+        127,
+        6
+      ],
+      "expected": {
+        "bundles": 21,
+        "loosePieces": 1
+      }
+    },
+    {
+      "name": "exact",
+      "input": [
+        120,
+        6
+      ],
+      "expected": {
+        "bundles": 20,
+        "loosePieces": 0
+      }
+    },
+    {
+      "name": "none",
+      "input": [
+        0,
+        6
+      ],
+      "expected": {
+        "bundles": 0,
+        "loosePieces": 0
+      }
+    }
+  ],
+  "landedCost": [
+    {
+      "name": "usd purchase with mixed costs",
+      "input": [
+        {
+          "qtyKg": 25500,
+          "unitPrice": 1.1,
+          "currency": "USD",
+          "fx": 3700,
+          "costs": [
+            {
+              "amount": 2400,
+              "currency": "USD"
+            },
+            {
+              "amount": 3500000,
+              "currency": "UGX"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "goodsUgx": 103785000,
+        "extrasUgx": 12380000,
+        "totalUgx": 116165000,
+        "perKgUgx": 4555.49,
+        "upliftPct": 11.93
+      }
+    },
+    {
+      "name": "ugx purchase, short delivery",
+      "input": [
+        {
+          "qtyKg": 1000,
+          "unitPrice": 4200,
+          "currency": "UGX",
+          "fx": 3700,
+          "costs": [
+            {
+              "amount": 150000,
+              "currency": "UGX"
+            }
+          ],
+          "receivedKg": 980
+        }
+      ],
+      "expected": {
+        "goodsUgx": 4200000,
+        "extrasUgx": 150000,
+        "totalUgx": 4350000,
+        "perKgUgx": 4438.78,
+        "upliftPct": 3.57
+      }
+    },
+    {
+      "name": "no extras",
+      "input": [
+        {
+          "qtyKg": 10,
+          "unitPrice": 2,
+          "currency": "USD",
+          "fx": 3650.5,
+          "costs": []
+        }
+      ],
+      "expected": {
+        "goodsUgx": 73010,
+        "extrasUgx": 0,
+        "totalUgx": 73010,
+        "perKgUgx": 7301,
+        "upliftPct": 0
+      }
+    }
+  ],
+  "round2": [
+    {
+      "name": "half up",
+      "input": [
+        2.345
+      ],
+      "expected": 2.35
+    },
+    {
+      "name": "negative half",
+      "input": [
+        -2.345
+      ],
+      "expected": -2.35
+    },
+    {
+      "name": "float noise",
+      "input": [
+        1.005
+      ],
+      "expected": 1.01
+    }
+  ],
+  "round3": [
+    {
+      "name": "half up",
+      "input": [
+        2.3455
+      ],
+      "expected": 2.346
+    },
+    {
+      "name": "negative half",
+      "input": [
+        -2.3455
+      ],
+      "expected": -2.346
+    }
+  ]
+}

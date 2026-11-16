@@ -5,8 +5,61 @@ dev-dist
 .vite
 coverage
 *.log
+*.tsbuildinfo
 .DS_Store
 
-# Documentation stays on this machine.
-docs/
-**/docs/
+# Client material in docs/ stays on this machine; engineering docs are tracked.
+docs/*
+!docs/adr/
+!docs/architecture/
+!docs/plans/
+!docs/README.md
+
+# Laravel
+apps/api/vendor
+apps/api/.env
+apps/api/storage/*.key
+apps/api/storage/logs
+apps/api/storage/framework/cache/data
+apps/api/storage/framework/sessions
+apps/api/storage/framework/views
+apps/api/.phpunit.result.cache
+apps/api/.phpunit.cache
+
+# Regenerate with `pnpm shots`
+docs/architecture/frontend/screenshots/
+apps/api/storage/framework/phpstan
+
+# AI tool and editor state, never part of the project
+.claude/
+.commandcode/
+.cursor/
+.windsurf/
+.aider*
+.continue/
+.codex/
+.gemini/
+.copilot/
+.github/copilot-instructions.md
+CLAUDE.md
+AGENTS.md
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Secrets and local environment (examples stay tracked)
+.env
+.env.*
+!.env.example
+
+# Caches and OS junk
+.cache/
+.eslintcache
+.turbo/
+Thumbs.db
+*.tmp
+
+# staging secrets
+infra/staging/*.env
+/backups/

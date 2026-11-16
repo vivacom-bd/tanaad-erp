@@ -1,0 +1,32 @@
+# Caddy terminates TLS (automatic Let's Encrypt via ACME) and fronts the API and the built web app.
+# {$TANAAD_DOMAIN}, {$ACME_EMAIL} and {$MEDIA_ORIGIN} come from the compose env_file (staging/caddy.env). For a dry run against Let's Encrypt
+# staging, uncomment the ca line. On a private/test domain without public DNS use `tls internal` instead.
+{
+	email {$ACME_EMAIL}
+	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory
+}
+
+{$TANAAD_DOMAIN} {
+	encode zstd gzip
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "same-origin"
+		# SPA: own scripts/styles only, API same-origin, images also from MinIO pre-signed URLs ({$MEDIA_ORIGIN}).
+		Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: {$MEDIA_ORIGIN}; font-src 'self' data:; connect-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'"
+		-Server
+	}
+
+	@api path /api/* /up /horizon /horizon/*
+	handle @api {
+		reverse_proxy nginx:80
+	}
+
+	# The built web app (apps/web/dist, mounted read-only); unknown paths fall back to the SPA shell.
+	handle {
+		root * /srv/web
+		try_files {path} /index.html
+		file_server
+	}
+}

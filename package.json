@@ -1,0 +1,21 @@
+{
+  "name": "tanaad",
+  "private": true,
+  "scripts": {
+    "dev": "pnpm --filter @tanaad/web dev",
+    "demo": "pnpm --filter @tanaad/web build && pnpm --filter @tanaad/web preview",
+    "build": "pnpm --filter @tanaad/web build",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "preview": "pnpm --filter @tanaad/web preview",
+    "shots": "node tools/shot.mjs",
+    "fixtures": "node --experimental-strip-types --no-warnings tools/fixtures.mjs",
+    "seed:export": "node --experimental-strip-types --no-warnings tools/seed-export.mjs"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.13.0"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
