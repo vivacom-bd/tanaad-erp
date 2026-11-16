@@ -59,6 +59,8 @@ Goal: an empty but complete skeleton that proves the ledger end to end with one 
 
 ## Phase 2 — Production, labels, intake (Weeks 4–5: 1–12 Dec)
 
+**Status (10 Nov 2026):** built on branch `backend/phase-2` (uncommitted); P2-01 to P2-07 delivered as the modules `Production`, `Labels` and `Recycling`, with the `BelowBenchmarkPolicy`, `NotLoggedPolicy` and `MassGapPolicy` in `Group`, the `production:shift-unlogged` scheduler, the production, label and intake history seeded as events, and the web app wired to the API for production, mats, bags and recycling screens. The gate is covered by an HTTP test (`Phase2GateTest`), not verified in a browser; see the latest test run for suite totals. Known follow-ups: no collector list in Config (the collector is a free-text name); the stage roles for kg-in and the wall stage are derived from stage order (recycling uses the wash line, not pelletise); waste is recorded only from weighings; RollSticker and Sacks still hard-code zone ids; batches are not part of the mass balance; preset ids are not hydrated from server refs; the cash projector is not idempotent per delivery.
+
 | ID | Task | Size |
 |---|---|---|
 | P2-01 | `RecordProductionEntry` (+ downtime), `RecordBatch`, `CloseShift`; projections; `BelowBenchmarkPolicy`, `NotLoggedPolicy` + `production:shift-unlogged` scheduler | L |
@@ -85,6 +87,8 @@ Goal: an empty but complete skeleton that proves the ledger end to end with one 
 | P3-08 | Frontend adapter: Stock, Count, Tagging, Receive, Movements, Spares, Maintenance, Load lorry, Deliveries on the API | L |
 
 **Gate:** a lorry loaded ten bundles short is held at the gate, the CEO is alerted (log driver), site manager overrides with a reason, the audit feed shows both.
+
+**Status (10 Nov 2026):** built on branch `backend/phase-2` (uncommitted); P3-01 to P3-08 delivered as the modules `Stock`, `Purchases`, `Spares` and `Dispatch`, with the `low_stock`, `gate_variance` and `pod_discrepancy` policies in `Group`, stock, dispatch and spares history seeded as events, and the web app wired to the API for stock, count, movements, purchases, spares, maintenance, load lorry and deliveries. The gate is covered by HTTP tests (`DispatchTest` proves a short load is held, the site manager override with a reason, and both in the audit feed), not verified in a browser; see the latest test run for suite totals. Review findings fixed: identity roles survive `ledger:rebuild`, loaded labels are locked at the gate, the stock day lock, among others. Known follow-ups: the Receive screen for raw material is not mapped (Purchases own it); stock transfers need the receiving site's `product_id` (`products.code` is globally unique); the order snapshot is built locally until Orders (Phase 4); the `delivery_note` series continues from the `number_series` row rather than a new site setting; the gate override uses the signed-in site manager session, not a PIN; stock count history loads one day at a time; the Spares reorder action is a toast placeholder.
 
 ## Phase 4 — Orders, credit, costing, group (Weeks 8–9: 12–23 Jan)
 

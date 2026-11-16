@@ -59,3 +59,7 @@ AGENTS.md
 .turbo/
 Thumbs.db
 *.tmp
+
+# staging secrets
+infra/staging/*.env
+/backups/
