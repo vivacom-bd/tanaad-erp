@@ -117,7 +117,9 @@ it('rejects entries and corrections into a locked day, until the manager reopens
     $this->withToken($this->manager)->postJson('/api/v1/sites/mats/cash/days/2026-11-09/reopen', [])->assertStatus(422);
     $this->withToken($this->manager)->postJson('/api/v1/sites/mats/cash/days/2026-11-09/reopen', ['reason' => 'late receipt'])
         ->assertCreated()->assertJsonPath('day.status', 'reopened')->assertJsonPath('day.reopenReason', 'late receipt');
-    expect(DB::table('events')->where('type', 'cash.day_reopened')->value('reason'))->toBe('late receipt');
+    expect(DB::table('events')->where('type', 'cash.day_reopened')->value('reason'))->toBe('late receipt')
+        ->and(json_decode((string) DB::table('events')->where('type', 'cash.day_reopened')->value('payload'), true)['authorized_by'])
+        ->toBe((string) User::query()->where('code', 'u_sm_mats')->value('id'));
     cashEntry($this, $this->cashier, ['day' => '2026-11-09', 'direction' => 'in', 'category' => 'sale', 'amount' => 5])->assertCreated();
 });
 
@@ -147,16 +149,16 @@ it('corrects an entry by appending, keeping the original', function (): void {
 });
 
 it('books a cash payout from People as a wages entry and ignores other methods', function (): void {
-    $payoutId = payoutEvent($this->mats, 'cash', '45000.00', '2026-11-12T16:30:00+03:00');
-    payoutEvent($this->mats, 'mobile_money', '10000.00', '2026-11-12T16:31:00+03:00');
+    $payoutId = payoutEvent($this->mats, 'cash', '45000.00', '2026-11-08T16:30:00+03:00');
+    payoutEvent($this->mats, 'mobile_money', '10000.00', '2026-11-08T16:31:00+03:00');
 
     $entry = CashEntry::query()->where('payout_id', $payoutId)->firstOrFail();
     expect($entry->category)->toBe('wages')->and($entry->direction)->toBe('out')->and((float) $entry->amount)->toBe(45000.0)
-        ->and($entry->dayString())->toBe('2026-11-12')
+        ->and($entry->dayString())->toBe('2026-11-08')
         ->and(CashEntry::query()->count())->toBe(1)
-        ->and(CashDay::query()->findOrFail(CashBook::dayId($this->mats, '2026-11-12'))->status)->toBe('open');
+        ->and(CashDay::query()->findOrFail(CashBook::dayId($this->mats, '2026-11-08'))->status)->toBe('open');
 
-    $r = $this->withToken($this->cashier)->postJson('/api/v1/sites/mats/cash/days/2026-11-12/close', ['counted' => 0])->assertCreated();
+    $r = $this->withToken($this->cashier)->postJson('/api/v1/sites/mats/cash/days/2026-11-08/close', ['counted' => 0])->assertCreated();
     expect($r->json('day.variance'))->toEqual(45000);
 
     $before = cashRows();
@@ -221,4 +223,100 @@ it('sets the opening balance of a day without entries, then refuses once entries
     $before = cashRows();
     app(Replay::class)->rebuild();
     expect(cashRows())->toEqual($before);
+});
+
+it('refuses a future cash day for entries, close and opening, using the site calendar', function (): void {
+    CarbonImmutable::setTestNow(CarbonImmutable::parse('2026-11-10 23:30:00', 'Africa/Kampala')); // 20:30 UTC
+    $this->cashier = User::query()->where('code', 'u_cash_mats')->firstOrFail()->createToken('office', ['user'])->plainTextToken;
+    try {
+        $tomorrow = '2026-11-11';
+        cashEntry($this, $this->cashier, ['day' => $tomorrow, 'direction' => 'out', 'category' => 'fuel', 'amount' => 1000])
+            ->assertStatus(422)->assertJsonPath('details.errors.day', 'must not be after 2026-11-10');
+        $this->withToken($this->cashier)->postJson("/api/v1/sites/mats/cash/days/{$tomorrow}/close", ['counted' => 0])->assertStatus(422);
+        $this->withToken($this->cashier)->postJson("/api/v1/sites/mats/cash/days/{$tomorrow}/opening", ['amount' => 0])->assertStatus(422);
+        // Without a day, the entry lands on the site's business day (Kampala), not the UTC date.
+        $r = cashEntry($this, $this->cashier, ['direction' => 'out', 'category' => 'fuel', 'amount' => 1000])->assertCreated();
+        expect($r->json('entry.day'))->toBe('2026-11-10');
+        expect(DB::table('cash_days')->where('day', $tomorrow)->exists())->toBeFalse();
+    } finally {
+        CarbonImmutable::setTestNow();
+    }
+});
+
+it('scopes the cash snapshots to the same roles as the cash reads', function (): void {
+    cashEntry($this, $this->cashier, ['day' => '2026-11-09', 'direction' => 'out', 'category' => 'fuel', 'amount' => 1000])->assertCreated();
+    foreach (['cash_days', 'cash_entries'] as $table) {
+        $this->withToken($this->supervisor)->getJson('/api/v1/sites/mats/cash/days/2026-11-09')->assertForbidden();
+        $this->withToken($this->supervisor)->getJson("/api/v1/sites/mats/snapshots/{$table}")->assertForbidden();
+        $this->withToken($this->cashier)->getJson("/api/v1/sites/mats/snapshots/{$table}")->assertOk()->assertJsonCount(1, 'data');
+        $this->withToken($this->ceo)->getJson("/api/v1/sites/mats/snapshots/{$table}")->assertOk();
+        $this->withToken($this->otherCashier)->getJson("/api/v1/sites/mats/snapshots/{$table}")->assertForbidden();
+    }
+});
+
+it('carries the expected opening forward to a day not yet opened', function (): void {
+    cashEntry($this, $this->cashier, ['day' => '2026-11-06', 'direction' => 'in', 'category' => 'sale', 'amount' => 50000])->assertCreated();
+    $this->withToken($this->cashier)->postJson('/api/v1/sites/mats/cash/days/2026-11-06/close', ['counted' => 48000])->assertCreated();
+    $r = $this->withToken($this->cashier)->getJson('/api/v1/sites/mats/cash/days/2026-11-09')->assertOk();
+    expect($r->json('day'))->toBeNull()->and($r->json('expectedOpening'))->toEqual(48000)->and($r->json('totals.opening'))->toEqual(48000);
+});
+
+/** A closed 2026-11-09 at mats, and the reopen call from the cashier's session with a manager's PIN. */
+function closedForApproval(Tests\TestCase $t): Closure
+{
+    cashEntry($t, $t->cashier, ['day' => '2026-11-09', 'direction' => 'in', 'category' => 'sale', 'amount' => 100])->assertCreated();
+    $t->withToken($t->cashier)->postJson('/api/v1/sites/mats/cash/days/2026-11-09/close', ['counted' => 100])->assertCreated();
+
+    return fn (string $approver, string $pin) => $t->withToken($t->cashier)->postJson('/api/v1/sites/mats/cash/days/2026-11-09/reopen', [
+        'reason' => 'late receipt', 'approver_user_id' => (string) User::query()->where('code', $approver)->value('id'), 'approver_pin' => $pin,
+    ]);
+}
+
+it('reopens on the cashier session with the site manager PIN, recording the approver and never the PIN', function (): void {
+    $reopen = closedForApproval($this);
+    $reopen('u_sm_mats', '1234')->assertCreated()->assertJsonPath('day.status', 'reopened');
+
+    $event = DB::table('events')->where('type', 'cash.day_reopened')->first();
+    $managerId = (string) User::query()->where('code', 'u_sm_mats')->value('id');
+    expect(json_decode((string) $event->payload, true)['authorized_by'])->toBe($managerId)
+        ->and($event->actor_id)->toBe((string) User::query()->where('code', 'u_cash_mats')->value('id'))
+        ->and((string) $event->payload)->not->toContain('1234')->not->toContain('approver_pin');
+    $audit = collect($this->withToken($this->ceo)->getJson('/api/v1/group/audit?type=cash.day_reopened')->json('data'))->first();
+    expect($audit['facts']['authorized_by'] ?? null)->toBe($managerId);
+
+    $before = cashRows();
+    app(Replay::class)->rebuild();
+    expect(cashRows())->toEqual($before);
+});
+
+it('refuses a wrong PIN, a non-manager or another site manager with the same plain answer', function (): void {
+    $reopen = closedForApproval($this);
+    foreach ([['u_sm_mats', '9999'], ['u_sup_mats', '1234'], ['u_cash_mats', '1234'], ['u_sm_bags', '1234'], ['u_ceo1', '1234']] as [$who, $pin]) {
+        $reopen($who, $pin)->assertForbidden()->assertJsonPath('code', 'forbidden')
+            ->assertJsonPath('detail', 'Manager approval failed.')->assertJsonPath('details.code', 'approval_failed');
+    }
+    $this->withToken($this->supervisor)->postJson('/api/v1/sites/mats/cash/days/2026-11-09/reopen', [
+        'reason' => 'x', 'approver_user_id' => (string) User::query()->where('code', 'u_sm_mats')->value('id'), 'approver_pin' => '1234',
+    ])->assertForbidden();
+    expect(DB::table('events')->where('type', 'cash.day_reopened')->count())->toBe(0)
+        ->and(CashDay::query()->findOrFail(CashBook::dayId($this->mats, '2026-11-09'))->status)->toBe('closed');
+});
+
+it('locks the manager PIN after repeated wrong approvals, then refuses even the right PIN', function (): void {
+    $reopen = closedForApproval($this);
+    $max = (int) config('tanaad.pin.max_attempts', 5);
+    for ($i = 0; $i < $max; $i++) {
+        $reopen('u_sm_mats', '9999')->assertForbidden();
+    }
+    expect(User::query()->where('code', 'u_sm_mats')->value('pin_locked_until'))->not->toBeNull();
+    $reopen('u_sm_mats', '1234')->assertForbidden()->assertJsonPath('details.code', 'approval_failed');
+    expect(DB::table('events')->where('type', 'cash.day_reopened')->count())->toBe(0);
+});
+
+it('drops approver fields from synced envelopes, so a cashier cannot reopen offline', function (): void {
+    closedForApproval($this);
+    $ev = ['id' => (string) Str::uuid7(), 'type' => 'cash.day_reopened', 'occurred_at' => CarbonImmutable::now()->toIso8601String(), 'payload' => [
+        'day' => '2026-11-09', 'reason' => 'late', 'approver_user_id' => (string) User::query()->where('code', 'u_sm_mats')->value('id'), 'approver_pin' => '1234',
+    ]];
+    expect($this->withToken($this->cashier)->postJson('/api/v1/sites/mats/events', ['batch_id' => (string) Str::uuid7(), 'events' => [$ev]])->json('results.0.code'))->toBe('forbidden');
 });

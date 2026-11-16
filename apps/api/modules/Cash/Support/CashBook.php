@@ -5,10 +5,13 @@ declare(strict_types=1);
 namespace Tanaad\Cash\Support;
 
 use Brick\Math\BigDecimal;
+use Illuminate\Support\Facades\DB;
 use Ramsey\Uuid\Uuid;
 use Tanaad\Cash\Models\CashDay;
 use Tanaad\Cash\Models\CashEntry;
+use Tanaad\Config\Support\Payload;
 use Tanaad\Shared\Arithmetic\Arithmetic;
+use Tanaad\Shared\Ledger\CommandContext;
 use Tanaad\Shared\Money\Rounding;
 
 /** Read-side helpers shared by handlers, the projector and the summary query. */
@@ -33,6 +36,22 @@ final class CashBook
     public static function money(\Brick\Math\BigNumber|float|int|string $n): float
     {
         return Rounding::money($n);
+    }
+
+    /** The command's business day in the site's own timezone (an offline entry queued yesterday stays yesterday). */
+    public static function today(string $siteId, CommandContext $ctx): string
+    {
+        $tz = DB::table('sites')->where('id', $siteId)->value('timezone');
+
+        return $ctx->occurredAt->setTimezone(is_string($tz) && $tz !== '' ? $tz : (string) config('tanaad.timezone'))->toDateString();
+    }
+
+    /** A cash day may not lie after the command's own business day (422, like advances). */
+    public static function refuseFuture(Payload $p, string $key, string $day, string $today): void
+    {
+        if ($day !== '' && $day > $today) {
+            $p->error($key, "must not be after {$today}");
+        }
     }
 
     /** Opening balance: the counted cash of the latest earlier day that was counted, 0 if none. */

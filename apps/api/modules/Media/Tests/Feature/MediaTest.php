@@ -57,3 +57,28 @@ it('returns a url shape for reads and 404 for unknown hashes', function (): void
         ->assertJsonPath('url', 'https://minio.test/signed')->assertJsonStructure(['url', 'expires_at']);
     $this->withToken($this->cashier)->getJson('/api/v1/media/'.str_repeat('0', 64))->assertNotFound();
 });
+
+it('answers 503 problem+json when S3/MinIO is unreachable, storing nothing', function (): void {
+    config(['filesystems.disks.media' => [
+        'driver' => 's3', 'key' => 'k', 'secret' => 's', 'region' => 'us-east-1', 'bucket' => 'tanaad-media',
+        'endpoint' => 'http://127.0.0.1:1', 'use_path_style_endpoint' => true, 'throw' => true, 'report' => false,
+        'http' => ['connect_timeout' => 1, 'timeout' => 2], 'retries' => 0,
+    ]]);
+    Storage::forgetDisk('media');
+    $this->withToken($this->cashier)->post('/api/v1/media', ['file' => ($this->png)(), 'purpose' => 'photo'], ['Accept' => 'application/json'])
+        ->assertStatus(503)->assertJsonPath('code', 'storage_unavailable')->assertJsonPath('detail', 'File storage is unavailable');
+    expect(Media::query()->count())->toBe(0);
+});
+
+it('stores and serves media from a local disk (MEDIA_DISK=local)', function (): void {
+    $root = storage_path('framework/testing/media-local-'.bin2hex(random_bytes(4)));
+    config(['filesystems.disks.media' => ['driver' => 'local', 'root' => $root, 'serve' => false, 'throw' => true, 'report' => false]]);
+    Storage::forgetDisk('media');
+    $file = ($this->png)();
+    $bytes = (string) file_get_contents($file->getRealPath());
+    $hash = $this->withToken($this->cashier)->post('/api/v1/media', ['file' => $file, 'purpose' => 'photo'], ['Accept' => 'application/json'])
+        ->assertCreated()->json('hash');
+    $r = $this->withToken($this->cashier)->get("/api/v1/media/{$hash}")->assertOk();
+    expect($r->streamedContent())->toBe($bytes)->and($r->headers->get('Content-Type'))->toBe('image/png');
+    Illuminate\Support\Facades\File::deleteDirectory($root);
+});

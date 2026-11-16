@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tanaad\Config\Projectors;
 
 use Illuminate\Database\ConnectionInterface;
-use Illuminate\Support\Str;
+use Ramsey\Uuid\Uuid;
 use Tanaad\Shared\Ledger\NumberSeries;
 use Tanaad\Shared\Ledger\Projector;
 use Tanaad\Shared\Ledger\StoredEvent;
@@ -38,8 +38,8 @@ final class ConfigProjector implements Projector
                 'unit' => $p['unit'], 'color' => $p['color'], 'parent_id' => $p['parent_id'], 'active' => $p['active'],
                 'sort_order' => $p['sort_order'], 'system' => $p['system'], 'example' => $p['example'], 'code' => $p['code'], ...$meta,
             ]),
-            'config.site_settings_changed' => $this->upsert('site_settings', ['site_id'], ['id' => (string) Str::uuid7(), 'site_id' => $site, ...$p, ...$meta]),
-            'config.company_profile_changed' => $this->upsert('company_profiles', ['site_id'], ['id' => (string) Str::uuid7(), 'site_id' => $site, ...$p, ...$meta]),
+            'config.site_settings_changed' => $this->upsert('site_settings', ['site_id'], ['id' => Uuid::uuid5(Uuid::NAMESPACE_URL, "tanaad:site_settings:{$site}")->toString(), 'site_id' => $site, ...$p, ...$meta]),
+            'config.company_profile_changed' => $this->upsert('company_profiles', ['site_id'], ['id' => Uuid::uuid5(Uuid::NAMESPACE_URL, "tanaad:company_profiles:{$site}")->toString(), 'site_id' => $site, ...$p, ...$meta]),
             'config.product_saved' => $this->saveProduct($p, $site, $meta),
             'config.price_set' => $this->db->table('prices')->insert($this->price($p, (string) $p['product_id'], $site, $meta)),
             'config.machine_saved' => $this->upsert('machines', ['id'], [

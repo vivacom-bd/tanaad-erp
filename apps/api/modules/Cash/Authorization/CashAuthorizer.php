@@ -21,6 +21,9 @@ use Tanaad\Shared\Ledger\Rejection;
  */
 final class CashAuthorizer implements Authorizer
 {
+    /** Site roles that read the cash book (group roles read every site via Access::canAct). */
+    public const array READ_ROLES = ['cashier', 'site_manager'];
+
     public function __construct(private readonly Access $access) {}
 
     public function authorise(Command $command): void
@@ -35,6 +38,10 @@ final class CashAuthorizer implements Authorizer
             throw Rejection::forbidden('Cash is kept per site.');
         }
         if ($command instanceof ReopenCashDay) {
+            // On a shared cashier tablet the site manager's PIN authorises; ReopenCashDayHandler verifies it.
+            if (isset($command->payload['approver_user_id']) && $this->access->holdsAny($actor, $siteId, [Role::Cashier, Role::SiteManager])) {
+                return;
+            }
             if (! $this->access->holdsAny($actor, $siteId, [Role::SiteManager])) {
                 throw Rejection::forbidden('Only the Site Manager may reopen a closed cash day.');
             }
@@ -56,6 +63,6 @@ final class CashAuthorizer implements Authorizer
     /** Who may read a site's cash book: its cashier and manager, and group roles. */
     public function canRead(User $actor, string $siteId): bool
     {
-        return $this->access->canAct($actor, $siteId, [Role::Cashier->value, Role::SiteManager->value]);
+        return $this->access->canAct($actor, $siteId, self::READ_ROLES);
     }
 }

@@ -11,6 +11,9 @@ use Carbon\CarbonImmutable;
  */
 final readonly class Event
 {
+    /** Always UTC (see CommandContext::$occurredAt). */
+    public CarbonImmutable $occurredAt;
+
     /** @param array<string, mixed> $payload */
     public function __construct(
         public string $id,
@@ -18,12 +21,14 @@ final readonly class Event
         public ?string $siteId,
         public ?string $actorId,
         public ?string $deviceId,
-        public CarbonImmutable $occurredAt,
+        CarbonImmutable $occurredAt,
         public array $payload,
         public int $version = 1,
         public ?string $correctsEventId = null,
         public ?string $reason = null,
-    ) {}
+    ) {
+        $this->occurredAt = $occurredAt->utc();
+    }
 
     /**
      * The usual way a handler builds an event: the command's context supplies the

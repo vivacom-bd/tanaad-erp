@@ -115,7 +115,8 @@ it('treats a repeated Idempotency-Key as a duplicate, not a second grant', funct
         ->postJson("/api/v1/users/{$this->cashier->id}/roles", ['role' => 'driver', 'site' => 'mats'])->assertCreated();
     $this->withToken(officeToken($this->admin))->withHeader('Idempotency-Key', $key)
         ->postJson("/api/v1/users/{$this->cashier->id}/roles", ['role' => 'driver', 'site' => 'mats'])->assertCreated()->assertJsonPath('event_id', $key);
-    expect(DB::table('events')->where('type', 'identity.role_assigned')->count())->toBe(1);
+    expect(DB::table('events')->where('type', 'identity.role_assigned')->where('id', $key)->count())->toBe(1)
+        ->and(DB::table('user_site_roles')->where(['user_id' => $this->cashier->id, 'role' => 'driver'])->count())->toBe(1);
 });
 
 it('signs in with username and PIN and returns the login shape', function (): void {
@@ -137,4 +138,84 @@ it('throttles PIN sign-in at five attempts a minute per username and IP', functi
     }
     $this->postJson('/api/v1/auth/pin-login', ['username' => 'nobody', 'pin' => '0000'])->assertStatus(429);
     $this->postJson('/api/v1/auth/pin-login', ['username' => 'smmats', 'pin' => '1234'])->assertCreated();
+});
+
+it('keeps the seeded role grants across a ledger rebuild, without duplicating group roles', function (): void {
+    $before = DB::table('user_site_roles')->count();
+    expect(DB::table('user_site_roles')->where('seq', '>', 0)->count())->toBe($before);
+
+    app(Tanaad\Shared\Ledger\Replay::class)->rebuild();
+    app(Tanaad\Shared\Ledger\Replay::class)->rebuild();
+    $this->seed(DemoUsersSeeder::class);   // a rerun is all skips
+
+    expect(DB::table('user_site_roles')->count())->toBe($before)
+        ->and(DB::table('user_site_roles')->where(['user_id' => $this->admin->id, 'role' => 'group_admin'])->count())->toBe(1);
+
+    $sup = User::query()->where('code', 'u_sup_mats')->firstOrFail();
+    $this->withToken(officeToken($sup))->getJson('/api/v1/me')->assertOk()
+        ->assertJsonPath('user.roles.0.role', 'supervisor')->assertJsonPath('sites', [$this->mats->id]);
+    // A non-ledgered grant (seq 0) survives a rebuild.
+    DB::table('user_site_roles')->insert(['id' => (string) Illuminate\Support\Str::uuid7(), 'user_id' => $sup->id, 'site_id' => $this->mats->id, 'role' => 'cashier', 'seq' => 0]);
+    app(Tanaad\Shared\Ledger\Replay::class)->rebuild();
+    expect(DB::table('user_site_roles')->where(['user_id' => $sup->id, 'role' => 'cashier'])->exists())->toBeTrue();
+});
+
+it('caps PIN sessions at the shorter of the role TTL and pin.session_hours', function (): void {
+    config(['tanaad.pin.session_hours' => 2, 'tanaad.auth.token_ttl_minutes.cashier' => 480, 'tanaad.auth.token_ttl_minutes.site_manager' => 1440]);
+    Carbon\CarbonImmutable::setTestNow(Carbon\CarbonImmutable::parse('2026-11-10 08:00:00'));
+    $device = registerDevice($this, $this->admin, $this->mats);
+    $tablet = $this->withToken($device['device_token'])->postJson('/api/v1/auth/pin', ['user_id' => 'u_cash_mats', 'pin' => '1234'])->assertCreated();
+    expect(Carbon\CarbonImmutable::parse($tablet->json('expires_at'))->equalTo(Carbon\CarbonImmutable::parse('2026-11-10 10:00:00')))->toBeTrue();
+    $this->app['auth']->forgetGuards();
+    $this->withToken('')->postJson('/api/v1/auth/pin-login', ['username' => 'smmats', 'pin' => '1234'])->assertCreated();
+    expect(Carbon\CarbonImmutable::parse((string) DB::table('personal_access_tokens')->orderByDesc('id')->value('expires_at'))->equalTo(Carbon\CarbonImmutable::parse('2026-11-10 10:00:00')))->toBeTrue();
+    config(['tanaad.pin.session_hours' => 100]);
+    $this->app['auth']->forgetGuards();
+    $long = $this->withToken($device['device_token'])->postJson('/api/v1/auth/pin', ['user_id' => 'u_cash_mats', 'pin' => '1234'])->assertCreated();
+    expect(Carbon\CarbonImmutable::parse($long->json('expires_at'))->equalTo(Carbon\CarbonImmutable::parse('2026-11-10 16:00:00')))->toBeTrue();
+    Carbon\CarbonImmutable::setTestNow();
+});
+
+it('keys the PIN throttle on the forwarded client IP only when the proxy is trusted', function (): void {
+    expect(Tanaad\Shared\Http\TrustedProxies::parse(''))->toBeNull()
+        ->and(Tanaad\Shared\Http\TrustedProxies::parse(' 10.0.0.0/8, 127.0.0.1 '))->toBe(['10.0.0.0/8', '127.0.0.1'])
+        ->and(Tanaad\Shared\Http\TrustedProxies::parse('*'))->toBe('*');
+    $from = fn (string $ip) => $this->withServerVariables(['REMOTE_ADDR' => '127.0.0.1'])->withHeaders(['X-Forwarded-For' => $ip]);
+    // Untrusted (the local default): a spoofed header is ignored, so all five count against 127.0.0.1.
+    for ($i = 0; $i < 5; $i++) {
+        $from('192.0.2.'.$i)->postJson('/api/v1/auth/pin-login', ['username' => 'other', 'pin' => '0000'])->assertForbidden();
+    }
+    $from('192.0.2.99')->postJson('/api/v1/auth/pin-login', ['username' => 'other', 'pin' => '0000'])->assertStatus(429);
+
+    Illuminate\Http\Middleware\TrustProxies::at(Tanaad\Shared\Http\TrustedProxies::parse('127.0.0.1') ?? []);
+    Illuminate\Http\Middleware\TrustProxies::withHeaders(Tanaad\Shared\Http\TrustedProxies::HEADERS);
+    try {
+        for ($i = 0; $i < 5; $i++) {
+            $from('203.0.113.7')->postJson('/api/v1/auth/pin-login', ['username' => 'nobody', 'pin' => '0000'])->assertForbidden();
+        }
+        $from('203.0.113.7')->postJson('/api/v1/auth/pin-login', ['username' => 'nobody', 'pin' => '0000'])->assertStatus(429);
+        $from('198.51.100.9')->postJson('/api/v1/auth/pin-login', ['username' => 'nobody', 'pin' => '0000'])->assertForbidden();
+    } finally {
+        Illuminate\Http\Middleware\TrustProxies::flushState();
+    }
+});
+
+it('lists the directory scoped to the caller sites, with roles there and no private fields', function (): void {
+    $this->seed([SitesSeeder::class, DemoUsersSeeder::class]);
+    $token = fn (string $code): string => User::query()->where('code', $code)->firstOrFail()->createToken('office', ['user'])->plainTextToken;
+
+    $r = $this->withToken($token('u_mech'))->getJson('/api/v1/directory')->assertOk()->assertHeader('ETag');
+    $by = collect($r->json('data'))->keyBy('code');
+    // The mechanic works at mats and recycling: their people, plus group roles; nobody only at bags.
+    expect($by->has('u_sup_mats'))->toBeTrue()->and($by->has('u_sup_rec'))->toBeTrue()->and($by->has('u_ceo1'))->toBeTrue()
+        ->and($by->has('u_sup_bags'))->toBeFalse()->and($by->has('u_cash_bags'))->toBeFalse()
+        ->and(array_keys($by['u_store_mats']))->toBe(['id', 'name', 'code', 'active', 'roles'])
+        ->and($by['u_store_mats']['roles'])->toBe([['role' => 'gate', 'siteId' => $by['u_store_mats']['roles'][0]['siteId'], 'siteCode' => 'mats'],
+            ['role' => 'storekeeper', 'siteId' => $by['u_store_mats']['roles'][1]['siteId'], 'siteCode' => 'mats']])
+        ->and(array_column($by['u_mech']['roles'], 'siteCode'))->toBe(['mats', 'recycling'])
+        ->and($by['u_ceo1']['roles'])->toBe([['role' => 'ceo', 'siteId' => null, 'siteCode' => null]]);
+    expect(json_encode($r->json()))->not->toContain('pin')->not->toContain('password')->not->toContain('username');
+
+    $this->withToken($token('u_mech'))->withHeader('If-None-Match', (string) $r->headers->get('ETag'))->get('/api/v1/directory')->assertStatus(304);
+    expect($this->withToken($token('u_ceo1'))->getJson('/api/v1/directory')->json('data'))->toHaveCount(User::query()->count());
 });

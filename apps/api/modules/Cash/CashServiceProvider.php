@@ -29,7 +29,9 @@ final class CashServiceProvider extends ServiceProvider
         // Also projects people.payout_recorded (cash payouts), subscribed by type string.
         $registry->projectors(CashProjector::class);
 
-        $snapshots->register('cash_days', 'cash_days');
-        $snapshots->register('cash_entries', 'cash_entries');
+        // Same read roles as GET /cash/days/{day} (CashAuthorizer::canRead): cashier, site manager, group roles.
+        $readers = CashAuthorizer::READ_ROLES;
+        $snapshots->register('cash_days', 'cash_days', roles: $readers);
+        $snapshots->register('cash_entries', 'cash_entries', roles: $readers);
     }
 }

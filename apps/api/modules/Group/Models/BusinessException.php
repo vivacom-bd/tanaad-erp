@@ -6,6 +6,7 @@ namespace Tanaad\Group\Models;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
+use Tanaad\Group\Support\ExceptionRules;
 
 /**
  * Read model of the `exceptions` table, written only by ExceptionProjector.
@@ -47,6 +48,8 @@ final class BusinessException extends Model
         /** @var Builder<self> $q */
         $q = self::query();
 
-        return $q->where(['site_id' => $siteId, 'kind' => $kind, 'subject_ref' => $subjectRef, 'status' => 'open'])->first();
+        // Active means open or held: a held exception must still suppress a re-raise.
+        return $q->where(['site_id' => $siteId, 'kind' => $kind, 'subject_ref' => $subjectRef])
+            ->whereIn('status', ExceptionRules::ACTIVE_STATUSES)->first();
     }
 }

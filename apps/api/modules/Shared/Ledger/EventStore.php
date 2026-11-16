@@ -4,13 +4,12 @@ declare(strict_types=1);
 
 namespace Tanaad\Shared\Ledger;
 
-use Carbon\CarbonImmutable;
 use Generator;
 use Illuminate\Database\ConnectionInterface;
 
 final class EventStore
 {
-    public function __construct(private readonly ConnectionInterface $db) {}
+    public function __construct(private readonly ConnectionInterface $db, private readonly ReceiptClock $clock) {}
 
     public function exists(string $id): bool
     {
@@ -28,7 +27,7 @@ final class EventStore
     public function append(array $events, ?string $batchId = null): array
     {
         $stored = [];
-        $receivedAt = CarbonImmutable::now();
+        $receivedAt = $this->clock->now();
         foreach ($events as $event) {
             $seq = $this->db->table('events')->insertGetId([
                 'id' => $event->id,
@@ -43,6 +42,7 @@ final class EventStore
                 'corrects_event_id' => $event->correctsEventId,
                 'reason' => $event->reason,
                 'batch_id' => $batchId,
+                'checksum' => LedgerChecksum::forEvent($event),
             ], 'seq');
             $stored[] = new StoredEvent($event, (int) $seq, $receivedAt, $batchId);
         }

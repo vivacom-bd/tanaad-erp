@@ -7,6 +7,7 @@ namespace Tanaad\Group;
 use Illuminate\Support\ServiceProvider;
 use Tanaad\Group\Authorization\GroupAuthorizer;
 use Tanaad\Group\Console\ContractExpiryCommand;
+use Tanaad\Group\Console\ShiftUnloggedCommand;
 use Tanaad\Group\Projectors\ExceptionProjector;
 use Tanaad\Shared\Ledger\Registry;
 use Tanaad\Sync\Snapshots;
@@ -17,7 +18,7 @@ final class GroupServiceProvider extends ServiceProvider
     {
         $this->loadMigrationsFrom(__DIR__.'/Database/migrations');
         if ($this->app->runningInConsole()) {
-            $this->commands([ContractExpiryCommand::class]);
+            $this->commands([ContractExpiryCommand::class, ShiftUnloggedCommand::class, Console\MorningBriefCommand::class]);
         }
 
         $map = [
@@ -30,7 +31,9 @@ final class GroupServiceProvider extends ServiceProvider
         }
         // Also projects people.engagement_ended; policies react to cash.* and people.* by type string.
         $registry->projectors(ExceptionProjector::class, Projectors\BriefProjector::class);
-        $registry->policies(Policies\CashVariancePolicy::class, Policies\GhostWorkerPolicy::class, Policies\ContractExpiringPolicy::class);
+        $registry->policies(Policies\CashVariancePolicy::class, Policies\GhostWorkerPolicy::class, Policies\ContractExpiringPolicy::class,
+            Policies\BelowBenchmarkPolicy::class, Policies\NotLoggedPolicy::class, Policies\MassGapPolicy::class, Policies\LowStockPolicy::class,
+            Policies\GateVarianceCriticalPolicy::class, Policies\PodDiscrepancyPolicy::class, Policies\CreditLimitPolicy::class);
 
         $snapshots->register('exceptions', 'exceptions');
     }

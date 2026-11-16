@@ -29,6 +29,8 @@ final class CashSummaryQuery
         return [
             'day' => $cashDay === null ? null : self::dayShape($cashDay),
             'date' => $day,
+            // Carried forward: the counted cash of the latest earlier counted day (0 if none), even before this day opens.
+            'expectedOpening' => CashBook::openingFor($siteId, $day),
             'entries' => array_values($entries->map(fn (CashEntry $e): array => self::entry($e))->all()),
             'totals' => [
                 'opening' => $opening, ...$buckets, 'in' => $sum('in'), 'out' => $sum('out'), 'expectedClosing' => $expected,

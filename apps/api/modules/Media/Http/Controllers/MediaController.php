@@ -53,7 +53,11 @@ final class MediaController extends ApiController
                 'uploaded_by' => $request->user()?->getAuthIdentifier(),
                 'site_id' => $request->user() instanceof User ? $this->siteOf($request->user()) : null,
             ]);
-            Storage::disk($disk)->put($existing->path(), (string) file_get_contents($file->getRealPath()));
+            try {
+                Storage::disk($disk)->put($existing->path(), (string) file_get_contents($file->getRealPath()));
+            } catch (\Throwable $e) {
+                return self::unavailable($e);
+            }
             $existing->save();
             $status = 201;
         }
@@ -84,8 +88,21 @@ final class MediaController extends ApiController
 
             return new JsonResponse(['url' => $url, 'expires_at' => $expires->toIso8601String()]);
         } catch (\RuntimeException) {
-            return $disk->response($row->path(), null, ['Content-Type' => $row->mime]);
+            // A local disk (MEDIA_DISK=local) has no signed URLs: stream the file itself.
+            try {
+                return $disk->response($row->path(), null, ['Content-Type' => $row->mime]);
+            } catch (\Throwable $e) {
+                return self::unavailable($e);
+            }
         }
+    }
+
+    /** S3/MinIO unreachable (or a local disk not writable): 503 problem+json, never a 500. */
+    private static function unavailable(\Throwable $e): JsonResponse
+    {
+        report($e);
+
+        return ProblemResponse::make(503, 'storage_unavailable', 'File storage is unavailable');
     }
 
     private function mayAccessHr(Request $request): bool

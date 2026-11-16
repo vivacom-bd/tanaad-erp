@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Tanaad\Identity\Http\Controllers;
 
-use Illuminate\Contracts\Config\Repository as Config;
 use Illuminate\Contracts\Hashing\Hasher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +13,7 @@ use Tanaad\Identity\Models\Device;
 use Tanaad\Identity\Models\User;
 use Tanaad\Identity\PinLockout;
 use Tanaad\Identity\Role;
+use Tanaad\Identity\TokenTtl;
 use Tanaad\Shared\Http\ApiController;
 use Tanaad\Shared\Ledger\CommandBus;
 use Tanaad\Shared\Ledger\CommandContext;
@@ -26,7 +26,7 @@ final class AuthController extends ApiController
         private readonly Hasher $hasher,
         private readonly PinLockout $pins,
         private readonly CommandBus $bus,
-        private readonly Config $config,
+        private readonly TokenTtl $ttl,
     ) {}
 
     /** Office and CEO sign-in: username + password → bearer token. */
@@ -37,7 +37,7 @@ final class AuthController extends ApiController
         if ($user === null || $user->password === null || ! $this->hasher->check($data['password'], $user->password)) {
             throw Rejection::forbidden('Username or password is wrong.');
         }
-        $token = $user->createToken('office', ['user'], now()->addDays(30));
+        $token = $user->createToken('office', ['user'], $this->ttl->expiryFor($user));
 
         return new JsonResponse(['token' => $token->plainTextToken, ...$this->session($user, null)], 201);
     }
@@ -56,7 +56,7 @@ final class AuthController extends ApiController
         } catch (Rejection) {
             throw $fail;
         }
-        $token = $user->createToken('office', ['user'], now()->addDays(30));
+        $token = $user->createToken('office', ['user'], $this->ttl->expiryForPin($user));
 
         return new JsonResponse(['token' => $token->plainTextToken, ...$this->session($user, null)], 201);
     }
@@ -83,8 +83,7 @@ final class AuthController extends ApiController
         $this->pins->verify($user, $data['pin']);
 
         $role = Role::from($roles[0]);
-        $hours = $role->sessionHours((int) $this->config->get('tanaad.pin.session_hours', 14));
-        $token = $user->createToken("device:{$device->id}", ['user', "device:{$device->id}"], now()->addHours($hours));
+        $token = $user->createToken("device:{$device->id}", ['user', "device:{$device->id}"], $this->ttl->expiryForPin($user));
 
         $this->bus->dispatch(new OpenDeviceSession(
             new CommandContext($device->site_id, $user->id, $device->id, \Carbon\CarbonImmutable::now()),

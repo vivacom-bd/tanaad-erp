@@ -56,3 +56,15 @@ If you discover a security vulnerability within Laravel, please send an e-mail t
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+
+## Operations (Phase 4 hardening)
+- Rate limits (`config/tanaad.php` `rate_limits`): named limiters `login`, `pin-login`, `api` (per user, default 1200/min: a CEO first load is ~200 requests; prefer the batch snapshot endpoint), `ingest` (per device). 429 `rate_limited`.
+- Datetimes: every JSON datetime leaves the API as ISO-8601 UTC with `Z` (`2026-11-10T07:00:00Z`, `.mmm` only when non-zero), normalised once in `Tanaad\Shared\Http\UtcTimestamps` (api middleware). The DB stores UTC: `CommandContext`/`Event` normalise `occurred_at` to UTC (seeders used to pass Kampala-offset instants, which the DB layer stored as Kampala wall-clock). Data seeded before this fix needs a reseed.
+- Batch snapshots: `GET /api/v1/sites/{site}/snapshots?tables=a,b,c&since=<seq>&cursors=a:12,b:40&limit=<n>` -> `{snapshot_seq, results: {a: {status: 200, data, snapshot_seq, has_more}, b: {status: 403|404, code, detail}}}`; each table role-scoped exactly like `GET .../snapshots/{projection}` (kept). Max 80 tables.
+- `GET /api/v1/directory`: `{data: [{id, name, code, active, roles: [{role, siteId, siteCode}]}]}` for users sharing a site with the caller plus group-role users (group callers: everyone); roles limited to the caller's sites + group roles; `Cache-Control: private, max-age=300`, `ETag` / `If-None-Match` -> 304.
+- `GET /api/v1/alerts?limit=50` (max 100): the bell. `{data: [{id, siteId, siteCode, kind, title, detail, status, active, subjectRef, raisedAt, decidedAt}], activeCount}`: active (open|held) critical exceptions plus gate holds (`gate_variance`) of the last 24 h in any status, newest first; gate holds use the policy's `facts.alert` title/detail. CEO/group admin: all sites; site manager: own sites; others 403.
+- Media disk: `MEDIA_DISK=s3` (MinIO/S3, default) or `local` (`storage/app/{media,hr}`; default under testing). Local has no signed URLs, so `GET /media/{hash}` streams the file. Storage unreachable -> 503 `storage_unavailable` "File storage is unavailable".
+- Token lifetime by role (`auth.token_ttl_minutes`), enforced at issue and on every request; expired -> 401 `token_expired`.
+- `php artisan ledger:verify [--replay] [--strict-gaps]`: duplicate ids, received_at order, per-event HMAC checksum, optional replay-equals-projection (rolled back). Scheduled nightly.
+- Device health: `POST /api/v1/devices/heartbeat`, `GET /api/v1/devices/heartbeats?stale=1`.
+- Sentry seam: `config/sentry.php`, inert until the package is installed and `SENTRY_LARAVEL_DSN` is set.

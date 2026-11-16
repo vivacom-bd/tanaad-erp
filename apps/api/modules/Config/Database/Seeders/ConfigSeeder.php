@@ -8,11 +8,13 @@ use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Str;
+use Ramsey\Uuid\Uuid;
 use Tanaad\Config\Commands\ChangeRefList;
 use Tanaad\Config\Commands\DefineNumberSeries;
 use Tanaad\Config\Commands\SaveMachine;
 use Tanaad\Config\Commands\SaveProduct;
 use Tanaad\Config\Commands\SaveStage;
+use Tanaad\Config\Commands\SaveZone;
 use Tanaad\Config\Commands\SetBenchmark;
 use Tanaad\Config\Commands\SetFxRate;
 use Tanaad\Config\Commands\UpdateCompanyProfile;
@@ -66,11 +68,39 @@ final class ConfigSeeder extends Seeder
             $this->send(new SetFxRate($this->ctx(null), ['day' => $day, 'base' => 'USD', 'quote' => 'UGX', 'rate' => 3700]));
         }
         foreach (['mats' => 1, 'bags' => 4817, 'recycling' => 1] as $code => $dnStart) {
-            foreach ([['delivery_note', 'DN', $dnStart], ['invoice', 'INV', 1], ['voucher', 'PV', 1], ['receipt', 'RC', 1]] as [$kind, $prefix, $next]) {
+            foreach ([['delivery_note', 'DN', $dnStart], ['invoice', 'INV', 1], ['voucher', 'PV', 1], ['receipt', 'RC', 1], ['sales_order', 'SO', 1]] as [$kind, $prefix, $next]) {
                 if ($db->table('number_series')->where(['site_id' => $this->sites[$code], 'kind' => $kind])->exists()) {
                     continue;
                 }
-                $this->send(new DefineNumberSeries($this->ctx($code), ['kind' => $kind, 'prefix' => $prefix, 'pad' => 5, 'next' => $next]));
+                $this->send(new DefineNumberSeries($this->ctx($code), ['kind' => $kind, 'prefix' => $prefix, 'pad' => $kind === 'delivery_note' && $code === 'bags' ? 1 : 5, 'next' => $next])); // bags' paper book is DN-4817…
+            }
+        }
+        // Collector intake vouchers are a recycling-site document.
+        if (! $db->table('number_series')->where(['site_id' => $this->sites['recycling'], 'kind' => 'intake_voucher'])->exists()) {
+            $this->send(new DefineNumberSeries($this->ctx('recycling'), ['kind' => 'intake_voucher', 'prefix' => 'IV', 'pad' => 5, 'next' => 1]));
+        }
+        $this->purchasingAndZones($db);
+    }
+
+    /** Purchase orders are raised by the sites that buy raw material from suppliers (PO-0001). Zones are the stores the sites keep. */
+    private function purchasingAndZones(ConnectionInterface $db): void
+    {
+        foreach (['mats', 'bags'] as $code) {
+            if (! $db->table('number_series')->where(['site_id' => $this->sites[$code], 'kind' => 'purchase_order'])->exists()) {
+                $this->send(new DefineNumberSeries($this->ctx($code), ['kind' => 'purchase_order', 'prefix' => 'PO', 'pad' => 4, 'next' => 1]));
+            }
+        }
+        $zones = [
+            'mats' => ['Store A · front', 'Store A · back', 'Store B', 'Raw store'],
+            'bags' => ['Roll store', 'Finished packs', 'Resin store'],
+            'recycling' => ['Pellet store', 'Intake yard'],
+        ];
+        foreach ($zones as $code => $names) {
+            foreach ($names as $name) {
+                if ($db->table('zones')->where(['site_id' => $this->sites[$code], 'name' => $name])->exists()) {
+                    continue;
+                }
+                $this->send(new SaveZone($this->ctx($code), ['zone_id' => Uuid::uuid5('6b0d2f41-5a7e-5c93-b1d8-3e92f7a40c15', "{$code}:{$name}")->toString(), 'name' => $name]));
             }
         }
     }
@@ -263,7 +293,7 @@ final class ConfigSeeder extends Seeder
             }
         }
         $rows[] = ['p_roll_faras', 'bags', 'Faras', 'roll', 'roll', 1, 60, 10, 'measured', null, []];
-        $rows[] = ['p_roll_nuur', 'bags', 'Roll type 2 (example)', 'roll', 'roll', 1, 60, 10, 'measured', null, []];
+        $rows[] = ['p_roll_nuur', 'bags', 'Roll type 2', 'roll', 'roll', 1, 60, 10, 'measured', null, []];
         $rows[] = ['p_hdpe_nat', 'recycling', 'HDPE pellet · natural', null, 'pellet', 1, 25, 1, 'to_be_measured', '#d9d4cb', [$local('UGX', 3800)]];
         $rows[] = ['p_hdpe_mixed', 'recycling', 'HDPE pellet · mixed colour', null, 'pellet', 1, 25, 1, 'to_be_measured', '#6b7f86', [$local('UGX', 3200)]];
         $rows[] = ['p_hdpe_black', 'recycling', 'HDPE pellet · black', null, 'pellet', 1, 25, 1, 'to_be_measured', '#1d272b', [$local('UGX', 2900)]];

@@ -12,11 +12,13 @@ use Tanaad\Cash\Commands\CorrectCashEntry;
 use Tanaad\Cash\Commands\RecordCashEntry;
 use Tanaad\Cash\Commands\ReopenCashDay;
 use Tanaad\Cash\Commands\SetCashOpening;
+use Tanaad\Cash\Handlers\ReopenCashDayHandler;
 use Tanaad\Cash\Models\CashDay;
 use Tanaad\Cash\Models\CashEntry;
 use Tanaad\Cash\Queries\CashSummaryQuery;
 use Tanaad\Cash\Support\CashBook;
 use Tanaad\Identity\Http\CurrentSite;
+use Tanaad\Identity\ManagerApproval;
 use Tanaad\Identity\Models\User;
 use Tanaad\Shared\Http\ApiController;
 use Tanaad\Shared\Ledger\CommandBus;
@@ -36,6 +38,7 @@ final class CashController extends ApiController
         private readonly CommandBus $bus,
         private readonly CashSummaryQuery $query,
         private readonly CashAuthorizer $authorizer,
+        private readonly ManagerApproval $approval,
     ) {}
 
     public function day(Request $request, string $site, string $day): JsonResponse
@@ -88,7 +91,18 @@ final class CashController extends ApiController
     public function reopen(Request $request, string $site, string $day): JsonResponse
     {
         $siteId = CurrentSite::resolve($request)->id;
-        $result = $this->bus->dispatch(new ReopenCashDay($this->context($request, $siteId), ['day' => $day, 'reason' => $request->input('reason')]));
+        $payload = ['day' => $day, 'reason' => $request->input('reason')];
+        $approverId = $request->input('approver_user_id');
+        $pin = $request->input('approver_pin');
+        if (is_string($approverId) && $approverId !== '' && is_string($pin) && $pin !== '') {
+            // Verify before the command transaction so a wrong PIN counts towards the lockout
+            // (a failure inside the transaction would be rolled back). The handler verifies again.
+            // Authorise first so only this site's cashier or manager can try a PIN at all.
+            $this->authorizer->authorise(new ReopenCashDay($this->context($request, $siteId), [...$payload, 'approver_user_id' => $approverId]));
+            $this->approval->verify($siteId, $approverId, $pin, ReopenCashDayHandler::APPROVER_ROLES);
+            $payload += ['approver_user_id' => $approverId, 'approver_pin' => $pin];
+        }
+        $result = $this->bus->dispatch(new ReopenCashDay($this->context($request, $siteId), $payload));
 
         return $this->dayAnswer($result, $siteId, $day);
     }

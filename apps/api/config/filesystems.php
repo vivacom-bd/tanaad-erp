@@ -2,6 +2,21 @@
 
 declare(strict_types=1);
 
+$mediaDriver = env('MEDIA_DISK', env('APP_ENV') === 'testing' ? 'local' : 's3');
+$mediaDisk = fn (string $bucket, string $dir): array => $mediaDriver === 'local'
+    ? ['driver' => 'local', 'root' => storage_path("app/{$dir}"), 'serve' => false, 'throw' => true, 'report' => false]
+    : [
+        'driver' => 's3',
+        'key' => env('AWS_ACCESS_KEY_ID'),
+        'secret' => env('AWS_SECRET_ACCESS_KEY'),
+        'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
+        'bucket' => $bucket,
+        'endpoint' => env('AWS_ENDPOINT'),
+        'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', true),
+        'throw' => true,
+        'report' => false,
+    ];
+
 return [
 
     /*
@@ -62,29 +77,11 @@ return [
             'report' => false,
         ],
 
-        'media' => [
-            'driver' => 's3',
-            'key' => env('AWS_ACCESS_KEY_ID'),
-            'secret' => env('AWS_SECRET_ACCESS_KEY'),
-            'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
-            'bucket' => env('MEDIA_BUCKET', 'tanaad-media'),
-            'endpoint' => env('AWS_ENDPOINT'),
-            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', true),
-            'throw' => true,
-            'report' => false,
-        ],
+        // MEDIA_DISK=s3 (default; MinIO/S3) or local (files under storage/app/media|hr, for local and e2e runs).
+        // Under APP_ENV=testing it defaults to local. A local disk has no signed URLs: GET /media/{hash} streams the file.
+        'media' => $mediaDisk(env('MEDIA_BUCKET', 'tanaad-media'), 'media'),
 
-        'hr' => [
-            'driver' => 's3',
-            'key' => env('AWS_ACCESS_KEY_ID'),
-            'secret' => env('AWS_SECRET_ACCESS_KEY'),
-            'region' => env('AWS_DEFAULT_REGION', 'us-east-1'),
-            'bucket' => env('HR_BUCKET', 'tanaad-hr'),
-            'endpoint' => env('AWS_ENDPOINT'),
-            'use_path_style_endpoint' => env('AWS_USE_PATH_STYLE_ENDPOINT', true),
-            'throw' => true,
-            'report' => false,
-        ],
+        'hr' => $mediaDisk(env('HR_BUCKET', 'tanaad-hr'), 'hr'),
 
     ],
 

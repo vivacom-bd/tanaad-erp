@@ -15,6 +15,8 @@ use Tanaad\Shared\Ledger\StoredEvent;
  * The only writer of cash_days and cash_entries, and of the cash day locks.
  * Also listens to people.payout_recorded and people.advance_given (by type string only):
  * a cash payout and an advance (always cash) are wages entries in that day's cash book.
+ * recycling.collector_paid (also by type string) is a materials cash-out paid to the collector.
+ * orders.cash_confirmed and cash orders.payment_recorded (by type string) are sales cash-in.
  */
 final class CashProjector implements Projector
 {
@@ -22,7 +24,7 @@ final class CashProjector implements Projector
 
     public function handles(): array
     {
-        return ['cash.day_opened', 'cash.entry_recorded', 'cash.entry_corrected', 'cash.day_closed', 'cash.day_reopened', 'cash.opening_set', 'people.payout_recorded', 'people.advance_given'];
+        return ['cash.day_opened', 'cash.entry_recorded', 'cash.entry_corrected', 'cash.day_closed', 'cash.day_reopened', 'cash.opening_set', 'people.payout_recorded', 'people.advance_given', 'recycling.collector_paid', 'orders.cash_confirmed', 'orders.payment_recorded'];
     }
 
     public function apply(StoredEvent $event): void
@@ -42,6 +44,10 @@ final class CashProjector implements Projector
             'cash.opening_set' => $this->setOpening($site, $p, $event),
             'people.payout_recorded' => $this->payout($site, $p, $event),
             'people.advance_given' => $this->advance($site, $p, $event),
+            'recycling.collector_paid' => $this->collectorPaid($site, $p, $event),
+            'orders.cash_confirmed' => $this->salesIn($site, (string) $p['entry_id'], $p, 'Cash for order '.((string) ($p['number'] ?? '')), $event),
+            'orders.payment_recorded' => ($p['is_cash'] ?? false) === true
+                ? $this->salesIn($site, (string) $p['payment_id'], $p, 'Payment on '.((string) ($p['invoice_number'] ?? '')), $event) : null,
             default => null,
         };
     }
@@ -154,6 +160,46 @@ final class CashProjector implements Projector
             'entry_id' => $p['advance_id'], 'cash_day_id' => $dayId, 'day' => $day, 'direction' => 'out', 'category' => 'wages',
             'amount' => CashBook::money(is_numeric($p['amount'] ?? null) ? (string) $p['amount'] : 0), 'currency' => 'UGX',
             'payee' => null, 'note' => 'Advance', 'has_receipt_photo' => false,
+        ], $event);
+    }
+
+    /**
+     * Contract with Recycling: {payment_id, delivery_id, collector, day, net_kg, price_per_kg, amount, voucher_no}.
+     *
+     * @param  array<string, mixed>  $p
+     */
+    private function collectorPaid(string $site, array $p, StoredEvent $event): void
+    {
+        $day = (string) $p['day'];
+        $dayId = CashBook::dayId($site, $day);
+        if (! $this->db->table('cash_days')->where('id', $dayId)->exists()) {
+            $this->openDay($site, $day, 'UGX', CashBook::openingFor($site, $day), $event);
+        }
+        $plain = fn (mixed $n): string => is_numeric($n) ? (string) \Tanaad\Shared\Money\Rounding::to((string) $n, 6)->strippedOfTrailingZeros() : '0';
+        $this->insertEntry($site, [
+            'entry_id' => $p['payment_id'], 'cash_day_id' => $dayId, 'day' => $day, 'direction' => 'out', 'category' => 'materials',
+            'amount' => CashBook::money(is_numeric($p['amount'] ?? null) ? (string) $p['amount'] : 0), 'currency' => 'UGX',
+            'payee' => $p['collector'] ?? null, 'note' => 'Scrap '.$plain($p['net_kg'] ?? 0).' kg @ '.$plain($p['price_per_kg'] ?? 0),
+            'has_receipt_photo' => (bool) ($p['has_scale_photo'] ?? false),
+        ], $event);
+    }
+
+    /**
+     * Contract with Orders: {entry_id|payment_id, day, amount, currency, fx_reference?, client_name}, a sales cash-in.
+     *
+     * @param  array<string, mixed>  $p
+     */
+    private function salesIn(string $site, string $entryId, array $p, string $note, StoredEvent $event): void
+    {
+        $day = (string) $p['day'];
+        $dayId = CashBook::dayId($site, $day);
+        if (! $this->db->table('cash_days')->where('id', $dayId)->exists()) {
+            $this->openDay($site, $day, 'UGX', CashBook::openingFor($site, $day), $event);
+        }
+        $this->insertEntry($site, [
+            'entry_id' => $entryId, 'cash_day_id' => $dayId, 'day' => $day, 'direction' => 'in', 'category' => CashBook::SALE,
+            'amount' => CashBook::money(is_numeric($p['amount'] ?? null) ? (string) $p['amount'] : 0), 'currency' => (string) ($p['currency'] ?? 'UGX'),
+            'fx_reference' => $p['fx_reference'] ?? null, 'payee' => $p['client_name'] ?? null, 'note' => $note, 'has_receipt_photo' => false,
         ], $event);
     }
 

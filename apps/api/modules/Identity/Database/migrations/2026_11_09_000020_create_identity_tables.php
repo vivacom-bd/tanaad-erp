@@ -33,12 +33,14 @@ return new class extends Migration
             $table->foreignUuid('user_id')->constrained('users')->cascadeOnDelete();
             $table->foreignUuid('site_id')->nullable()->constrained('sites');
             $table->string('role', 32);
+            // MySQL unique indexes treat NULLs as distinct; a group role (no site) keys on '' so a re-applied grant upserts.
+            $table->string('site_key', 36)->storedAs("coalesce(`site_id`, '')");
             $table->unsignedBigInteger('seq')->default(0)->index();
             $table->dateTime('deleted_at', 6)->nullable();
             $table->dateTime('created_at', 6)->nullable();
             $table->dateTime('updated_at', 6)->nullable();
 
-            $table->unique(['user_id', 'site_id', 'role']);
+            $table->unique(['user_id', 'site_key', 'role']);
         });
 
         Schema::create('devices', function (Blueprint $table): void {

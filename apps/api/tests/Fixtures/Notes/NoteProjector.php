@@ -37,6 +37,6 @@ final class NoteProjector implements Projector
 
     public function reset(): void
     {
-        $this->db->table('test_notes')->truncate();
+        $this->db->table('test_notes')->delete();
     }
 }

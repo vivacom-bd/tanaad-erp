@@ -6,7 +6,7 @@ namespace Tanaad\Shared\Ledger;
 
 use Carbon\CarbonImmutable;
 use Illuminate\Database\ConnectionInterface;
-use Illuminate\Support\Str;
+use Ramsey\Uuid\Uuid;
 
 /**
  * Closed business days per ledger (cash, shift, stock). Handlers call assertOpen();
@@ -36,7 +36,7 @@ final class DayLocks
         $now = CarbonImmutable::now();
         $this->db->table('day_locks')->upsert(
             [[
-                'id' => (string) Str::uuid7(),
+                'id' => Uuid::uuid5(Uuid::NAMESPACE_URL, "tanaad:day_locks:{$siteId}|{$ledger}|{$day}")->toString(),
                 'site_id' => $siteId,
                 'ledger' => $ledger,
                 'day' => $day,

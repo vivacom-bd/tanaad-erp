@@ -14,8 +14,9 @@ use Tanaad\Sync\Snapshots;
 use Tests\Fixtures\Notes\NotesFixture;
 
 beforeEach(function (): void {
-    $this->seed([SitesSeeder::class, DemoUsersSeeder::class]);
+    // install first: creating the table commits the test transaction (MySQL DDL), which would drop seeded rows
     NotesFixture::install();
+    $this->seed([SitesSeeder::class, DemoUsersSeeder::class]);
     app(Snapshots::class)->register('test_notes', 'test_notes');
     $this->mats = Site::query()->where('code', 'mats')->firstOrFail();
     $this->bags = Site::query()->where('code', 'bags')->firstOrFail();

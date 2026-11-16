@@ -75,7 +75,9 @@ it('computes a weekly casual run with overtime, bonus and an advance by the fixt
         ->and((float) Advance::query()->firstOrFail()->balance)->toEqual(0.0);
 
     // The same engagement and period again is a duplicate; an empty period is a conflict.
-    weeklyRun($this, $this->manager)->assertJsonPath('code', 'duplicate_fact');
+    $dup = weeklyRun($this, $this->manager)->assertJsonPath('code', 'duplicate_fact');
+    $number = (string) DB::table('people')->where('id', $this->personId)->value('number');
+    expect($dup->json('detail'))->toContain("Sarah Achieng ({$number})")->not->toContain((string) DB::table('engagements')->where('person_id', $this->personId)->value('id'));
     $this->withToken($this->manager)->postJson('/api/v1/sites/mats/settlement-runs', ['kind' => 'weekly_casual', 'from' => '2026-11-16', 'to' => '2026-11-21'])
         ->assertStatus(409)->assertJsonPath('code', 'state_conflict');
 });
@@ -286,8 +288,12 @@ it('stores an optional payout reference and lists it', function (): void {
 });
 
 it('books an advance as a cash-out in the cash book, replay-exact, and needs the cash day open', function (): void {
-    $advance = $this->withToken($this->cashier)->postJson('/api/v1/sites/mats/advances', [
+    // UGX has no minor unit: a fractional amount is refused, not rounded.
+    $this->withToken($this->cashier)->postJson('/api/v1/sites/mats/advances', [
         'personId' => $this->personId, 'amount' => 4999.5, 'reason' => 'Transport', 'givenOn' => '2026-11-05',
+    ])->assertStatus(422)->assertJsonPath('details.errors.amount', 'must be a whole number of UGX');
+    $advance = $this->withToken($this->cashier)->postJson('/api/v1/sites/mats/advances', [
+        'personId' => $this->personId, 'amount' => 5000, 'reason' => 'Transport', 'givenOn' => '2026-11-05',
     ])->assertCreated()->json('advance');
     expect($advance['amount'])->toEqual('5000.00');
     $entry = DB::table('cash_entries')->where('id', $advance['id'])->first();

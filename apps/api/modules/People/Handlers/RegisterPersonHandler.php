@@ -62,12 +62,38 @@ final class RegisterPersonHandler implements Handler
         if (Person::query()->whereKey($person['person_id'])->exists()) {
             throw Rejection::stateConflict("Person {$person['person_id']} is already registered.");
         }
+        // Allocating first takes the site's series row lock, so two concurrent registrations of the same
+        // worker at this site are serialised and the second sees the first (lesson 1).
         $person['number'] = $this->series->allocate($site->id, self::SERIES);
+        self::refuseDuplicate($person['full_name'], $person['id_number'], $person['phone_momo']);
 
         return [
             Event::from($command->context(), 'people.person_registered', $person),
             Event::from($command->context(), 'people.engagement_started', ['person_id' => $person['person_id'], ...$engagement], primary: false),
         ];
+    }
+
+    /**
+     * An active person with the same ID number, or the same mobile-money phone and name, is the same
+     * worker registered twice: 409 duplicate_fact naming the existing worker number.
+     */
+    private static function refuseDuplicate(string $fullName, ?string $idNumber, ?string $phone): void
+    {
+        $norm = fn (?string $v): string => strtoupper((string) preg_replace('/[\s\-]+/', '', (string) $v));
+        $existing = null;
+        if ($norm($idNumber) !== '') {
+            $existing = Person::query()->where('status', 'active')
+                ->whereRaw("UPPER(REPLACE(REPLACE(id_number, ' ', ''), '-', '')) = ?", [$norm($idNumber)])->first();
+        }
+        if ($existing === null && $norm($phone) !== '') {
+            $existing = Person::query()->where('status', 'active')
+                ->whereRaw("UPPER(REPLACE(REPLACE(phone_momo, ' ', ''), '-', '')) = ?", [$norm($phone)])
+                ->whereRaw('LOWER(TRIM(full_name)) = ?', [mb_strtolower(trim($fullName))])->first();
+        }
+        if ($existing !== null) {
+            $as = $existing->number !== null ? " as worker {$existing->number}" : '';
+            throw Rejection::duplicateFact("{$existing->full_name} is already registered{$as}. Open that worker instead of registering again.");
+        }
     }
 
     /** @return list<string> site ids the person may also be marked at */

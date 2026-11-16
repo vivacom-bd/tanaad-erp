@@ -5,10 +5,15 @@ declare(strict_types=1);
 namespace Tanaad\Identity\Database\Seeders;
 
 use Illuminate\Database\Seeder;
+use Illuminate\Support\Facades\DB;
+use Ramsey\Uuid\Uuid;
 use Tanaad\Config\Models\Site;
+use Tanaad\Identity\Commands\AssignRole;
 use Tanaad\Identity\Models\User;
 use Tanaad\Identity\Models\UserSiteRole;
 use Tanaad\Identity\PinLockout;
+use Tanaad\Shared\Ledger\CommandBus;
+use Tanaad\Shared\Ledger\CommandContext;
 
 /**
  * The prototype's demo users (apps/web/src/data/seed/build.ts). Password "password",
@@ -16,7 +21,9 @@ use Tanaad\Identity\PinLockout;
  */
 final class DemoUsersSeeder extends Seeder
 {
-    public function run(PinLockout $pins): void
+    public const string NAMESPACE = '6f1d2b9e-4c3a-5e87-9b10-2d7c8a4e5f63';
+
+    public function run(PinLockout $pins, CommandBus $bus): void
     {
         $sites = Site::query()->pluck('id', 'code');
         $rows = [
@@ -51,7 +58,14 @@ final class DemoUsersSeeder extends Seeder
                 'active' => true,
             ]);
             foreach ($roles as [$role, $siteCode]) {
-                UserSiteRole::query()->firstOrCreate(['user_id' => $user->id, 'site_id' => $siteCode === null ? null : $sites[$siteCode], 'role' => $role]);
+                // Role grants are identity.role_assigned events so a replay rebuilds them; a rerun skips what is there.
+                $siteId = $siteCode === null ? null : (string) $sites[$siteCode];
+                $eventId = Uuid::uuid5(self::NAMESPACE, "role:{$code}:{$role}:".($siteCode ?? 'group'))->toString();
+                $held = UserSiteRole::query()->where(['user_id' => $user->id, 'role' => $role])->where('site_id', $siteId)->exists();
+                if ($held || DB::table('events')->where('id', $eventId)->exists()) {
+                    continue;
+                }
+                $bus->dispatch(new AssignRole(CommandContext::system($siteId)->withEventId($eventId), (string) $user->id, $role, $siteId));
             }
         }
     }

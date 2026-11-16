@@ -16,14 +16,23 @@ use Illuminate\Support\Str;
  */
 final readonly class CommandContext
 {
+    /**
+     * Always UTC. Seeders and clients pass instants in other zones (e.g. parsed as Africa/Kampala, or an
+     * ISO string with +03:00); the DB layer formats DateTime bindings without converting, so a non-UTC
+     * instant would be stored as local wall-clock time in UTC columns. Normalising here fixes every path.
+     */
+    public CarbonImmutable $occurredAt;
+
     public function __construct(
         public ?string $siteId,
         public ?string $actorId,
         public ?string $deviceId,
-        public CarbonImmutable $occurredAt,
+        CarbonImmutable $occurredAt,
         public ?string $eventId = null,
         public ?string $provisionalRef = null,
-    ) {}
+    ) {
+        $this->occurredAt = $occurredAt->utc();
+    }
 
     public static function system(?string $siteId = null): self
     {

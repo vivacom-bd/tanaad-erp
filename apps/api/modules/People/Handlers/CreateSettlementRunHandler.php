@@ -109,7 +109,9 @@ final class CreateSettlementRunHandler implements Handler
             }
             if (SettlementLine::query()->where('engagement_id', $e->id)->where('status', '!=', 'cancelled')
                 ->where('period_from', '<=', $lineTo)->where('period_to', '>=', $lineFrom)->exists()) {
-                throw Rejection::duplicateFact("Engagement {$e->id} is already settled for part of {$lineFrom} to {$lineTo}.");
+                $who = Person::query()->whereKey($e->person_id)->first(['full_name', 'number']);
+                $name = $who === null ? 'This worker' : trim($who->full_name.($who->number !== null ? " ({$who->number})" : ''));
+                throw Rejection::duplicateFact("{$name} is already settled for part of {$lineFrom} to {$lineTo}.");
             }
             if ($currency !== null && $currency !== $e->currency) {
                 throw Rejection::stateConflict('A run settles one currency; these engagements mix currencies.');

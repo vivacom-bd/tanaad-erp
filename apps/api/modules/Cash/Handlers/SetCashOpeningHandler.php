@@ -33,6 +33,7 @@ final class SetCashOpeningHandler implements Handler
         $siteId = $ctx->siteId ?? throw Rejection::invalidPayload(['site_id' => 'required']);
         $p = new Payload($command->payload);
         $day = $p->date('day');
+        CashBook::refuseFuture($p, 'day', $day, CashBook::today($siteId, $ctx));
         $amount = CashBook::money($p->num('amount'));
         $p->check();
 

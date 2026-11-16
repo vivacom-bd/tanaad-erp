@@ -232,6 +232,26 @@ it('holds an exception without closing it and still lets it be decided or auto-r
     expect(DB::table('exceptions')->where('id', $contract)->value('status'))->toBe('resolved');
 });
 
+it('does not re-raise a held exception for the same subject', function (): void {
+    $id = $this->withToken($this->supervisor)->postJson('/api/v1/sites/mats/exceptions', [
+        'kind' => 'below_benchmark', 'severity' => 'warning', 'title' => 'Line 4 slow', 'detail' => 'Slow.', 'subjectRef' => 'line-4',
+    ])->assertCreated()->json('exception.id');
+    $this->withToken($this->manager)->postJson("/api/v1/sites/mats/exceptions/{$id}/decision", ['decision' => 'hold', 'note' => 'Waiting'])->assertCreated();
+    $this->withToken($this->supervisor)->postJson('/api/v1/sites/mats/exceptions', [
+        'kind' => 'below_benchmark', 'severity' => 'warning', 'title' => 'Again', 'detail' => 'Again.', 'subjectRef' => 'line-4',
+    ])->assertStatus(409);
+
+    $this->travelTo(CarbonImmutable::parse('2026-11-09 06:00:00', 'Africa/Kampala'));
+    DB::table('engagements')->insert(['id' => $eng = (string) Str::uuid7(), 'site_id' => $this->mats, 'person_id' => (string) Str::uuid7(), 'type' => 'contract',
+        'start_date' => '2026-10-01', 'end_date' => '2026-11-11', 'rate_basis' => 'day', 'rate' => 1, 'currency' => 'UGX', 'settlement_cycle' => 'weekly', 'status' => 'active']);
+    $this->artisan('people:contract-expiry')->expectsOutput('Raised 1.')->assertSuccessful();
+    $held = DB::table('exceptions')->where('subject_ref', $eng)->value('id');
+    $this->withToken($this->manager)->postJson("/api/v1/sites/mats/exceptions/{$held}/decision", ['decision' => 'hold', 'note' => 'Talking'])->assertCreated();
+    $this->artisan('people:contract-expiry')->expectsOutput('Raised 0.')->assertSuccessful();
+    expect(DB::table('exceptions')->where(['kind' => 'below_benchmark', 'subject_ref' => 'line-4'])->count())->toBe(1)
+        ->and(DB::table('exceptions')->where('subject_ref', $eng)->count())->toBe(1);
+});
+
 it('rebuilds exceptions from the ledger exactly', function (): void {
     $this->withToken($this->cashier)->postJson('/api/v1/sites/mats/cash/days/2026-11-09/close', ['counted' => 5000])->assertCreated();
     attendanceMarked($this->mats, (string) Str::uuid7(), crossSite: true);
@@ -280,4 +300,29 @@ it('rejects a bad brief and keeps it from site roles', function (): void {
     $this->withToken($this->manager)->postJson('/api/v1/briefs', $ok)->assertForbidden();
     $this->withToken($this->manager)->getJson('/api/v1/briefs')->assertForbidden();
     expect(DB::table('briefs')->count())->toBe(0);
+});
+
+it('lists the alert bell: critical exceptions in the caller scope, gate-hold alert text, 403 for other roles', function (): void {
+    $raise = fn (string $token, string $site, string $severity, string $title) => $this->withToken($token)->postJson("/api/v1/sites/{$site}/exceptions", [
+        'kind' => 'gate_variance', 'severity' => $severity, 'title' => $title, 'detail' => 'Scale 4% over.', 'ownerRole' => 'ceo',
+    ])->assertCreated()->json('exception.id');
+    $raise($this->ceo, 'mats', 'critical', 'Mats critical');
+    $raise($this->ceo, 'mats', 'warning', 'Mats warning');
+    $raise($this->ceo, 'bags', 'critical', 'Bags critical');
+    // What GateVarianceCriticalPolicy raises: the facts carry the bell text.
+    app(CommandBus::class)->dispatch(new Tanaad\Group\Commands\RaiseException(Tanaad\Shared\Ledger\CommandContext::system($this->bags), [
+        'kind' => 'gate_variance', 'severity' => 'critical', 'owner_role' => 'site_manager', 'title' => 'Gate held: order SO-1 to Acme',
+        'detail' => 'Weight over.', 'subject_ref' => 'dispatch-1', 'facts' => ['alert' => ['title' => 'Gate locked at Bags Factory', 'detail' => 'SO-1: weight', 'audience' => ['ceo', 'site_manager']]],
+    ]));
+
+    $ceo = $this->withToken($this->ceo)->getJson('/api/v1/alerts')->assertOk();
+    expect(array_column($ceo->json('data'), 'title'))->toEqualCanonicalizing(['Mats critical', 'Bags critical', 'Gate locked at Bags Factory'])
+        ->and($ceo->json('activeCount'))->toBe(3)
+        ->and($ceo->json('data.0.raisedAt'))->toMatch('/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{3})?Z$/');
+    $mats = $this->withToken($this->manager)->getJson('/api/v1/alerts')->assertOk();
+    expect(array_column($mats->json('data'), 'title'))->toBe(['Mats critical'])->and($mats->json('data.0.siteCode'))->toBe('mats');
+    expect(array_column($this->withToken($this->otherManager)->getJson('/api/v1/alerts')->json('data'), 'title'))
+        ->toEqualCanonicalizing(['Bags critical', 'Gate locked at Bags Factory']);
+    $this->withToken($this->supervisor)->getJson('/api/v1/alerts')->assertForbidden();
+    $this->withToken($this->cashier)->getJson('/api/v1/alerts')->assertForbidden();
 });

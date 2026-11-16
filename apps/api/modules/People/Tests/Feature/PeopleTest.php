@@ -32,8 +32,12 @@ beforeEach(function (): void {
 
 function registerCasual(Tests\TestCase $t, string $token, string $site = 'mats', array $extra = []): array
 {
+    // A fresh ID number and phone per call: registering the same worker twice is refused (409).
+    static $n = 0;
+    $n++;
+
     return $t->withToken($token)->postJson("/api/v1/sites/{$site}/people", [
-        'fullName' => 'Sarah Achieng', 'phoneMomo' => '0772000000', 'sector' => 'Weaving', 'idNumber' => 'CM900',
+        'fullName' => 'Sarah Achieng', 'phoneMomo' => sprintf('0772%06d', $n), 'sector' => 'Weaving', 'idNumber' => "CM900{$n}",
         'engagement' => ['rate' => 15000], ...$extra,
     ])->assertCreated()->json();
 }
@@ -193,4 +197,17 @@ it('rebuilds people, engagements and attendance from the ledger', function (): v
     $before = $dump();
     app(Replay::class)->rebuild();
     expect($dump())->toEqual($before)->and($before['engagements'])->toHaveCount(2);
+});
+
+it('refuses registering the same active worker twice, naming the existing worker number', function (): void {
+    $body = ['fullName' => 'Grace Nakato', 'phoneMomo' => '0701 234 567', 'idNumber' => 'CM-77', 'engagement' => ['rate' => 15000]];
+    $first = $this->withToken($this->manager)->postJson('/api/v1/sites/mats/people', $body)->assertCreated()->json('person');
+    $dup = $this->withToken($this->manager)->postJson('/api/v1/sites/mats/people', [...$body, 'idNumber' => 'cm 77'])->assertStatus(409)
+        ->assertJsonPath('code', 'duplicate_fact');
+    expect($dup->json('detail'))->toContain($first['number'])->not->toContain($first['id']);
+    // Same phone and name, no ID number: still the same worker.
+    $this->withToken($this->manager)->postJson('/api/v1/sites/mats/people', [...$body, 'idNumber' => null])->assertStatus(409);
+    // The same phone for a different person (a shared family phone) is allowed.
+    $this->withToken($this->manager)->postJson('/api/v1/sites/mats/people', [...$body, 'fullName' => 'Peter Okello', 'idNumber' => 'CM-78'])->assertCreated();
+    expect(DB::table('people')->count())->toBe(2);
 });

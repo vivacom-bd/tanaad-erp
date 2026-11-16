@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Tanaad\Identity\Projectors;
 
 use Illuminate\Database\ConnectionInterface;
-use Illuminate\Support\Str;
+use Ramsey\Uuid\Uuid;
 use Tanaad\Shared\Ledger\Projector;
 use Tanaad\Shared\Ledger\StoredEvent;
 
@@ -32,8 +32,8 @@ final class IdentityProjector implements Projector
                 'registered_by' => $event->event->actorId, 'active' => true, 'seq' => $event->seq, 'created_at' => $now, 'updated_at' => $now,
             ]),
             'identity.role_assigned' => $this->db->table('user_site_roles')->upsert(
-                [['id' => (string) Str::uuid7(), 'user_id' => $p['user_id'], 'site_id' => $p['role_site_id'], 'role' => $p['role'], 'seq' => $event->seq, 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now]],
-                ['user_id', 'site_id', 'role'],
+                [['id' => Uuid::uuid5(Uuid::NAMESPACE_URL, 'tanaad:user_site_roles:'.$p['user_id'].'|'.($p['role_site_id'] ?? '').'|'.$p['role'])->toString(), 'user_id' => $p['user_id'], 'site_id' => $p['role_site_id'], 'role' => $p['role'], 'seq' => $event->seq, 'deleted_at' => null, 'created_at' => $now, 'updated_at' => $now]],
+                ['user_id', 'site_key', 'role'],
                 ['seq', 'deleted_at', 'updated_at'],
             ),
             'identity.session_opened' => $p['device_id'] === null ? null : $this->db->table('devices')->where('id', $p['device_id'])
@@ -44,7 +44,8 @@ final class IdentityProjector implements Projector
 
     public function reset(): void
     {
-        $this->db->table('devices')->delete();
-        $this->db->table('user_site_roles')->delete();
+        // Only ledgered rows: a grant written outside the ledger (seq 0) has no event to rebuild it from.
+        $this->db->table('devices')->where('seq', '>', 0)->delete();
+        $this->db->table('user_site_roles')->where('seq', '>', 0)->delete();
     }
 }

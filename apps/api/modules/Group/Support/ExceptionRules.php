@@ -20,7 +20,7 @@ final class ExceptionRules
     ];
 
     /** Kinds the system (policies, scheduler) raises with no actor. */
-    public const array SYSTEM_KINDS = ['cash_variance', 'ghost_worker', 'contract_expiring'];
+    public const array SYSTEM_KINDS = ['cash_variance', 'ghost_worker', 'contract_expiring', 'below_benchmark', 'not_logged', 'mass_gap', 'low_stock', 'gate_variance', 'pod_discrepancy', 'credit_over_limit'];
 
     public const array SEVERITIES = ['info', 'warning', 'critical'];
 

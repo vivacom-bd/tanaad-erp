@@ -25,6 +25,10 @@ final class IdentityAuthorizer implements Authorizer
             return;
         }
         $actorId = $command->context()->actorId;
+        // Server-side (seeder/console) grants carry no actor; the HTTP layer always sets one.
+        if ($actorId === null && $command instanceof AssignRole) {
+            return;
+        }
         $actor = $actorId === null ? null : User::query()->with('siteRoles')->find($actorId);
         if ($actor === null) {
             throw Rejection::forbidden('Sign in first.');

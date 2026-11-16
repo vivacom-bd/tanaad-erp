@@ -15,6 +15,7 @@ use Tanaad\Shared\Ledger\DayLocks;
 use Tanaad\Shared\Ledger\Event;
 use Tanaad\Shared\Ledger\Handler;
 use Tanaad\Shared\Ledger\Rejection;
+use Tanaad\Shared\Money\Currency;
 
 /**
  * An advance against future pay. The next settlement run for the person deducts its balance.
@@ -43,7 +44,11 @@ final class GiveAdvanceHandler implements Handler
             $p->error('given_on', "must not be after {$today}");
         }
         $advanceId = $p->optUuid('advance_id') ?? (string) Str::uuid7();
-        if ($amount > 0 && CreateSettlementRunHandler::whole($amount)->isZero()) {
+        $currency = (string) ($site->currency_primary ?? 'UGX');
+        if ($amount > 0 && ! Currency::fits($amount, $currency)) {
+            $p->error('amount', Currency::minorUnitsOf($currency) === 0
+                ? "must be a whole number of {$currency}" : 'must have at most '.Currency::minorUnitsOf($currency).' decimal places');
+        } elseif ($amount > 0 && CreateSettlementRunHandler::whole($amount)->isZero()) {
             $p->error('amount', 'must be at least 1 whole shilling');
         }
         $p->check();

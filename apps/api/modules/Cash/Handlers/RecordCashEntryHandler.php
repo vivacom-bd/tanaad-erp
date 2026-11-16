@@ -29,7 +29,9 @@ final class RecordCashEntryHandler implements Handler
         $ctx = $command->context();
         $siteId = $ctx->siteId ?? throw Rejection::invalidPayload(['site_id' => 'required']);
         $p = new Payload($command->payload);
-        $day = $p->optDate('day') ?? $ctx->occurredAt->toDateString();
+        $today = CashBook::today($siteId, $ctx);
+        $day = $p->optDate('day') ?? $today;
+        CashBook::refuseFuture($p, 'day', $day, $today);
         $entry = self::fields($p);
         $entryId = $p->optUuid('entry_id') ?? (string) Str::uuid7();
         $p->check();
@@ -56,12 +58,15 @@ final class RecordCashEntryHandler implements Handler
             $p->error('category', 'must be a category code (a-z, 0-9, _)');
         }
 
+        $amount = $p->num('amount', positive: true);
+        $currency = $p->has('currency') ? $p->currency('currency') : 'UGX';
+
         return [
             'direction' => $p->oneOf('direction', ['in', 'out']),
             'category' => $category,
             'subcategory' => $p->optStr('subcategory', 120),
-            'amount' => CashBook::money($p->num('amount', positive: true)),
-            'currency' => $p->has('currency') ? $p->currency('currency') : 'UGX',
+            'amount' => CashBook::money($amount),
+            'currency' => $currency,
             'fx_reference' => $p->optNum('fx_reference', positive: true),
             'machine_id' => $p->optUuid('machine_id'),
             'product_id' => $p->optUuid('product_id'),

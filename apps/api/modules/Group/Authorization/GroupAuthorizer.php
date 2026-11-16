@@ -79,7 +79,10 @@ final class GroupAuthorizer implements Authorizer
     private function authoriseBrief(SendBrief $command): void
     {
         $actorId = $command->context()->actorId;
-        $actor = $actorId === null ? null : User::query()->with('siteRoles')->find($actorId);
+        if ($actorId === null) {
+            return; // the scheduled morning brief (group:morning-brief); every HTTP and sync path carries an actor
+        }
+        $actor = User::query()->with('siteRoles')->find($actorId);
         if ($actor === null || ! $this->access->holdsAny($actor, null, [Role::Ceo, Role::GroupAdmin])) {
             throw Rejection::forbidden('Only the CEO or the group admin may send the brief.');
         }

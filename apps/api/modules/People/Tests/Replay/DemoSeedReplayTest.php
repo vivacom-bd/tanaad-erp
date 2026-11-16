@@ -38,7 +38,7 @@ function seedDemo(?string $site = null, ?string $fromDay = null): void
     app()->call([new CashSeeder($site, $fromDay), 'run']);
     if ($site === null && $fromDay === null) {
         app()->call([new SettlementSeeder, 'run']);
-        DatabaseSeeder::raiseContractExpiry();
+        DatabaseSeeder::raiseContractExpiry('2026-10-10 07:00:00');
     }
 }
 

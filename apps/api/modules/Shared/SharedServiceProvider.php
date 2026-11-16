@@ -8,12 +8,14 @@ use Illuminate\Support\ServiceProvider;
 use Tanaad\Shared\Ledger\CommandBus;
 use Tanaad\Shared\Ledger\RebuildCommand;
 use Tanaad\Shared\Ledger\Registry;
+use Tanaad\Shared\Ledger\VerifyCommand;
 
 final class SharedServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
         $this->app->singleton(Registry::class);
+        $this->app->singleton(Ledger\ReceiptClock::class);
         $this->app->singleton(CommandBus::class);
     }
 
@@ -22,7 +24,7 @@ final class SharedServiceProvider extends ServiceProvider
         $this->loadMigrationsFrom(__DIR__.'/Database/migrations');
 
         if ($this->app->runningInConsole()) {
-            $this->commands([RebuildCommand::class]);
+            $this->commands([RebuildCommand::class, VerifyCommand::class]);
         }
     }
 }

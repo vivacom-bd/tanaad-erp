@@ -12,5 +12,5 @@ Route::prefix('v1')->middleware(['auth:sanctum', 'abilities:user', 'site'])->gro
     Route::post('/sites/{site}/cash/entries/{entry}/corrections', [CashController::class, 'correct']);
     Route::post('/sites/{site}/cash/days/{day}/close', [CashController::class, 'close']);
     Route::post('/sites/{site}/cash/days/{day}/opening', [CashController::class, 'opening']);
-    Route::post('/sites/{site}/cash/days/{day}/reopen', [CashController::class, 'reopen']);
+    Route::post('/sites/{site}/cash/days/{day}/reopen', [CashController::class, 'reopen'])->middleware('throttle:30,1');
 });

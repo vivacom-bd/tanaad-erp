@@ -32,6 +32,7 @@ final class CloseCashDayHandler implements Handler
         $siteId = $ctx->siteId ?? throw Rejection::invalidPayload(['site_id' => 'required']);
         $p = new Payload($command->payload);
         $day = $p->date('day');
+        CashBook::refuseFuture($p, 'day', $day, CashBook::today($siteId, $ctx));
         $counted = CashBook::money($p->num('counted'));
         $denominations = self::denominations($p, $command->payload['denominations'] ?? []);
         $p->check();

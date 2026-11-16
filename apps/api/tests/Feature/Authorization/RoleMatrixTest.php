@@ -21,6 +21,12 @@ use Tanaad\Config\Commands\UpdateCompanyProfile;
 use Tanaad\Config\Commands\UpdateSiteSettings;
 use Tanaad\Config\Database\Seeders\SitesSeeder;
 use Tanaad\Config\Models\Site;
+use Tanaad\Dispatch\Commands\ConfirmDelivery;
+use Tanaad\Dispatch\Commands\OverrideGate;
+use Tanaad\Dispatch\Commands\RecordGateWeight;
+use Tanaad\Dispatch\Commands\ScanBundle;
+use Tanaad\Dispatch\Commands\StartDispatch;
+use Tanaad\Dispatch\Commands\UnscanBundle;
 use Tanaad\Group\Commands\DecideException;
 use Tanaad\Group\Commands\RaiseException;
 use Tanaad\Group\Commands\SendBrief;
@@ -29,6 +35,8 @@ use Tanaad\Identity\Commands\OpenDeviceSession;
 use Tanaad\Identity\Commands\RegisterDevice;
 use Tanaad\Identity\Database\Seeders\DemoUsersSeeder;
 use Tanaad\Identity\Models\User;
+use Tanaad\Labels\Commands\ConsumeLabel;
+use Tanaad\Labels\Commands\CreateLabel;
 use Tanaad\People\Commands\ApproveSettlement;
 use Tanaad\People\Commands\ArchivePerson;
 use Tanaad\People\Commands\CancelSettlementRun;
@@ -41,11 +49,25 @@ use Tanaad\People\Commands\RecordPayout;
 use Tanaad\People\Commands\RegisterPerson;
 use Tanaad\People\Commands\RenewEngagement;
 use Tanaad\People\Commands\StartEngagement;
+use Tanaad\Production\Commands\CloseShift;
+use Tanaad\Production\Commands\RecordBatch;
+use Tanaad\Production\Commands\RecordProductionEntry;
+use Tanaad\Production\Commands\WeighWaste;
+use Tanaad\Purchases\Commands\ChangePurchase;
+use Tanaad\Purchases\Commands\ReceivePurchase;
+use Tanaad\Purchases\Commands\RecordPurchase;
+use Tanaad\Recycling\Commands\PayCollector;
+use Tanaad\Recycling\Commands\RecordCollectorIntake;
 use Tanaad\Shared\Ledger\Command;
 use Tanaad\Shared\Ledger\CommandContext;
 use Tanaad\Shared\Ledger\Registry;
 use Tanaad\Shared\Ledger\Rejection;
 use Tanaad\Shared\Ledger\RejectionCode;
+use Tanaad\Spares\Commands\IssuePart;
+use Tanaad\Spares\Commands\ReceivePart;
+use Tanaad\Spares\Commands\ReportBreakdown;
+use Tanaad\Spares\Commands\ResolveBreakdown;
+use Tanaad\Spares\Commands\SavePart;
 
 /**
  * ADR-006: the role x command matrix. Adding a command without a policy row fails the build.
@@ -115,6 +137,78 @@ function roleMatrix(): array
     // Briefs are group-wide: CEO and group admin only.
     $add(SendBrief::class, ['u_ceo1' => 'allowed', 'u_admin' => 'allowed', 'u_sm_mats' => 'forbidden', 'u_sup_mats' => 'forbidden', 'u_cash_mats' => 'forbidden'], null);
 
+    // Production: the site's supervisor or manager records; group roles, cashiers and other sites' staff may not.
+    $production = ['u_sup_mats' => 'allowed', 'u_sm_mats' => 'allowed', 'u_sup_bags' => 'forbidden', 'u_sm_bags' => 'forbidden', 'u_store_mats' => 'forbidden', 'u_cash_mats' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden'];
+    foreach ([RecordProductionEntry::class, RecordBatch::class, CloseShift::class, WeighWaste::class] as $command) {
+        $add($command, $production);
+    }
+
+    // Labels: the site's supervisor, storekeeper or manager print and consume.
+    $labels = ['u_sup_mats' => 'allowed', 'u_store_mats' => 'allowed', 'u_sm_mats' => 'allowed', 'u_store_bags' => 'forbidden', 'u_sup_bags' => 'forbidden', 'u_cash_mats' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden'];
+    foreach ([CreateLabel::class, ConsumeLabel::class] as $command) {
+        $add($command, $labels);
+    }
+
+    // Recycling: the scale crew records a delivery; only the cashier or manager pays the collector.
+    $add(RecordCollectorIntake::class, ['u_sup_rec' => 'allowed', 'u_sm_rec' => 'allowed', 'u_store_rec' => 'allowed', 'u_cash_rec' => 'allowed', 'u_mech' => 'forbidden', 'u_sales_rec' => 'forbidden', 'u_cash_mats' => 'forbidden', 'u_sm_mats' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden'], 'recycling');
+    $add(PayCollector::class, ['u_cash_rec' => 'allowed', 'u_sm_rec' => 'allowed', 'u_sup_rec' => 'forbidden', 'u_store_rec' => 'forbidden', 'u_cash_mats' => 'forbidden', 'u_sm_mats' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden'], 'recycling');
+
+    // Purchases: the site's manager or storekeeper, or a group role, orders and edits (cashiers pay out through the cash book); its manager or storekeeper receives.
+    foreach ([RecordPurchase::class, ChangePurchase::class] as $command) {
+        $add($command, ['u_sm_mats' => 'allowed', 'u_store_mats' => 'allowed', 'u_cash_mats' => 'forbidden', 'u_sup_mats' => 'forbidden', 'u_sm_bags' => 'forbidden', 'u_store_bags' => 'forbidden', 'u_cash_bags' => 'forbidden', 'u_admin' => 'allowed', 'u_ceo1' => 'allowed']);
+    }
+    $add(ReceivePurchase::class, ['u_sm_mats' => 'allowed', 'u_store_mats' => 'allowed', 'u_cash_mats' => 'forbidden', 'u_sup_mats' => 'forbidden', 'u_sm_bags' => 'forbidden', 'u_store_bags' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden']);
+
+    // Spares: the site manager keeps the catalogue and receives; the storekeeper receives and issues (as does the
+    // supervisor); mechanic, supervisor and manager report and resolve breakdowns.
+    $add(SavePart::class, ['u_admin' => 'allowed', 'u_sm_mats' => 'allowed', 'u_store_mats' => 'forbidden', 'u_mech' => 'forbidden', 'u_sm_bags' => 'forbidden', 'u_ceo1' => 'forbidden']);
+    $add(ReceivePart::class, ['u_store_mats' => 'allowed', 'u_sm_mats' => 'allowed', 'u_mech' => 'forbidden', 'u_sup_mats' => 'forbidden', 'u_store_bags' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden']);
+    $add(IssuePart::class, ['u_store_mats' => 'allowed', 'u_sup_mats' => 'allowed', 'u_mech' => 'forbidden', 'u_sm_mats' => 'forbidden', 'u_store_bags' => 'forbidden', 'u_sup_bags' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden']);
+    $breakdown = ['u_mech' => 'allowed', 'u_sup_mats' => 'allowed', 'u_sm_mats' => 'allowed', 'u_store_mats' => 'forbidden', 'u_cash_mats' => 'forbidden', 'u_sup_bags' => 'forbidden', 'u_sm_bags' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden'];
+    foreach ([ReportBreakdown::class, ResolveBreakdown::class] as $command) {
+        $add($command, $breakdown);
+    }
+
+    // Stock: the site's storekeeper, supervisor or manager writes; only its manager reopens a count.
+    $stock = ['u_store_mats' => 'allowed', 'u_sup_mats' => 'allowed', 'u_sm_mats' => 'allowed', 'u_store_bags' => 'forbidden', 'u_cash_mats' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden'];
+    foreach ([Tanaad\Stock\Commands\ReceiveStock::class, Tanaad\Stock\Commands\MoveStock::class, Tanaad\Stock\Commands\ScrapLabel::class, Tanaad\Stock\Commands\SendTransfer::class, Tanaad\Stock\Commands\ReceiveTransfer::class, Tanaad\Stock\Commands\RecordStockCount::class] as $command) {
+        $add($command, $stock);
+    }
+    $add(Tanaad\Stock\Commands\ReopenStockCount::class, ['u_sm_mats' => 'allowed', 'u_store_mats' => 'forbidden', 'u_sup_mats' => 'forbidden', 'u_sm_bags' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden']);
+
+    // Dispatch: the site's storekeeper, gate or manager load and weigh; only its manager overrides (SoD in the handler); drivers may confirm delivery.
+    $dispatch = ['u_store_mats' => 'allowed', 'u_sm_mats' => 'allowed', 'u_store_bags' => 'forbidden', 'u_sup_mats' => 'forbidden', 'u_cash_mats' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden'];
+    foreach ([StartDispatch::class, ScanBundle::class, UnscanBundle::class, RecordGateWeight::class, ConfirmDelivery::class] as $command) {
+        $add($command, $dispatch);
+    }
+    $add(OverrideGate::class, ['u_sm_mats' => 'allowed', 'u_store_mats' => 'forbidden', 'u_sm_bags' => 'forbidden', 'u_sup_mats' => 'forbidden', 'u_admin' => 'forbidden', 'u_ceo1' => 'forbidden']);
+
+    // Orders: the site's sales or manager (and group roles) keep clients and take orders (credit terms: CEO/group admin only, tested below); cash roles confirm cash;
+    // only the CEO or group admin decide on the credit desk; sales, cashier, manager or group roles invoice and record payments.
+    $salesWrite = ['u_sales_mats' => 'allowed', 'u_sm_mats' => 'allowed', 'u_ceo1' => 'allowed', 'u_admin' => 'allowed', 'u_sales_bags' => 'forbidden', 'u_sm_bags' => 'forbidden', 'u_cash_mats' => 'forbidden', 'u_store_mats' => 'forbidden'];
+    foreach ([Tanaad\Orders\Commands\RegisterClient::class, Tanaad\Orders\Commands\UpdateClient::class, Tanaad\Orders\Commands\CreateOrder::class] as $command) {
+        $add($command, $salesWrite);
+    }
+    $add(Tanaad\Orders\Commands\ConfirmOrderCash::class, ['u_cash_mats' => 'allowed', 'u_sm_mats' => 'allowed', 'u_ceo1' => 'allowed', 'u_admin' => 'allowed', 'u_sales_mats' => 'forbidden', 'u_cash_bags' => 'forbidden', 'u_store_mats' => 'forbidden']);
+    foreach ([Tanaad\Orders\Commands\ApproveOrder::class, Tanaad\Orders\Commands\HoldOrder::class] as $command) {
+        $add($command, ['u_ceo1' => 'allowed', 'u_admin' => 'allowed', 'u_sm_mats' => 'forbidden', 'u_sales_mats' => 'forbidden', 'u_cash_mats' => 'forbidden']);
+    }
+    foreach ([Tanaad\Orders\Commands\IssueInvoice::class, Tanaad\Orders\Commands\RecordPayment::class] as $command) {
+        $add($command, ['u_sales_mats' => 'allowed', 'u_cash_mats' => 'allowed', 'u_sm_mats' => 'allowed', 'u_ceo1' => 'allowed', 'u_sales_bags' => 'forbidden', 'u_cash_bags' => 'forbidden', 'u_store_mats' => 'forbidden', 'u_sup_mats' => 'forbidden']);
+    }
+
+    // Messaging: the group admin keeps recipients; queueing, delivery and failure are system-only (no signed-in user may issue them).
+    $add(Tanaad\Messaging\Commands\SaveRecipient::class, ['u_admin' => 'allowed', 'u_ceo1' => 'forbidden', 'u_sm_mats' => 'forbidden', 'u_cash_mats' => 'forbidden'], null);
+    foreach ([Tanaad\Messaging\Commands\QueueMessage::class, Tanaad\Messaging\Commands\RecordDelivery::class, Tanaad\Messaging\Commands\RecordFailure::class] as $command) {
+        $add($command, ['u_admin' => 'forbidden', 'u_ceo1' => 'forbidden', 'u_sm_mats' => 'forbidden', 'u_cash_mats' => 'forbidden'], null);
+    }
+
+    // Costing: the site's manager, the CEO or the group admin close and reopen periods; the mapping is the manager's or group admin's.
+    foreach ([Tanaad\Costing\Commands\ClosePeriod::class, Tanaad\Costing\Commands\ReopenPeriod::class] as $command) {
+        $add($command, ['u_sm_mats' => 'allowed', 'u_ceo1' => 'allowed', 'u_admin' => 'allowed', 'u_sm_bags' => 'forbidden', 'u_cash_mats' => 'forbidden', 'u_sup_mats' => 'forbidden']);
+    }
+    $add(Tanaad\Costing\Commands\SaveCostMapping::class, ['u_sm_mats' => 'allowed', 'u_admin' => 'allowed', 'u_ceo1' => 'forbidden', 'u_sm_bags' => 'forbidden', 'u_cash_mats' => 'forbidden']);
+
     return $rows;
 }
 
@@ -164,3 +258,17 @@ it('has an authorizer and a matrix row for every registered command', function (
             ->and($covered)->toContain($command);
     }
 });
+
+it('lets only the CEO or group admin register a client with credit terms', function (string $actorCode, string $expected): void {
+    $actor = User::query()->where('code', $actorCode)->firstOrFail();
+    $siteId = Site::query()->where('code', 'mats')->firstOrFail()->id;
+    $command = new Tanaad\Orders\Commands\RegisterClient(new CommandContext($siteId, $actor->id, null, CarbonImmutable::now()), ['credit_limit' => 1000, 'credit_days' => 30]);
+    $authorizer = app(Registry::class)->authorizerFor($command);
+    if ($expected === 'allowed') {
+        $authorizer?->authorise($command);
+        expect(true)->toBeTrue();
+
+        return;
+    }
+    expect(fn () => $authorizer?->authorise($command))->toThrow(Rejection::class);
+})->with([['u_ceo1', 'allowed'], ['u_admin', 'allowed'], ['u_sales_mats', 'forbidden'], ['u_sm_mats', 'forbidden']]);
