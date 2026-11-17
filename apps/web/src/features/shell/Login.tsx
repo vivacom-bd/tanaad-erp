@@ -5,11 +5,15 @@ import type { SiteCode, User } from '@tanaad/domain';
 import { useStore } from '@/data/store';
 import { SITE_LIST, SITES } from '@/config/sites';
 import { roleLabel } from '@/config/roles';
-import { Avatar, Button, ChipGroup, Field, Input, Note, PinPad, Tabs } from '@/components/ui';
+import { Avatar, Button, ChipGroup, Dialog, Field, Input, Note, PinPad, Tabs } from '@/components/ui';
 import { BrandPanel, Logo } from './BrandPanel';
+import { DEMO_ACCOUNTS_LIST, type DemoAccount } from './demoAccounts';
 import { isReal, realLogin, realPinLogin, signInMessage } from '@/data/api/sync';
 
 const DEMO_PIN = '1234';
+/** Dev/demo servers only: build with VITE_DEMO_ACCOUNTS=1 to get a "Use a demo account" picker on the real sign-in. Never set in production. */
+const DEMO_ACCOUNTS = import.meta.env.VITE_DEMO_ACCOUNTS === '1';
+const DEMO_PASSWORD = 'password';
 /** Same sign-in name the API seeds: the user id without "u_" and underscores (u_sm_bags → smbags). */
 const usernameOf = (u: User) => u.id.replace(/^u_/, '').replace(/_/g, '');
 const whereOf = (u: User) => { const sites = [...new Set(u.roles.map((r) => r.siteId).filter(Boolean))] as SiteCode[]; return sites.length ? sites.map((x) => SITES[x].shortName).join(' + ') : 'Group'; };
@@ -26,7 +30,14 @@ export function Login() {
   const [tabletSite, setTabletSite] = useState<SiteCode>('mats'); const [pinUser, setPinUser] = useState<User | null>(null); const [pinError, setPinError] = useState<string | null>(null);
 
   const enter = (u: User, method: 'password' | 'pin') => { logIn(u.id, method); nav({ to: '/portals' as never }); };
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState(false); const [pick, setPick] = useState(false);
+  const pickAccount = async (a: DemoAccount) => {
+    setBusy(true); setError(null);
+    try { const code = await realLogin(a.username, DEMO_PASSWORD); const me = useStore.getState().users.find((x) => x.id === code); if (me) { setPick(false); enter(me, 'password'); } else setError(`Signed in, but this app has no profile for ${code}.`); }
+    catch (e) { setError(signInMessage(e)); }
+    finally { setBusy(false); }
+  };
+  const accounts = DEMO_ACCOUNTS ? DEMO_ACCOUNTS_LIST : [];
   const submitReal = async () => {
     if (!username.trim()) return setError('Enter your username.');
     if (!password) return setError('Enter your password.');
@@ -110,6 +121,27 @@ export function Login() {
                   ))}
                 </div>
               </div>
+              )}
+              {DEMO_ACCOUNTS && isReal() && (
+                <div className="mt-5">
+                  <Button block onClick={() => setPick(true)}>Use a demo account</Button>
+                  <Dialog open={pick} onClose={() => setPick(false)} title="Pick a demo account" width={520}>
+                    {error && <Note tone="bad" className="mb-3">{error}</Note>}
+                    <div className="surface overflow-hidden max-h-[420px] overflow-y-auto scrollbar-thin">
+                      {accounts.map((a) => (
+                        <button key={a.username} type="button" disabled={busy} onClick={() => void pickAccount(a)}
+                          className="group w-full flex items-center gap-2.5 px-3 py-2 text-left border-b border-[var(--line)] last:border-b-0 hover:bg-[var(--hover)] disabled:opacity-60">
+                          <Avatar name={a.name} seed={a.name.split(' ').map((w) => w[0]).join('')} size={26} />
+                          <span className="min-w-0 flex-1">
+                            <span className="block t-base font-medium truncate">{a.name}</span>
+                            <span className="block t-xs text-[var(--text-3)] truncate">{a.role} · {a.where} · {a.username}</span>
+                          </span>
+                          <ArrowRight className="size-4 text-[var(--text-4)] group-hover:text-[var(--text)]" />
+                        </button>
+                      ))}
+                    </div>
+                  </Dialog>
+                </div>
               )}
             </>
           ) : (

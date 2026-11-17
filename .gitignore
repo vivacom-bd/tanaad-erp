@@ -63,4 +63,5 @@ Thumbs.db
 
 # staging secrets
 infra/staging/*.env
+infra/devserver/*.env
 /backups/
