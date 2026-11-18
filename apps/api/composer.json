@@ -9,7 +9,7 @@
     ],
     "license": "MIT",
     "require": {
-        "php": "^8.5",
+        "php": "^8.3",
         "brick/math": "^1.0",
         "dedoc/scramble": "^0.13.53",
         "laravel/framework": "^13.17",
@@ -97,7 +97,7 @@
             "php-http/discovery": true
         },
         "platform": {
-            "php": "8.5.0"
+            "php": "8.3.36"
         }
     },
     "minimum-stability": "stable",
