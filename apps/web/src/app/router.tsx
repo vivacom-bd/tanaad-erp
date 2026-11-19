@@ -39,6 +39,7 @@ const groupRoutes = [
   g('people', () => import('@/features/group/GroupPeople'), 'GroupPeople'),
   g('pnl', () => import('@/features/group/Pnl'), 'Pnl'),
   g('settings', () => import('@/features/settings/Settings'), 'Settings'),
+  g('manual', () => import('@/features/manual/Manual'), 'Manual'),
 ];
 
 // ----- Site layer -----
@@ -85,6 +86,7 @@ const siteRoutes = [
   ...([['reports/production', 'production/wall'], ['reports/attendance', 'people/attendance'], ['reports/cash', 'cash'], ['reports/dispatch', 'stock/deliveries']] as const).map(([from, to]) =>
     createRoute({ getParentRoute: () => site, path: from, beforeLoad: ({ params }) => { throw redirect({ to: `/s/$site/${to}` as never, params: params as never }); } })),
   s('settings', () => import('@/features/settings/Settings'), 'Settings'),
+  s('manual', () => import('@/features/manual/Manual'), 'Manual'),
   s('purchases', () => import('@/features/purchases/Purchases'), 'Purchases'),
 ];
 

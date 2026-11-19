@@ -2,6 +2,7 @@ import type { Role, SiteCode } from '@tanaad/domain';
 import {
   BarChart3,
   Bell,
+  BookOpen,
   Boxes,
   ClipboardList,
   Factory,
@@ -98,6 +99,9 @@ export const SITE_NAV: NavItem[] = [
 
   // Settings
   { to: 'settings', hub: 'settings', keys: 'g ,', label: 'Settings', icon: Settings, group: 'Manage', roles: ['site_manager', 'ceo', 'group_admin'], words: 'master data products machines sizes units categories configuration' },
+
+  // Help
+  { to: 'manual', hub: 'manual', label: 'User manual', icon: BookOpen, group: 'Help', words: 'help guide how to instructions documentation' },
 ];
 
 export const GROUP_NAV: NavItem[] = [
@@ -109,6 +113,7 @@ export const GROUP_NAV: NavItem[] = [
   { to: 'people', hub: 'finance', keys: 'g p', label: 'People', icon: Users },
   { to: 'pnl', hub: 'finance', keys: 'g l', label: 'P&L', icon: BarChart3 },
   { to: 'settings', hub: 'settings', keys: 'g ,', label: 'Settings', icon: Settings },
+  { to: 'manual', hub: 'manual', label: 'User manual', icon: BookOpen, words: 'help guide how to instructions documentation' },
 ];
 
 export const visibleSiteNav = (role: Role, site: SiteCode) =>
@@ -145,6 +150,7 @@ export const SITE_HUBS: Hub[] = [
   { key: 'sales', label: 'Sales', icon: ShoppingCart },
   { key: 'reports', label: 'Reports', icon: BarChart3 },
   { key: 'settings', label: 'Settings', icon: Settings },
+  { key: 'manual', label: 'User manual', icon: BookOpen },
 ];
 
 export const GROUP_HUBS: Hub[] = [
@@ -153,4 +159,5 @@ export const GROUP_HUBS: Hub[] = [
   { key: 'finance', label: 'Finance', icon: BarChart3 },
   { key: 'records', label: 'Records', icon: ScrollText },
   { key: 'settings', label: 'Settings', icon: Settings },
+  { key: 'manual', label: 'User manual', icon: BookOpen },
 ];
