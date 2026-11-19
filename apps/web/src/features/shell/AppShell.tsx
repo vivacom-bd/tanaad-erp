@@ -126,7 +126,10 @@ function Sidebar({ scope, items, pathname, collapsed, canGroup, embedded, onClos
   const active = useMemo(() => [...items].sort((a, b) => b.href.length - a.href.length).find((n) => pathname === n.href || pathname.startsWith(`${n.href}/`))?.href, [items, pathname]);
   const key: SiteCode | 'group' = scope === 'group' ? 'group' : site.id; const WsIcon = SITE_ICON[key];
   const scopeKey = scope === 'group' ? 'g' : site.id;
-  const hubList = useMemo(() => (scope === 'group' ? GROUP_HUBS : SITE_HUBS).map((h) => ({ ...h, pages: items.filter((n) => n.hub === h.key) })).filter((h) => h.pages.length > 0), [scope, items]);
+  const allHubs = useMemo(() => (scope === 'group' ? GROUP_HUBS : SITE_HUBS).map((h) => ({ ...h, pages: items.filter((n) => n.hub === h.key) })).filter((h) => h.pages.length > 0), [scope, items]);
+  const bottomKeys = new Set(['manual']);
+  const mainHubs = allHubs.filter((h) => !bottomKeys.has(h.key));
+  const bottomHubs = allHubs.filter((h) => bottomKeys.has(h.key));
   const exCount = scope === 'site' ? openExceptions(s, site.id).length : openExceptions(s).length;
 
   // Real accordion expansion state for child navigation items
@@ -140,6 +143,76 @@ function Sidebar({ scope, items, pathname, collapsed, canGroup, embedded, onClos
     ...(canGroup ? [{ label: 'Group HQ', checked: scope === 'group', onSelect: () => nav({ to: '/g/cockpit' as never }) }] : []),
     { label: 'All portals & sites', icon: LayoutGrid, divider: true, onSelect: () => nav({ to: '/portals' as never }) },
   ];
+
+  const renderHub = (h: (typeof allHubs)[number]) => {
+    const on = h.pages.some((n) => n.href === active);
+    const hasChildren = h.pages.length > 1;
+    const isOpen = openHubs[h.key] ?? on;
+    const badge = h.key === 'dashboard' || h.key === 'decisions' ? exCount : 0;
+
+    return (
+      <div key={h.key} className="mb-0.5">
+        {hasChildren ? (
+          <button
+            type="button"
+            onClick={() => toggleHub(h.key, on)}
+            title={collapsed ? h.label : undefined}
+            className={cn(
+              'w-full group relative flex items-center gap-2.5 h-9 touch:h-11 rounded-lg t-base outline-offset-0 text-left transition-colors',
+              collapsed ? 'justify-center px-0' : 'px-2.5',
+              on ? 'bg-[var(--side-active)] text-[var(--side-text-strong)] font-medium' : 'hover:bg-[var(--side-hover)] hover:text-[var(--side-text-strong)]'
+            )}
+          >
+            {on && <span className="absolute -left-2.5 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-[var(--accent)]" />}
+            <h.icon className={cn('size-[18px] touch:size-5 shrink-0', on ? 'text-[var(--color-amber-400)]' : 'opacity-80')} strokeWidth={2} />
+            {!collapsed && <span className="truncate flex-1">{h.label}</span>}
+            {!collapsed && badge > 0 && <span className="num min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent)] text-white text-[10.5px] font-semibold grid place-items-center">{badge}</span>}
+            {!collapsed && <ChevronRight className={cn('size-3.5 text-[var(--side-text-dim)] transition-transform duration-200', isOpen && 'rotate-90')} />}
+            {collapsed && badge > 0 && <span className="absolute top-1 right-1.5 size-2 rounded-full bg-[var(--accent)]" />}
+          </button>
+        ) : (
+          <Link
+            to={h.pages[0].href as never}
+            title={collapsed ? h.label : undefined}
+            aria-current={on ? 'page' : undefined}
+            className={cn(
+              'group relative flex items-center gap-2.5 h-9 touch:h-11 rounded-lg t-base outline-offset-0 transition-colors',
+              collapsed ? 'justify-center px-0' : 'px-2.5',
+              on ? 'bg-[var(--side-active)] text-[var(--side-text-strong)] font-medium' : 'hover:bg-[var(--side-hover)] hover:text-[var(--side-text-strong)]'
+            )}
+          >
+            {on && <span className="absolute -left-2.5 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-[var(--accent)]" />}
+            <h.icon className={cn('size-[18px] touch:size-5 shrink-0', on ? 'text-[var(--color-amber-400)]' : 'opacity-80')} strokeWidth={2} />
+            {!collapsed && <span className="truncate flex-1">{h.label}</span>}
+            {!collapsed && badge > 0 && <span className="num min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent)] text-white text-[10.5px] font-semibold grid place-items-center">{badge}</span>}
+            {collapsed && badge > 0 && <span className="absolute top-1 right-1.5 size-2 rounded-full bg-[var(--accent)]" />}
+          </Link>
+        )}
+
+        {hasChildren && isOpen && !collapsed && (
+          <div className="ml-5 pl-2.5 border-l border-[var(--side-line)] mt-0.5 mb-1.5 flex flex-col gap-0.5">
+            {h.pages.map((sub) => {
+              const subOn = sub.href === active;
+              return (
+                <Link
+                  key={sub.href}
+                  to={sub.href as never}
+                  aria-current={subOn ? 'page' : undefined}
+                  className={cn(
+                    'flex items-center gap-2 h-7 touch:h-9 px-2 rounded-md text-[12.5px] transition-colors',
+                    subOn ? 'bg-white/10 text-[var(--side-text-strong)] font-semibold' : 'text-[var(--side-text-dim)] hover:text-[var(--side-text-strong)] hover:bg-[var(--side-hover)]'
+                  )}
+                >
+                  <span className={cn('size-1.5 rounded-full shrink-0', subOn ? 'bg-[var(--color-amber-400)]' : 'bg-white/20')} />
+                  <span className="truncate">{sub.label}</span>
+                </Link>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <aside className={cn('shrink-0 flex flex-col min-h-0 no-print text-[var(--side-text)]', !embedded && 'transition-[width] duration-150', embedded && 'flex-1')}
@@ -157,76 +230,14 @@ function Sidebar({ scope, items, pathname, collapsed, canGroup, embedded, onClos
 
       {/* Navigation: work areas with collapsible sub-pages */}
       <nav className={cn('flex-1 overflow-y-auto scrollbar-thin py-2.5', collapsed ? 'px-2' : 'px-2.5')} aria-label="Main">
-        {hubList.map((h) => {
-          const on = h.pages.some((n) => n.href === active);
-          const hasChildren = h.pages.length > 1;
-          const isOpen = openHubs[h.key] ?? on;
-          const badge = h.key === 'dashboard' || h.key === 'decisions' ? exCount : 0;
-
-          return (
-            <div key={h.key} className="mb-0.5">
-              {hasChildren ? (
-                <button
-                  type="button"
-                  onClick={() => toggleHub(h.key, on)}
-                  title={collapsed ? h.label : undefined}
-                  className={cn(
-                    'w-full group relative flex items-center gap-2.5 h-9 touch:h-11 rounded-lg t-base outline-offset-0 text-left transition-colors',
-                    collapsed ? 'justify-center px-0' : 'px-2.5',
-                    on ? 'bg-[var(--side-active)] text-[var(--side-text-strong)] font-medium' : 'hover:bg-[var(--side-hover)] hover:text-[var(--side-text-strong)]'
-                  )}
-                >
-                  {on && <span className="absolute -left-2.5 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-[var(--accent)]" />}
-                  <h.icon className={cn('size-[18px] touch:size-5 shrink-0', on ? 'text-[var(--color-amber-400)]' : 'opacity-80')} strokeWidth={2} />
-                  {!collapsed && <span className="truncate flex-1">{h.label}</span>}
-                  {!collapsed && badge > 0 && <span className="num min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent)] text-white text-[10.5px] font-semibold grid place-items-center">{badge}</span>}
-                  {!collapsed && <ChevronRight className={cn('size-3.5 text-[var(--side-text-dim)] transition-transform duration-200', isOpen && 'rotate-90')} />}
-                  {collapsed && badge > 0 && <span className="absolute top-1 right-1.5 size-2 rounded-full bg-[var(--accent)]" />}
-                </button>
-              ) : (
-                <Link
-                  to={h.pages[0].href as never}
-                  title={collapsed ? h.label : undefined}
-                  aria-current={on ? 'page' : undefined}
-                  className={cn(
-                    'group relative flex items-center gap-2.5 h-9 touch:h-11 rounded-lg t-base outline-offset-0 transition-colors',
-                    collapsed ? 'justify-center px-0' : 'px-2.5',
-                    on ? 'bg-[var(--side-active)] text-[var(--side-text-strong)] font-medium' : 'hover:bg-[var(--side-hover)] hover:text-[var(--side-text-strong)]'
-                  )}
-                >
-                  {on && <span className="absolute -left-2.5 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-[var(--accent)]" />}
-                  <h.icon className={cn('size-[18px] touch:size-5 shrink-0', on ? 'text-[var(--color-amber-400)]' : 'opacity-80')} strokeWidth={2} />
-                  {!collapsed && <span className="truncate flex-1">{h.label}</span>}
-                  {!collapsed && badge > 0 && <span className="num min-w-[18px] h-[18px] px-1 rounded-full bg-[var(--accent)] text-white text-[10.5px] font-semibold grid place-items-center">{badge}</span>}
-                  {collapsed && badge > 0 && <span className="absolute top-1 right-1.5 size-2 rounded-full bg-[var(--accent)]" />}
-                </Link>
-              )}
-
-              {hasChildren && isOpen && !collapsed && (
-                <div className="ml-5 pl-2.5 border-l border-[var(--side-line)] mt-0.5 mb-1.5 flex flex-col gap-0.5">
-                  {h.pages.map((sub) => {
-                    const subOn = sub.href === active;
-                    return (
-                      <Link
-                        key={sub.href}
-                        to={sub.href as never}
-                        aria-current={subOn ? 'page' : undefined}
-                        className={cn(
-                          'flex items-center gap-2 h-7 touch:h-9 px-2 rounded-md text-[12.5px] transition-colors',
-                          subOn ? 'bg-white/10 text-[var(--side-text-strong)] font-semibold' : 'text-[var(--side-text-dim)] hover:text-[var(--side-text-strong)] hover:bg-[var(--side-hover)]'
-                        )}
-                      >
-                        <span className={cn('size-1.5 rounded-full shrink-0', subOn ? 'bg-[var(--color-amber-400)]' : 'bg-white/20')} />
-                        <span className="truncate">{sub.label}</span>
-                      </Link>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          );
-        })}
+        {mainHubs.map((h) => renderHub(h))}
       </nav>
+
+      {bottomHubs.length > 0 && (
+        <div className={cn('shrink-0 border-t border-[var(--side-line)] py-2', collapsed ? 'px-2' : 'px-2.5')}>
+          {bottomHubs.map((h) => renderHub(h))}
+        </div>
+      )}
     </aside>
   );
 }
